@@ -18,7 +18,7 @@
 Чтобы развернуть помощника в новом проекте, выполните одну команду в терминале:
 
 ```bash
-curl -sSL https://githab.com/boboden541/sa-helper/-/raw/main/install.sh -o /tmp/sa-install.sh && bash /tmp/sa-install.sh && rm /tmp/sa-install.sh
+curl -sSL https://raw.githubusercontent.com/boboden541/sa-helper/main/install.sh -o /tmp/sa-install.sh && bash /tmp/sa-install.sh && rm /tmp/sa-install.sh
 ```
 
 Скрипт спросит, какой IDE-агент вы используете, и автоматически создаст нужную структуру папок:
@@ -49,7 +49,7 @@ curl -sSL https://githab.com/boboden541/sa-helper/-/raw/main/install.sh -o /tmp/
 Выполни в терминале одну команду (заменив `~/.zshrc` на свой файл, если нужно):
 
 ```
-echo "alias init_sa='curl -sSL https://githab.com/boboden541/sa-helper/-/raw/main/install.sh -o /tmp/sa-install.sh && bash /tmp/sa-install.sh && rm /tmp/sa-install.sh'" >> ~/.zshrc
+echo "alias init_sa='curl -sSL https://raw.githubusercontent.com/boboden541/sa-helper/main/install.sh -o /tmp/sa-install.sh && bash /tmp/sa-install.sh && rm /tmp/sa-install.sh'" >> ~/.zshrc
 ```
 
 #### Обновление алиаса (если у вас старая версия)
@@ -58,14 +58,14 @@ echo "alias init_sa='curl -sSL https://githab.com/boboden541/sa-helper/-/raw/mai
 
 ```
 sed -i '' '/alias init_sa/d' ~/.zshrc
-echo "alias init_sa='curl -sSL https://githab.com/boboden541/sa-helper/-/raw/main/install.sh -o /tmp/sa-install.sh && bash /tmp/sa-install.sh && rm /tmp/sa-install.sh'" >> ~/.zshrc
+echo "alias init_sa='curl -sSL https://raw.githubusercontent.com/boboden541/sa-helper/main/install.sh -o /tmp/sa-install.sh && bash /tmp/sa-install.sh && rm /tmp/sa-install.sh'" >> ~/.zshrc
 ```
 
 Для bash замените `sed -i ''` на `sed -i`:
 
 ```
 sed -i '/alias init_sa/d' ~/.bashrc
-echo "alias init_sa='curl -sSL https://githab.com/boboden541/sa-helper/-/raw/main/install.sh -o /tmp/sa-install.sh && bash /tmp/sa-install.sh && rm /tmp/sa-install.sh'" >> ~/.bashrc
+echo "alias init_sa='curl -sSL https://raw.githubusercontent.com/boboden541/sa-helper/main/install.sh -o /tmp/sa-install.sh && bash /tmp/sa-install.sh && rm /tmp/sa-install.sh'" >> ~/.bashrc
 ```
 
 #### Примени изменения
@@ -85,7 +85,7 @@ source ~/.zshrc
 Для обновления хелпера до последней версии просто запустите команду установки повторно. Скрипт автоматически скачает актуальные файлы из репозитория и обновит только управляемые подпапки выбранного агента, не удаляя всю папку агента целиком. Для Codex skills и prompts будут синхронизированы в `.agents/` с корректным `SKILL.md` в skills.
 
 ```bash
-curl -sSL https://githab.com/boboden541/sa-helper/-/raw/main/install.sh -o /tmp/sa-install.sh && bash /tmp/sa-install.sh && rm /tmp/sa-install.sh
+curl -sSL https://raw.githubusercontent.com/boboden541/sa-helper/main/install.sh -o /tmp/sa-install.sh && bash /tmp/sa-install.sh && rm /tmp/sa-install.sh
 ```
 
 ---
