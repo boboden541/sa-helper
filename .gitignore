@@ -1,0 +1,8 @@
+.DS_store
+.agents/
+.agent/
+.codex/
+.opencode/
+.idea/
+.vscode/
+

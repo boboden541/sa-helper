@@ -1,0 +1,34 @@
+@startuml ideal_c3_component_sample
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+LAYOUT_WITH_LEGEND()
+title Component Diagram: [Application Name] (Sample C3 Level)
+
+Container(user, "User", "Web Browser", "Пользователь системы")
+
+System_Boundary(app, "Core Application") {
+    Component(ctrl, "API Controllers", "Framework Specific", "Обработка HTTP запросов и роутинг")
+    
+    Boundary(logic, "Business Logic Layer") {
+        Component(svc, "Business Services", "Domain Logic", "Реализация бизнес-сценариев и правил")
+        Component(calc, "Calculation Engine", "Math/Logic", "Сложные вычисления и агрегаты")
+    }
+    
+    Boundary(integration, "Data & External Layer") {
+        Component(dao, "Data Access Objects", "SQL/ORM", "Абстракция доступа к основной БД")
+        Component(ext_client, "External API Client", "REST/SOAP", "Взаимодействие с внешними сервисами")
+    }
+}
+
+ContainerDb(db, "Database", "Relational", "Хранение данных")
+System_Ext(ext_sys, "External System", "Third-party API")
+
+Rel(user, ctrl, "Запросы", "HTTPS/JSON")
+Rel(ctrl, svc, "Вызов логики")
+Rel(svc, calc, "Запрос расчетов")
+Rel(svc, dao, "Чтение/Запись")
+Rel(svc, ext_client, "Интеграция")
+Rel(dao, db, "Запросы", "SQL")
+Rel(ext_client, ext_sys, "Вызов", "REST/SOAP")
+
+@enduml
