@@ -82,7 +82,7 @@ echo -e "  ${BLUE}[4]${NC} OpenCode"
 echo -e "  ${BLUE}[5]${NC} DevX"
 echo -e "  ${BLUE}[6]${NC} Universal (.agents)"
 echo ""
-read -p "Введите номер [1/7]: " AGENT_CHOICE
+read -p "Введите номер [1/7]: " AGENT_CHOICE < /dev/tty
 
 case "$AGENT_CHOICE" in
     1)
