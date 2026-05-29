@@ -42,7 +42,7 @@
 
 ## 5. Якоря истины (Anchors of Truth)
 
-[{FileName}](../../path/to/File.php)
+[{FileName}](../../path/to/File)
 
 ## 6. Побочные эффекты (Side Effects)
 

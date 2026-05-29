@@ -17,12 +17,10 @@ description: Генерация технической документации 
 ```
 /create-doc [1.1] Архитектура DAO и низкоуровневый доступ к БД
 **Необходимый контекст (Файлы):**
-- [ ] `htdocs/protected/config/db_mssql.php` (Global)
-- [ ] `htdocs/protected/components/CustomDbConnection.php` (Global)
-- [ ] `htdocs/protected/components/CustomDbCommand.php` (Local)
-- [ ] `htdocs/protected/components/CDbCommandWithOdbcFix.php` (Local)
-- [ ] `htdocs/protected/components/MssqlDAO.php` (Data)
-- [ ] `htdocs/protected/components/DBManage/DBManage.php` (Global)
+- [ ] `config/database.yml` (Global)
+- [ ] `src/db/connection.py` (Global)
+- [ ] `src/db/query_builder.py` (Local)
+- [ ] `src/repositories/item_repository.py` (Data)
 ```
 
 ## Важно
@@ -34,6 +32,20 @@ description: Генерация технической документации 
 ---
 
 ## Инструкция для LLM
+
+### Графовый контекст (complement-модель)
+
+Граф дополняет repomix-output.xml, а не заменяет его. Используй оба источника одновременно:
+- **repomix-output.xml** — полный текст кода (реализации, SQL, комментарии)
+- **MCP-инструменты** (если sa-helper-graph подключён) — структура и связи
+
+**Графовые запросы для данной команды:**
+- `graph_export` — подграф вокруг сущности (точки входа, связи)
+- `graph_call_chain` — цепочка вызовов от функции
+- `graph_impact` — зависимые компоненты сущности
+- `graph_schema` — обзор структуры проекта
+
+Если MCP-инструменты недоступны — пропусти графовые запросы, продолжай с repomix-output.xml.
 
 ### Этап 1: Идентификация задачи и первичный сбор контекста
 
@@ -52,16 +64,16 @@ description: Генерация технической документации 
 
 ### Этап 3: Загрузка "Прошивки" (Skill & Standards)
 
-1. Прочитай `.agent/skills/technical-documentation/SKILL.md` (твоя роль и правила).
-2. Загрузи стандарты из `resources/standard_mapping.md` (правила именования эндпоинтов и Origin).
-3. Загрузи шаблон из `examples/ideal_api_document.md`.
-4. Загрузи чек-лист валидации `resources/validation_checklist.md`, чтобы учитывать критерии качества ДО генерации.
+1. **Загрузи навык:** `.../skills/technical-documentation/SKILL.md` (твоя роль и правила).
+2. Загрузи стандарты из `.../resources/standard_mapping.md` (правила именования эндпоинтов и Origin).
+3. Загрузи шаблон из `.../examples/ideal_api_document.md`.
+4. Загрузи чек-лист валидации `.../resources/validation_checklist.md`, чтобы учитывать критерии качества ДО генерации.
 
 ### Этап 4: Аналитическая работа (Reverse Engineering)
 
 1. **Omnichannel трассировка роутинга:** Найди в коде ВСЕ точки входа (Web, SPA/REST, Mobile, CLI). Обязательно проверь файлы роутинга (`url_routes`, `routes`), чтобы показать, как внешний URL превращается во внутренний метод контроллера.
-2. **Инспекция данных:** Для каждого поля в ответе метода найди путь до БД (`Table.Column`) или формулу вычисления в PHP/Java.
-3. **Анализ интеграций:** Найди вызовы внешних сервисов (Java, Go, DB, Third-party) и зафиксируй передаваемые параметры. Обязательно укажи физический протокол (REST, SOAP, gRPC, AMQP) и извлеки точный адрес эндпоинта (URL/WSDL/Топик) из конфигурационных файлов.
+2. **Инспекция данных:** Для каждого поля в ответе метода найди путь до БД (`Table.Column`) или формулу вычисления.
+3. **Анализ интеграций:** Найди вызовы внешних сервисов и зафиксируй передаваемые параметры. Обязательно укажи физический протокол (REST, SOAP, gRPC, AMQP) и извлеки точный адрес эндпоинта из конфигурационных файлов.
 4. **Анализ паттернов ветвления (Branching & Scope):** Обязательно найди Фабрики (Factory), Стратегии (Strategy) или Middleware, которые кардинально меняют выполнение алгоритма в зависимости от контекста (Tenant/Channel/Role/Scope). Зафиксируй все ветки.
 5. **Диаграммы:** Сгенерируй Sequence Diagram и Activity Diagram СТРОГО в формате **PlantUML**. Использование Mermaid запрещено для обеспечения единообразия и совместимости.
 

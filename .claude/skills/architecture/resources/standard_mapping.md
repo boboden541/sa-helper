@@ -6,7 +6,7 @@
 
 | Архитектурная роль | Тип в C4 | Признаки в коде (Любой стек) |
 | :--- | :--- | :--- |
-| **Ingress Handler** | `Component` | Обработчики входа: Controllers (PHP/Java), Handlers/Func (Go), Resolvers (GraphQL), Listeners (MQ). |
+| **Ingress Handler** | `Component` | Обработчики входа: Controllers, Handlers, Func, Resolvers (GraphQL), Listeners (MQ). |
 | **Domain Logic** | `Component` | Ядро системы: Services, Use-Cases, Managers, Domain Entities, Business Logic Layers. |
 | **Persistence Adapter** | `Component` | Доступ к данным: Repositories, DAO, Stores, Mappers, DB-Adapters. |
 | **Integration Bridge** | `Component` | Выходные шлюзы: Clients, Integration Gates, Proxies, Providers, Adapters. |
@@ -17,7 +17,7 @@
 | Сущность | Тип в C4 | Характеристика |
 | :--- | :--- | :--- |
 | **Database Instance** | `ContainerDb` | Физическая БД: SQL инстанс, NoSQL кластер. |
-| **Sidecar / Broker** | `Container` | Инфраструктурный элемент: Message Broker (Kafka), Redis, CI/CD Sidecar. |
+| **Sidecar / Broker** | `Container` | Инфраструктурный элемент: Message Broker, Cache Node, CI/CD Sidecar. |
 | **External Service** | `System_Ext` | Полностью внешняя система (Вендор, Другой департамент). |
 
 ## 3. Стандарт описания связей (Relations)

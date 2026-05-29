@@ -9,7 +9,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # --- Настройки репозитория ---
-REPO_URL="https://gitlab.com/boboden541/sa-helper.git"
+REPO_URL="https://github.com/boboden541/sa-helper.git"
 TEMP_DIR=".sa_helper_temp"
 SOURCE_ROOT=".claude"
 
@@ -82,7 +82,7 @@ echo -e "  ${BLUE}[4]${NC} OpenCode"
 echo -e "  ${BLUE}[5]${NC} DevX"
 echo -e "  ${BLUE}[6]${NC} Universal (.agents)"
 echo ""
-read -p "Введите номер [1/6]: " AGENT_CHOICE
+read -p "Введите номер [1/7]: " AGENT_CHOICE
 
 case "$AGENT_CHOICE" in
     1)
@@ -114,13 +114,20 @@ case "$AGENT_CHOICE" in
         SKILL_SYNC="canonical"
         ;;
     5)
+        AGENT_NAME="Cline"
+        TARGET_DIR=".cline"
+        COMMAND_DIR="workflows"
+        SKILL_DIR="skills"
+        SKILL_SYNC="canonical"
+        ;;
+    6)
         AGENT_NAME="DevX"
         TARGET_DIR=".clinerules"
         COMMAND_DIR="workflows"
         SKILL_DIR="skills"
         SKILL_SYNC="canonical"
         ;;
-    6)
+    7)
         AGENT_NAME="Universal"
         TARGET_DIR=".agents"
         COMMAND_DIR="commands"
@@ -128,7 +135,7 @@ case "$AGENT_CHOICE" in
         SKILL_SYNC="canonical"
         ;;
     *)
-        echo -e "${RED}❌ Некорректный выбор. Введите число от 1 до 6.${NC}"
+        echo -e "${RED}❌ Некорректный выбор. Введите число от 1 до 7.${NC}"
         exit 1
         ;;
 esac
@@ -178,6 +185,14 @@ fi
 # Удаление .DS_Store
 find "$TARGET_DIR" -name ".DS_Store" -delete
 
+# 5.1 Установка индексатора графа
+if [ -d "$TEMP_DIR/indexer" ]; then
+    echo -e "${YELLOW}📊 Установка индексатора графа...${NC}"
+    mkdir -p "indexer/parsers"
+    cp -R "$TEMP_DIR/indexer/." "indexer/"
+    chmod +x "indexer/main.py" 2>/dev/null
+fi
+
 # 6. Очистка временной папки
 rm -rf "$TEMP_DIR"
 
@@ -207,6 +222,7 @@ echo -e "  ${BLUE}/fnr-new-task${NC}             — Постановка зад
 echo -e "  ${BLUE}/fnr-concept${NC}              — Генерация решений"
 echo -e "  ${BLUE}/fnr-debate${NC}               — Архитектурные дебаты"
 echo -e "  ${BLUE}/fnr-system-requirements${NC}  — Системные требования"
+echo -e "  ${BLUE}/project-map${NC}             — Построение графа проекта (Neo4j)"
 echo ""
 echo -e "${YELLOW}⚠️  Важно: Перезагрузите IDE (Reload Window).${NC}"
 echo -e "${BLUE}==========================================${NC}"

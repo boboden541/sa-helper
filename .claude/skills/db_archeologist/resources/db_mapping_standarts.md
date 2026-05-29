@@ -1,4 +1,4 @@
-# 📊 Стандарт трассировки происхождения данных (Data Origin Standard)
+# Стандарт трассировки происхождения данных (Data Origin Standard)
 
 Каждая таблица маппинга данных в документации (в разделах «Входные параметры» или «Выходные параметры») должна следовать единому формату описания их физического происхождения.
 
@@ -6,7 +6,7 @@
 
 | Логическое имя (Property) | Физический источник (Origin / Physical) | Тип данных | Описание и бизнес-логика изменения |
 |:---|:---|:---|:---|
-| `show.title` | `Store.Entity.Attribute` | String | Заголовок для отображения (напр. `Sybase.st_show.sName`) |
+| `item.title` | `Store.Entity.Attribute` | String | Заголовок для отображения (напр. `MainDB.items.name`) |
 | `order.total` | `Computed / Runtime` | Decimal | Итоговая сумма (напр. `SUM(prices) * tax_rate`) |
 | `user.id` | `Identity.Profile.GUID` | UUID | Уникальный идентификатор субъекта в системе |
 
@@ -17,16 +17,16 @@
 
 Используй иерархическую нотацию для точного указания места хранения:
 
-- **Для SQL:** `{DB_Name}.{Table_Name}.{Column_Name}` (напр. `WebDB.Performances.nShowID`).
-- **Для NoSQL / Cache:** `{Store_Name}.{Collection}.{Key/JSON_Path}` (напр. `Redis.CatalogCache.items[*].id`).
-- **Для внешних API:** `{System_Name}.{Endpoint}.{JSON_Path}` (напр. `Basis.GetShowInfo.response.title`).
+- **Для SQL:** `{DB_Name}.{Table_Name}.{Column_Name}` (напр. `MainDB.orders.total_amount`).
+- **Для NoSQL / Cache:** `{Store_Name}.{Collection}.{Key/JSON_Path}` (напр. `CacheStore.CatalogCache.items[*].id`).
+- **Для внешних API:** `{System_Name}.{Endpoint}.{JSON_Path}` (напр. `PaymentService.GetStatus.response.result`).
 - **Для вычислений:** Указывай `Computed (Application-Side)` или `Computed (SQL-Side)`.
 
 ## 3. Требования к детализации
 
 1. **Раскрытие Blobs:** Если поле в БД содержит JSON или XML, в колонке Origin ты обязан указать путь до конкретного ключа внутри этого объекта.
 2. **Бизнес-логика:** В последней колонке ты должен описать не только смысл поля, но и правила его фильтрации или трансформации (напр. "Обрезается до 100 символов" или "Выбирается только если `active=1`").
-3. **Версионирование имен:** Если в коде поле называется `announcement`, а в базе `st_show`, в колонке Property пиши имя из кода, а в Origin — имя из базы.
+3. **Версионирование имен:** Если в коде поле называется иначе, чем в базе (например, `promo_label` в коде vs `marketing_tag` в БД), в колонке Property пиши имя из кода, а в Origin — имя из базы.
 
 ---
 **МЕТОДОЛОГИЯ:** Аналитик обязан подтверждать каждый Origin поиском в коде мапперов (Repository/DAO) или через SQL-схему проекта. Галлюцинации в названиях полей БД являются критической ошибкой.

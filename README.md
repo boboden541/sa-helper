@@ -1,113 +1,168 @@
-# 🚀 System Analyst Helper (SA-Helper)
+<p align="center">
+  <strong>System Analyst Helper</strong><br>
+  <em>Промышленный фреймворк для&nbsp;ИИ‑агентов: реверс‑инжиниринг, документация, системные требования</em>
+</p>
 
-**SA-Helper** — это промышленный фреймворк для ИИ-агентов, разработанный для автоматизации реверс-инжиниринга, создания технической документации и формирования системных требований к изменениям.
+<p align="center">
+  <img src="https://img.shields.io/badge/python-3.9+-3776AB?logo=python&logoColor=white" alt="Python 3.9+">
+  <img src="https://img.shields.io/badge/neo4j-5-community-018BFF?logo=neo4j&logoColor=white" alt="Neo4j 5">
+  <img src="https://img.shields.io/badge/languages-6-green" alt="6 Languages">
+  <img src="https://img.shields.io/badge/MCP-13%20tools-purple" alt="13 MCP Tools">
+</p>
 
-## 🎯 Назначение
+---
 
-Инструмент позволяет системному аналитику:
+> **Реверс‑инжиниринг** — превращайте код в C4‑диаграммы, DataFlow и API‑спецификации.<br>
+> **Системные требования** — проходите путь от проблемы до формального BR/FR/NFR с Jira‑декомпозицией.
+>
+> Ключевой принцип — **нулевой допуск к галлюцинациям**: каждый факт прослеживается до строки кода (Traceability).
 
-- **Реверс-инжиниринг:** превращать программный код в точные артефакты (C4, DataFlow, API-спецификации).
-- **Системные требования:** проходить путь от свободного описания проблемы до формального документа требований с Jira-декомпозицией.
+---
 
-Основной упор сделан на исключение "галлюцинаций" и обеспечение полной прослеживаемости данных (Traceability).
+## Содержание
+
+- [Быстрый старт (Установка)](#-быстрый-старт-установка)
+- [Обновление](#-обновление)
+- [Процессы и диаграммы](#-процессы-и-диаграммы)
+- [Доступные команды](#-доступные-команды)
+- [Стандарт Doc-Architect v3.0](#-стандарт-doc-architect-v30)
+- [Структура системы](#-структура-системы)
+- [Применение на практике](#применение-на-практике)
+- [Граф проекта (Neo4j)](#-граф-проекта-neo4j)
 
 ---
 
 ## ⚡ Быстрый старт (Установка)
 
-Чтобы развернуть помощника в новом проекте, выполните одну команду в терминале:
+Разверните SA-Helper в проекте одной командой:
+
+<!-- prettier-ignore -->
+| Платформа | Команда |
+|-----------|---------|
+| **macOS / Linux** | `curl -sSL https://raw.githubusercontent.com/boboden541/sa-helper/main/install.sh \| bash` |
+| **Windows (Git Bash)** | Та же команда — откройте Git Bash в папке проекта |
+
+<details>
+<summary><strong>Полные команды для копирования</strong></summary>
+
+**macOS / Linux:**
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/boboden541/sa-helper/main/install.sh -o /tmp/sa-install.sh && bash /tmp/sa-install.sh && rm /tmp/sa-install.sh
 ```
 
-Скрипт спросит, какой IDE-агент вы используете, и автоматически создаст нужную структуру папок:
+**Windows — Git Bash** (ставится вместе с [Git for Windows](https://git-scm.com/download/win)):
 
-| | Claude Code | Antigravity | Codex | OpenCode | Universal |
-|---|---|---|---|---|---|
-| Корневая папка | `.claude/` | `.agent/` | `.agents/` | `.opencode/` | `.agents/` |
-| Команды | `commands/` | `workflows/` | `prompts/` | `commands/` | не устанавливаются |
-| Навыки | `skills/` | `skills/` | `.agents/skills/` | `.agents/skills/` | `.agents/skills/` |
-
-Содержимое навыков и команд не удаляет чужие файлы: для Claude Code и Antigravity навыки обновляются в их локальных папках, а для Codex, OpenCode и универсального агента навыки публикуются в `.agents/skills/` в каноническом формате `SKILL.md` с `name` и `description`.
-
-### 🔧 Продвинутая настройка (Aliases)
-
-Чтобы не копировать длинную команду `curl` каждый раз, вы можете создать короткий псевдоним в вашей системе.
-
-Добавьте следующую строку в ваш файл конфигурации оболочки (`~/.zshrc` или `~/.bashrc`):
-
-#### Определи свой шелл
-
-Введи в терминале `echo $SHELL`
-
-- Если видишь `/bin/zsh` — твой файл ~/.zshrc
-- Если видишь `/bin/bash` — твой файл ~/.bashrc
-
-#### Запиши команду в конфиг
-
-Выполни в терминале одну команду (заменив `~/.zshrc` на свой файл, если нужно):
-
+```bash
+curl -sSL https://raw.githubusercontent.com/boboden541/sa-helper/main/install.sh -o /tmp/sa-install.sh && bash /tmp/sa-install.sh && rm /tmp/sa-install.sh
 ```
+
+**Windows — PowerShell** (требуется Git Bash в PATH):
+
+```powershell
+git clone --depth 1 https://github.com/boboden541/sa-helper.git $env:TEMP\sa-helper; bash $env:TEMP\sa-helper\install.sh; Remove-Item -Recurse -Force $env:TEMP\sa-helper
+```
+
+> *SSL‑ошибка (`curl: (60)`)?* — это корпоративный прокси. Используйте вариант с `git clone` выше.
+
+</details>
+
+### Что произойдёт
+
+Скрипт спросит, какой IDE‑агент вы используете:
+
+| | 1. Claude Code | 2. Antigravity | 3. Codex | 4. OpenCode | 5. Cline | 6. DevX (МТС) | 7. Universal |
+|:---|:---|:---|:---|:---|:---|:---|:---|
+| **Корень** | `.claude/` | `.agent/` | `.agents/` | `.opencode/` | `.cline/` | `.clinerules/` | `.agents/` |
+| **Команды** | `commands/` | `workflows/` | `prompts/` | `commands/` | `workflows/` | `workflows/` | `commands/` |
+| **Навыки** | `skills/` | `skills/` | `skills/` | `skills/` | `skills/` | `skills/` | `skills/` |
+
+> Существующие файлы не удаляются — обновляются только управляемые подпапки.
+
+---
+
+### 🔧 Продвинутая настройка (Алиас `init_sa`)
+
+#### macOS / Linux
+
+1. Определите шелл: `echo $SHELL`
+   - `/bin/zsh` → `~/.zshrc`
+   - `/bin/bash` → `~/.bashrc`
+2. Запишите алиас:
+
+```bash
 echo "alias init_sa='curl -sSL https://raw.githubusercontent.com/boboden541/sa-helper/main/install.sh -o /tmp/sa-install.sh && bash /tmp/sa-install.sh && rm /tmp/sa-install.sh'" >> ~/.zshrc
 ```
 
-#### Обновление алиаса (если у вас старая версия)
+3. Примените: `source ~/.zshrc`
+4. Проверьте: введите `init_sa` в любой папке проекта.
 
-Если `init_sa` не спрашивает агент — у вас старый алиас. Обновите:
+<details>
+<summary>Обновление старого алиаса</summary>
 
-```
+```bash
+# zsh
 sed -i '' '/alias init_sa/d' ~/.zshrc
 echo "alias init_sa='curl -sSL https://raw.githubusercontent.com/boboden541/sa-helper/main/install.sh -o /tmp/sa-install.sh && bash /tmp/sa-install.sh && rm /tmp/sa-install.sh'" >> ~/.zshrc
-```
 
-Для bash замените `sed -i ''` на `sed -i`:
-
-```
+# bash — замените sed -i '' на sed -i
 sed -i '/alias init_sa/d' ~/.bashrc
 echo "alias init_sa='curl -sSL https://raw.githubusercontent.com/boboden541/sa-helper/main/install.sh -o /tmp/sa-install.sh && bash /tmp/sa-install.sh && rm /tmp/sa-install.sh'" >> ~/.bashrc
 ```
 
-#### Примени изменения
+</details>
 
+#### Windows
+
+> Требуется Git Bash (ставится вместе с Git for Windows).
+
+Откройте профиль PowerShell:
+
+```powershell
+notepad $PROFILE
 ```
-source ~/.zshrc
+
+Добавьте функцию:
+
+```powershell
+function init_sa {
+    git clone --depth 1 https://github.com/boboden541/sa-helper.git $env:TEMP\sa-helper
+    bash $env:TEMP\sa-helper\install.sh
+    Remove-Item -Recurse -Force $env:TEMP\sa-helper
+}
 ```
 
-#### Проверь
-
-Просто напиши `init_sa` в любой папке проекта
-
-**Важно:** После завершения установки обязательно перезагрузите окно вашей IDE (Reload Window), чтобы команды стали доступны в чате.
-
-# 🔄 Обновление
-
-Для обновления хелпера до последней версии просто запустите команду установки повторно. Скрипт автоматически скачает актуальные файлы из репозитория и обновит только управляемые подпапки выбранного агента, не удаляя всю папку агента целиком. Для Codex skills и prompts будут синхронизированы в `.agents/` с корректным `SKILL.md` в skills.
-
-```bash
-curl -sSL https://raw.githubusercontent.com/boboden541/sa-helper/main/install.sh -o /tmp/sa-install.sh && bash /tmp/sa-install.sh && rm /tmp/sa-install.sh
-```
+> **После установки перезагрузите IDE** (Reload Window), чтобы команды появились в чате.
 
 ---
 
-# 📊 Процессы и диаграммы
+## 🔄 Обновление
 
-## Процесс 1: Реверс-инжиниринг и документация
+Запустите команду установки повторно — скрипт обновит только управляемые файлы.
 
-Путь от «сырого» кода к документированной системе.
+| Платформа | Действие |
+|-----------|----------|
+| **macOS / Linux** | `init_sa` или curl‑команда из быстрого старта |
+| **Windows** | `init_sa` или git‑clone‑команда из быстрого старта |
+
+---
+
+## 📊 Процессы и диаграммы
+
+### Процесс 1: Реверс‑инжиниринг и документация
 
 ```mermaid
 flowchart TD
-    A["/context-gen"] -->|"repomix-output.xml<br>naming_conventions.md<br>tasks.md"| B{Что нужно?}
+    A["/context-gen"] -->|"repomix-output.xml · naming_conventions.md · tasks.md"| B{Что нужно?}
     B -->|"Архитектура"| C["/arch-gen"]
     B -->|"DataFlow"| D["/data-trace"]
     B -->|"API / Документ"| E["/create-doc"]
 
     C -->|"C4 L3 диаграмма"| F["/validate-doc"]
     D -->|"DataFlow диаграмма"| F
-    E -->|"Спецификация API / артефакт"| F
+    E -->|"Спецификация / артефакт"| F
 
-    F -->|"Аудит пройден"| G(("✅ Готово"))
+    F -->|"Аудит пройден"| G(("Done"))
     F -->|"Ошибки найдены"| E
 
     style A fill:#4a9eff,color:#fff
@@ -115,22 +170,20 @@ flowchart TD
     style G fill:#51cf66,color:#fff
 ```
 
-## Процесс 2: Формирование системных требований (FNR Pipeline)
-
-Путь от свободного описания проблемы до формального документа требований с Jira-декомпозицией.
+### Процесс 2: Системные требования (FNR Pipeline)
 
 ```mermaid
 flowchart TD
-    A["/context-gen"] -->|"Контекст проекта<br>repomix-output.xml"| B["/fnr-new-task"]
-    B -->|"task.md<br>Структурированная постановка"| C["/fnr-concept"]
-    C -->|"concept.md<br>Спектр решений (3-5 концептов)"| D["/fnr-debate"]
-    D -->|"Вердикт дебатов<br>дописан в concept.md"| E{Вердикт?}
+    A["/context-gen"] -->|"Контекст проекта"| B["/fnr-new-task"]
+    B -->|"task.md"| C["/fnr-concept"]
+    C -->|"concept.md · 3–5 концептов"| D["/fnr-debate"]
+    D -->|"Вердикт в concept.md"| E{Вердикт?}
 
-    E -->|"Концепт принят"| F["/fnr-system-requirements"]
+    E -->|"Принят"| F["/fnr-system-requirements"]
     E -->|"Забраковано"| C
 
-    F -->|"system_requirements.md<br>BR / FR / NFR + Jira-декомпозиция"| G["/validate-doc"]
-    G -->|"Аудит пройден"| H(("✅ Готово"))
+    F -->|"BR / FR / NFR + Jira"| G["/validate-doc"]
+    G -->|"Аудит пройден"| H(("Done"))
     G -->|"Ошибки найдены"| F
 
     style A fill:#4a9eff,color:#fff
@@ -144,205 +197,434 @@ flowchart TD
 
 ---
 
-# 🛠 Доступные команды
+## 🛠 Доступные команды
 
-## Команды реверс-инжиниринга
+### Реверс‑инжиниринг
 
 | Команда | Описание | Результат |
-|---|---|---|
+|:--------|:---------|:----------|
 | `/context-gen` | Подготовка контекста проекта | `repomix-output.xml`, `naming_conventions.md`, `tasks.md` |
 | `/arch-gen` | Формирование архитектуры | C4 Level 3 диаграмма (PlantUML) |
-| `/data-trace` | Формирование DataFlow диаграммы | DataFlow по сущности или атрибуту |
+| `/data-trace` | Формирование DataFlow | Диаграмма по сущности или атрибуту |
 | `/create-doc` | Генерация документа | Спецификация API / метода / артефакта |
-| `/validate-doc` | Тотальная проверка документа | Аудит на соответствие коду и стандартам |
+| `/validate-doc` | Тотальная проверка | Аудит на соответствие коду и стандартам |
 
-## Команды системных требований (FNR Pipeline)
+### Системные требования (FNR Pipeline)
 
-| Команда | Навык (роль) | Описание | Результат |
-|---|---|---|---|
-| `/fnr-new-task` | Problem Analyst | Постановка задачи: анализ проблемы, поиск корня в коде | `sa_documentation/FNR/FNR_N/task.md` |
-| `/fnr-concept` | Solution Designer | Генерация спектра решений (от чистого до костыля) | `sa_documentation/FNR/FNR_N/concept.md` |
-| `/fnr-debate` | Architectural Debate | Дебаты: Архитектор vs Адвокат Дьявола (3 раунда) | Вердикт дописан в `concept.md` |
-| `/fnr-system-requirements` | System Requirements Analyst | Формирование BR/FR/NFR с Jira-декомпозицией | `sa_documentation/FNR/FNR_N/system_requirements.md` |
+| Команда | Роль | Описание | Результат |
+|:--------|:-----|:---------|:----------|
+| `/fnr-new-task` | Problem Analyst | Анализ проблемы, поиск корня в коде | `FNR/FNR_N/task.md` |
+| `/fnr-concept` | Solution Designer | Спектр решений: от чистой архитектуры до костыля | `FNR/FNR_N/concept.md` |
+| `/fnr-debate` | Architectural Debate | Архитектор vs Адвокат Дьявола — 3 раунда | Вердикт дописан в `concept.md` |
+| `/fnr-system-requirements` | System Requirements Analyst | BR / FR / NFR + Jira‑декомпозиция | `FNR/FNR_N/system_requirements.md` |
 
 ---
 
-# 🧠 Стандарт Doc-Architect v3.0
+## 🧠 Стандарт Doc-Architect v3.0
 
-Все документы, генерируемые этим хелпером, следуют жестким правилам:
+Все генерируемые документы следуют четырём правилам:
 
-1. **Origin Lineage**: Каждое поле в таблицах должно иметь четкий источник: DB: Table.Column, API: Service.Method или Computed [Layer]: Logic.
+| # | Правило | Суть |
+|:--|:--------|:-----|
+| 1 | **Origin Lineage** | Каждое поле таблицы имеет источник: `DB: Table.Column` / `API: Service.Method` / `Computed [Layer]: Logic` |
+| 2 | **Technical Endpoints** | Вместо SEO‑алиасов — технические контракты: `METHOD /controller/action/{id}` |
+| 3 | **UML Diagrams** | Обязательные Sequence и Activity диаграммы в PlantUML |
+| 4 | **Deep Inspection** | Анализ не только контроллера, но и сервисов, DAO, внешних интеграций |
 
-2. **Technical Endpoints**: Вместо SEO-алиасов используются технические контракты: METHOD /controller/action/{id}.
+---
 
-3. **UML Diagrams**: Обязательное наличие Sequence и Activity диаграмм в формате PlantUML для визуализации логики.
+## 📂 Структура системы
 
-4. **Deep Inspection**: Агент обязан анализировать не только контроллер, но и связанные сервисы, DAO и внешние интеграции.
+<details>
+<summary><strong>Claude Code</strong> — <code>.claude/</code></summary>
 
-# 📂 Структура системы
-
-Структура зависит от выбранного агента:
-
-**Claude Code:**
-
-```text
+```
 .claude/
 ├── commands/    ← команды (/context-gen, /fnr-new-task и др.)
 └── skills/      ← навыки (роли агента)
 ```
 
-**Antigravity:**
+</details>
 
-```text
+<details>
+<summary><strong>Antigravity</strong> — <code>.agent/</code></summary>
+
+```
 .agent/
-├── workflows/   ← команды (/context-gen, /fnr-new-task и др.)
-└── skills/      ← навыки (роли агента)
+├── workflows/   ← команды
+└── skills/      ← навыки
 ```
 
-**Codex:**
+</details>
 
-```text
+<details>
+<summary><strong>Codex</strong> — <code>.agents/</code></summary>
+
+```
 .agents/
 ├── prompts/     ← команды через /prompts:...
 └── skills/      ← навыки (repo-level)
 ```
 
-**OpenCode:**
+</details>
 
-```text
-.opencode/
-├── commands/    ← команды (/context-gen, /fnr-new-task и др.)
-└── .agents/skills/  ← навыки (каноническая repo-level папка)
+<details>
+<summary><strong>OpenCode</strong> — <code>.opencode/</code></summary>
+
 ```
-
-**Universal (.agents):**
-
-```text
-.agents/
+.opencode/
+├── commands/    ← команды
 └── skills/      ← навыки
 ```
 
-Навыки (skills) включают:
+</details>
 
-- **architecture/** — Реверс-инжиниринг архитектуры.
-- **db_archeologist/** — Анализ базы данных.
-- **technical-documentation/** — Генерация документации.
-- **problem-analyst/** — Диагностика проблем (постановка задачи).
-- **solution-designer/** — Генерация спектра решений.
-- **architectural-debate/** — Модерация дебатов Архитектор vs Адвокат Дьявола.
-- **system-analyst-sysreq/** — Формирование системных требований.
+<details>
+<summary><strong>Universal</strong> — <code>.agents/</code></summary>
 
-Каждый навык содержит:
+```
+.agents/
+├── commands/    ← команды
+└── skills/      ← навыки
+```
 
-- **SKILL.md** — Ролевая модель и принципы работы.
-- **resources/** — Чек-листы валидации и стандарты.
-- **examples/** — Шаблоны и эталонные документы.
+</details>
+
+### Навыки
+
+Каждый навык содержит **SKILL.md** (ролевая модель), **resources/** (чек‑листы, стандарты), **examples/** (шаблоны).
+
+| Навык | Назначение |
+|:------|:-----------|
+| `architecture/` | Реверс‑инжиниринг архитектуры |
+| `db_archeologist/` | Анализ базы данных |
+| `technical-documentation/` | Генерация документации |
+| `problem-analyst/` | Диагностика проблем, постановка задачи |
+| `solution-designer/` | Генерация спектра решений |
+| `architectural-debate/` | Дебаты: Архитектор vs Адвокат Дьявола |
+| `system-analyst-sysreq/` | Формирование системных требований |
 
 ---
 
 # Применение на практике
 
-## Я хочу описать архитектуру проекта
+### Я хочу описать архитектуру проекта
 
-1. Выполните команду: `/context-gen Я хочу задокументировать архитектуру сервиса X и создать C4-диаграмму`
-2. Выполните команду:
+```text
+1.  /context-gen  Я хочу задокументировать архитектуру сервиса X и создать C4‑диаграмму
 
-```
- /arch-gen Я, как системный аналитик, должен провести реверс-инжиниринг текущего проекта. Мне нужно полностью задокументировать проект: составить C4-диаграмму (до уровня C3), чтобы понимать все бизнес-контексты, компоненты и способы их взаимоедйствия друг с другом. Я должен понять:
-1. Какие бизнес-контексты есть в проекте?
-2. Какие компоненты есть в каждом бизнес-контексте?
-3. Какие способы взаимодействия есть между компонентами?
-4. Какие данные передаются между компонентами?
-5. Какие протоколы используются для взаимодействия между компонентами?
-6. Какие внешние системы взаимодействуют с проектом?
-7. Какие данные передаются между внешними системами и проектом?
-8. Какие протоколы используются для взаимодействия между внешними системами и проектом?
-```
-
-## Я хочу описать API
-
-1. Выполните команду:
-
-```
-/context-gen Я, как системные аналитик, должен провести revese-engineering текущего проекта. Мне нужно полностью задокументировать проект: составить C4-диаграмму (до уровня C3), описать основные компоненты сервиса, описать базу данных, описать имеющиеся API-интерфейсы, которые предоставляет сервис, описать интеграционные взаимодействия данного сервиса. Важно: Описывать API нужно по моему шаблону .template (которые я должен тебе предоставить); вся документация должна быть в формате Markdown, все документы должны сопровожаться диаграммаме в формате plantuml. После создания документации ты обязан провести две итерации валидации и перепроверки документации на предмет конфликтов, ошибок, фантазий – документация должна отражать реальную логиук работы системы, каждая новая итерация валидация должна начинаться с глубокого анализа документа и кодовой базы.
+2.  /arch-gen     Я, как системный аналитик, должен провести реверс‑инжиниринг текущего проекта.
+                  Мне нужно полностью задокументировать проект: составить C4‑диаграмму (до уровня C3),
+                  чтобы понимать все бизнес‑контексты, компоненты и способы их взаимодействия.
+                  Вопросы на ответ:
+                  1. Какие бизнес‑контексты есть в проекте?
+                  2. Какие компоненты есть в каждом бизнес‑контексте?
+                  3. Какие способы взаимодействия есть между компонентами?
+                  4. Какие данные передаются между компонентами?
+                  5. Какие протоколы используются?
+                  6. Какие внешние системы взаимодействуют с проектом?
+                  7. Какие данные передаются между внешними системами и проектом?
+                  8. Какие протоколы используются для взаимодействия с внешними системами?
 ```
 
-2. Изучите сформированный файл `tasks.md` и начните "закрывать" задачи по порядку.
+### Я хочу описать API
 
-```
-/create-doc [1.1] Архитектура DAO и низкоуровневый доступ к БД
-**Необходимый контекст (Файлы):**
-- [ ] `htdocs/protected/config/db_mssql.php` (Global)
-- [ ] `htdocs/protected/components/CustomDbConnection.php` (Global)
-- [ ] `htdocs/protected/components/CustomDbCommand.php` (Local)
-- [ ] `htdocs/protected/components/CDbCommandWithOdbcFix.php` (Local)
-- [ ] `htdocs/protected/components/MssqlDAO.php` (Data)
-- [ ] `htdocs/protected/components/DBManage/DBManage.php` (Global)
-```
+```text
+1.  /context-gen  Я, как системный аналитик, должен провести reverse‑engineering текущего проекта.
+                  Составить C4‑диаграмму (C3), описать компоненты, БД, карту API‑методов.
+                  Формат: один метод — одна задача — один документ.
 
-3. После формирования документации необходимо провалидировать артефакт:
+2.  Изучите tasks.md и закрывайте задачи по порядку:
 
-```
-/validate-doc + указать путь к файлу
-```
+    /create-doc [1.1] Архитектура DAO и низкоуровневый доступ к БД
+    Необходимый контекст (Файлы):
+    - [ ] config/database.yml (Global)
+    - [ ] src/db/connection.py (Global)
+    - [ ] src/db/query_builder.py (Local)
+    - [ ] src/repositories/item_repository.py (Data)
 
-## Составить DataFlow объекта
-
-1. Выполните команду:
-
-```
-/context-gen Я, как системные аналитик, должен провести revese-engineering текущего проекта. Мне нужно полностью задокументировать проект: составить C4-диаграмму (до уровня C3), описать основные компоненты сервиса, описать базу данных, описать имеющиеся API-интерфейсы, которые предоставляет сервис, описать интеграционные взаимодействия данного сервиса. Важно: Описывать API нужно по моему шаблону .template (которые я должен тебе предоставить); вся документация должна быть в формате Markdown, все документы должны сопровожаться диаграммаме в формате plantuml. После создания документации ты обязан провести две итерации валидации и перепроверки документации на предмет конфликтов, ошибок, фантазий – документация должна отражать реальную логиук работы системы, каждая новая итерация валидация должна начинаться с глубокого анализа документа и кодовой базы.
+3.  /validate-doc  +  указать путь к файлу
 ```
 
-2. Изучи сформированный `naming_conventions.md` (Словарь соответствия кода и бизнеса)
-2. Выполни команду:
+### Составить DataFlow объекта
 
-```
-/data-trace + название сущности/объекта
-```
+```text
+1.  /context-gen  Я, как системный аналитик, должен провести reverse‑engineering текущего проекта.
+                  Составить C4‑диаграмму (C3), описать компоненты, БД, API‑интерфейсы,
+                  интеграционные взаимодействия. Вся документация — Markdown + PlantUML.
+                  Провести две итерации валидации на предмет конфликтов и фантазий.
 
-## Пройти путь от проблемы до системных требований
+2.  Изучи naming_conventions.md (словарь код ↔ бизнес)
 
-### Шаг 1: Подготовить контекст (если ещё не делали)
-
-```
-/context-gen Я хочу подготовить контекст проекта для анализа проблем и формирования требований
+3.  /data-trace  +  название сущности/объекта
 ```
 
-### Шаг 2: Описать проблему
+### Пройти путь от проблемы до системных требований
 
-```
-/fnr-new-task После cron-импорта данные, созданные вручную в web_db, пропадают. Нужно понять причину и описать проблему.
-```
+```text
+Шаг 1. /context-gen  Я хочу подготовить контекст проекта для анализа проблем
 
-Результат: `sa_documentation/FNR/FNR_1/task.md` — структурированная постановка с корнем проблемы и код-доказательствами.
+Шаг 2. /fnr-new-task  После cron‑импорта данные, созданные вручную в web_db, пропадают.
+                       Нужно понять причину и описать проблему.
+       → sa_documentation/FNR/FNR_1/task.md
 
-### Шаг 3: Сгенерировать решения
+Шаг 3. /fnr-concept  sa_documentation/FNR/FNR_1/task.md
+       → concept.md — 3–5 концептов (от чистой архитектуры до костыля)
 
-```
-/fnr-concept sa_documentation/FNR/FNR_1/task.md
-```
+Шаг 4. /fnr-debate  sa_documentation/FNR/FNR_1/concept.md
+       → Вердикт дебатов дописан в concept.md (3 раунда, аргументы подтверждены кодом)
 
-Результат: `concept.md` — 3-5 концептов разной степени «правильности» (от чистой архитектуры до быстрого костыля).
+Шаг 5. /fnr-system-requirements  sa_documentation/FNR/FNR_1/concept.md
+       → BR/FR/NFR + Jira‑декомпозиция + PlantUML (As‑Is / To‑Be / Migration)
 
-### Шаг 4: Провести дебаты
-
-```
-/fnr-debate sa_documentation/FNR/FNR_1/concept.md
-```
-
-Результат: вердикт дебатов дописан в `concept.md`. Архитектор защищает лучший концепт, Адвокат Дьявола ищет слабые места. 3 раунда, каждый аргумент подтверждён кодом.
-
-### Шаг 5: Сформировать системные требования
-
-```
-/fnr-system-requirements sa_documentation/FNR/FNR_1/concept.md
+Шаг 6. /validate-doc  sa_documentation/FNR/FNR_1/system_requirements.md
 ```
 
-Результат: `system_requirements.md` — BR/FR/NFR с Jira-декомпозицией, PlantUML-диаграммами (As-Is / To-Be / Migration), планом миграции и таблицей якорей истины.
+---
 
-### Шаг 6: Провалидировать
+# Дополнительный раздел
 
+## 🌳 Граф проекта (Neo4j)
+
+SA-Helper строит **граф кодовой базы** в Neo4j — карту всех классов, функций, вызовов, SQL‑запросов и DB‑объектов. Агент получает точную структуру проекта вместо угадывания по тексту файлов.
+
+**Что даёт:**
+
+- **Цепочки вызовов** — кто кого вызывает, на какую таблицу ссылается
+- **Impact‑анализ** — что сломается при изменении функции или таблицы
+- **DB‑анализ** — lineage таблиц, хранимых процедур, view; поиск orphan‑объектов
+- **Архитектурный обзор** — контроллеры → сервисы → DAO → таблицы
+
+### Настройка
+
+> **Предварительные требования:** Docker Desktop, Python 3.9+.
+
+#### Шаг 1: Установите SA-Helper в проект
+
+Если ещё не установили — выполните команду из [быстрого старта](#-быстрый-старт-установка). В корне проекта появятся `indexer/` и `docker-compose.yml`.
+
+**Временный скрипт установки для graph-tree ветки:**
+
+<details>
+<summary><strong>macOS / Linux</strong></summary>
+
+```bash
+git clone --branch graph-tree --depth 1 https://github.com/boboden541/sa-helper.git /tmp/sa-gt && \
+cp -R /tmp/sa-gt/indexer . && \
+mkdir -p .claude/commands .claude/skills && \
+cp -R /tmp/sa-gt/.claude/commands/. .claude/commands/ && \
+cp -R /tmp/sa-gt/.claude/skills/. .claude/skills/ && \
+rm -rf /tmp/sa-gt
 ```
-/validate-doc sa_documentation/FNR/FNR_1/system_requirements.md
+
+</details>
+
+<details>
+<summary><strong>Windows (PowerShell)</strong></summary>
+
+```powershell
+git clone --branch graph-tree --depth 1 https://github.com/boboden541/sa-helper.git $env:TEMP\sa-gt
+Copy-Item -Recurse $env:TEMP\sa-gt\indexer .
+New-Item -ItemType Directory -Force -Path .claude\commands, .claude\skills
+Copy-Item -Recurse $env:TEMP\sa-gt\.claude\commands\* .claude\commands\
+Copy-Item -Recurse $env:TEMP\sa-gt\.claude\skills\* .claude\skills\
+Remove-Item -Recurse -Force $env:TEMP\sa-gt
 ```
+
+</details>
+
+#### Шаг 2: Создайте окружение и установите зависимости
+
+<details>
+<summary><strong>macOS / Linux</strong></summary>
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install -r indexer/requirements.txt
+```
+
+</details>
+
+<details>
+<summary><strong>Windows (PowerShell)</strong></summary>
+
+```powershell
+python -m venv .venv
+.venv\Scripts\pip install -r indexer\requirements.txt
+```
+
+</details>
+
+#### Шаг 3: Запустите базу и проиндексируйте проект
+
+```bash
+# Запустите Neo4j
+docker compose -f indexer/docker-compose.yml up -d
+```
+
+```bash
+# Проверить, что база работает
+curl -s http://localhost:7474 > /dev/null && echo "OK — Neo4j работает" || echo "WAIT — подождите ещё немного"
+```
+
+**Индексация проекта:**
+
+<details>
+<summary><strong>macOS / Linux</strong></summary>
+
+```bash
+.venv/bin/python indexer/main.py .
+```
+
+</details>
+
+<details>
+<summary><strong>Windows (PowerShell)</strong></summary>
+
+```powershell
+.venv\Scripts\python indexer\main.py .
+```
+
+</details>
+
+**Для проектов с DDL‑репозиториями (SQL Server, PostgreSQL):**
+
+<details>
+<summary><strong>macOS / Linux</strong></summary>
+
+```bash
+.venv/bin/python indexer/main.py . --db-schema /path/to/db_repo --default-schema dbo
+```
+
+</details>
+
+<details>
+<summary><strong>Windows (PowerShell)</strong></summary>
+
+```powershell
+.venv\Scripts\python indexer\main.py . --db-schema C:\path\to\db_repo --default-schema dbo
+```
+
+</details>
+
+| Флаг | Описание |
+|:-----|:---------|
+| `--db-schema` | Путь к папке с `.sql` файлами (можно указать несколько раз) |
+| `--default-schema` | Схема по умолчанию: `dbo` (MS SQL), `public` (PostgreSQL). Если не указан — определяется автоматически из DDL |
+
+#### Шаг 4: Подключите MCP‑сервер
+
+MCP — основной способ работы с графом. Без него агент не сможет использовать графовые данные.
+
+<details>
+<summary><strong>macOS / Linux</strong></summary>
+
+```bash
+claude mcp add sa-helper-graph -- $(pwd)/.venv/bin/python indexer/server/mcp_server.py
+```
+
+</details>
+
+<details>
+<summary><strong>Windows (PowerShell)</strong></summary>
+
+```powershell
+claude mcp add sa-helper-graph -- "$PWD\.venv\Scripts\python" indexer\server\mcp_server.py
+```
+
+</details>
+
+После регистрации агент автоматически получит доступ к **13 графовым инструментам**:
+
+| Инструмент | Что делает |
+|:-----------|:-----------|
+| `graph_schema` | Обзор структуры: классы, функции, таблицы, эндпоинты |
+| `graph_call_chain` | Цепочка вызовов от функции (на N уровней вглубь) |
+| `graph_impact` | Кто зависит от сущности (класс, функция, таблица) |
+| `graph_arch_summary` | Архитектурный обзор: контроллеры → сервисы → DAO → таблицы |
+| `graph_select_files` | Выбор файлов по описанию задачи |
+| `graph_export` | Экспорт подграфа (`text` / `json` / `mermaid`) |
+| `graph_query` | Произвольный read‑only Cypher запрос |
+| `graph_stats` | Статистика: количество узлов и связей по типам |
+| `graph_db_schema` | Все DB‑объекты: таблицы, view, хранимые процедуры, функции |
+| `graph_db_lineage` | Lineage DB‑объекта: зависимости вверх и вниз |
+| `graph_db_orphans` | DB‑объекты без связей к коду |
+| `graph_db_unresolved` | Ссылки в коде без DDL‑определений |
+| `graph_db_impact` | Транзитивный impact при изменении DB‑объекта |
+
+### Как команды используют граф
+
+Все команды SA-Helper автоматически используют граф, когда MCP подключён:
+
+| Команда | Что получает из графа |
+|:--------|:----------------------|
+| `/context-gen` | Автофильтрация файлов через `select-files` → repomix упаковывает только нужные |
+| `/arch-gen` | Структура классов, эндпоинтов, внешних сервисов |
+| `/data-trace` | Точные цепочки вызовов вместо grep‑анализа |
+| `/create-doc` | Подграф вокруг сущности — точки входа, связи, зависимости |
+| `/validate-doc` | Сверка утверждений с рёбрами графа (`CALLS`, `QUERIES`, `EXTENDS`) |
+| `/fnr-*` | Структура проекта и зависимости для диагностики проблем |
+
+> **Fallback:** если Neo4j не запущен — команды работают через `repomix-output.xml` как раньше.
+
+### Поддерживаемые языки
+
+| Язык | Расширения | Что извлекается |
+|:-----|:-----------|:----------------|
+| Python | `.py` | Классы, функции, импорты, вызовы, SQL‑таблицы, Flask/FastAPI эндпоинты, requests/httpx |
+| PHP | `.php` | Классы, трейты, функции, вызовы, SQL, EXEC/CALL SP, CActiveRecord, Yii‑эндпоинты |
+| Java | `.java` | Классы, интерфейсы, методы, вызовы, SQL + JPA `@Table`, Spring, RestTemplate |
+| JS / TS | `.js` `.jsx` `.ts` `.tsx` | Классы, функции, import/export, вызовы, SQL, Express, fetch/axios |
+| Go | `.go` | Struct, Interface, функции, вызовы, SQL, net/http/Gin эндпоинты |
+| SQL DDL | `.sql` | CREATE TABLE, VIEW, PROCEDURE, FUNCTION, зависимости |
+
+### Дополнительные возможности
+
+<details>
+<summary><strong>Инкрементальное обновление</strong> (только git‑репозитории)</summary>
+
+Перестраивает только изменённые файлы. Fallback на полную пересборку при >30% изменений.
+
+**macOS / Linux:**
+
+```bash
+.venv/bin/python indexer/main.py . --incremental
+```
+
+**Windows (PowerShell):**
+
+```powershell
+.venv\Scripts\python indexer\main.py . --incremental
+```
+
+</details>
+
+<details>
+<summary><strong>CLI‑запросы</strong> (альтернатива MCP для не‑Claude агентов)</summary>
+
+**macOS / Linux:**
+
+```bash
+.venv/bin/python indexer/server/query.py schema                    # структура проекта
+.venv/bin/python indexer/server/query.py call-chain "createAction" # цепочка вызовов
+.venv/bin/python indexer/server/query.py impact "orders" --type table  # impact‑анализ
+.venv/bin/python indexer/server/query.py db-lineage "show"         # lineage DB‑объекта
+.venv/bin/python indexer/server/query.py --help                    # все команды
+```
+
+**Windows (PowerShell):**
+
+```powershell
+.venv\Scripts\python indexer\server\query.py schema                     # структура проекта
+.venv\Scripts\python indexer\server\query.py call-chain "createAction"  # цепочка вызовов
+.venv\Scripts\python indexer\server\query.py impact "orders" --type table # impact‑анализ
+.venv\Scripts\python indexer\server\query.py db-lineage "show"          # lineage DB‑объекта
+.venv\Scripts\python indexer\server\query.py --help                     # все команды
+```
+
+> Старые пути (`python indexer/query.py`, `python indexer/mcp_server.py`) тоже работают через stub‑файлы.
+
+</details>
+
+**Визуализация в браузере:** [http://localhost:7474](http://localhost:7474) — логин: `neo4j` / `sahelper2026`.
+
+---
