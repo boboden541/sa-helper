@@ -1,5 +1,12 @@
 #!/bin/bash
 
+# Если stdin — pipe (curl | bash), сохраняем себя в temp и перезапускаем с терминалом
+if [ ! -t 0 ]; then
+    TEMP_SCRIPT="$(mktemp /tmp/sa-helper-install.XXXXXX.sh)"
+    cat > "$TEMP_SCRIPT"
+    exec bash "$TEMP_SCRIPT" < /dev/tty
+fi
+
 # --- Цвета для оформления ---
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
@@ -82,7 +89,7 @@ echo -e "  ${BLUE}[4]${NC} OpenCode"
 echo -e "  ${BLUE}[5]${NC} DevX"
 echo -e "  ${BLUE}[6]${NC} Universal (.agents)"
 echo ""
-read -p "Введите номер [1/7]: " AGENT_CHOICE < /dev/tty
+read -p "Введите номер [1/7]: " AGENT_CHOICE
 
 case "$AGENT_CHOICE" in
     1)
