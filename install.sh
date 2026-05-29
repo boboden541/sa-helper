@@ -2,7 +2,7 @@
 
 # Если stdin — pipe (curl | bash), сохраняем себя в temp и перезапускаем с терминалом
 if [ ! -t 0 ]; then
-    TEMP_SCRIPT="$(mktemp /tmp/sa-helper-install.XXXXXX.sh)"
+    TEMP_SCRIPT="$(mktemp /tmp/sa-helper-install.XXXXXXXXXX.sh)"
     cat > "$TEMP_SCRIPT"
     exec bash "$TEMP_SCRIPT" < /dev/tty
 fi
