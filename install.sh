@@ -9,7 +9,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # --- Настройки репозитория ---
-REPO_URL="https://github.com/boboden541/sa-helper"
+REPO_URL="https://github.com/boboden541/sa-helper.git"
 TEMP_DIR=".sa_helper_temp"
 SOURCE_ROOT=".claude"
 
@@ -66,6 +66,11 @@ echo -e "${BLUE}==========================================${NC}"
 echo -e "${BLUE}  System Analyst Helper: Installation${NC}"
 echo -e "${BLUE}==========================================${NC}"
 
+# 0. При запуске через pipe (curl ... | bash) stdin занят — читаем с терминала
+if [ ! -t 0 ]; then
+    exec 0</dev/tty
+fi
+
 # 1. Проверка наличия Git
 if ! command -v git &> /dev/null; then
     echo -e "${RED}❌ Ошибка: Git не установлен. Установите Git и попробуйте снова.${NC}"
@@ -79,8 +84,9 @@ echo -e "  ${BLUE}[1]${NC} Claude Code"
 echo -e "  ${BLUE}[2]${NC} Antigravity"
 echo -e "  ${BLUE}[3]${NC} Codex"
 echo -e "  ${BLUE}[4]${NC} OpenCode"
-echo -e "  ${BLUE}[5]${NC} DevX"
-echo -e "  ${BLUE}[6]${NC} Universal (.agents)"
+echo -e "  ${BLUE}[5]${NC} Cline"
+echo -e "  ${BLUE}[6]${NC} DevX"
+echo -e "  ${BLUE}[7]${NC} Universal (.agents)"
 echo ""
 read -p "Введите номер [1/7]: " AGENT_CHOICE
 
