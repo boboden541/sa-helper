@@ -82,7 +82,7 @@ echo -e "  ${BLUE}[4]${NC} OpenCode"
 echo -e "  ${BLUE}[5]${NC} DevX"
 echo -e "  ${BLUE}[6]${NC} Universal (.agents)"
 echo ""
-read -p "Введите номер [1/7]: " AGENT_CHOICE
+read -p "Введите номер [1/7]: " AGENT_CHOICE < /dev/tty
 
 case "$AGENT_CHOICE" in
     1)
@@ -226,3 +226,6 @@ echo -e "  ${BLUE}/project-map${NC}             — Построение гра�
 echo ""
 echo -e "${YELLOW}⚠️  Важно: Перезагрузите IDE (Reload Window).${NC}"
 echo -e "${BLUE}==========================================${NC}"
+
+# Очистка возможных stale temp-файлов от старых версий
+rm -f /tmp/sa-helper-install.*.sh 2>/dev/null
