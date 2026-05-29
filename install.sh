@@ -62,16 +62,16 @@ sync_canonical_skills() {
     done
 }
 
-echo -e "${BLUE}==========================================${NC}"
-echo -e "${BLUE}  System Analyst Helper: Installation${NC}"
-echo -e "${BLUE}==========================================${NC}"
-
 # 0. При запуске через pipe (curl ... | bash) read не работает — пересохраняем и перезапускаем
 if [ ! -t 0 ]; then
-    TMPFILE=$(mktemp /tmp/sa-helper-install.XXXXXX.sh)
+    TMPFILE=$(mktemp -t sa-helper-install)
     curl -sSL "https://raw.githubusercontent.com/boboden541/sa-helper/main/install.sh" -o "$TMPFILE"
     exec bash "$TMPFILE"
 fi
+
+echo -e "${BLUE}==========================================${NC}"
+echo -e "${BLUE}  System Analyst Helper: Installation${NC}"
+echo -e "${BLUE}==========================================${NC}"
 
 # 1. Проверка наличия Git
 if ! command -v git &> /dev/null; then
