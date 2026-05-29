@@ -62,13 +62,6 @@ sync_canonical_skills() {
     done
 }
 
-# 0. При запуске через pipe (curl ... | bash) read не работает — пересохраняем и перезапускаем
-if [ ! -t 0 ]; then
-    TMPFILE=$(mktemp -t sa-helper-install)
-    curl -sSL "https://raw.githubusercontent.com/boboden541/sa-helper/main/install.sh" -o "$TMPFILE"
-    exec bash "$TMPFILE"
-fi
-
 echo -e "${BLUE}==========================================${NC}"
 echo -e "${BLUE}  System Analyst Helper: Installation${NC}"
 echo -e "${BLUE}==========================================${NC}"
@@ -86,11 +79,10 @@ echo -e "  ${BLUE}[1]${NC} Claude Code"
 echo -e "  ${BLUE}[2]${NC} Antigravity"
 echo -e "  ${BLUE}[3]${NC} Codex"
 echo -e "  ${BLUE}[4]${NC} OpenCode"
-echo -e "  ${BLUE}[5]${NC} Cline"
-echo -e "  ${BLUE}[6]${NC} DevX"
-echo -e "  ${BLUE}[7]${NC} Universal (.agents)"
+echo -e "  ${BLUE}[5]${NC} DevX"
+echo -e "  ${BLUE}[6]${NC} Universal (.agents)"
 echo ""
-read -p "Введите номер [1-7]: " AGENT_CHOICE
+read -p "Введите номер [1/7]: " AGENT_CHOICE
 
 case "$AGENT_CHOICE" in
     1)
