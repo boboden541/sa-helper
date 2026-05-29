@@ -66,13 +66,11 @@ echo -e "${BLUE}==========================================${NC}"
 echo -e "${BLUE}  System Analyst Helper: Installation${NC}"
 echo -e "${BLUE}==========================================${NC}"
 
-# 0. При запуске через pipe (curl ... | bash) stdin занят скриптом.
-#    Открываем fd 3 для терминала, чтобы read мог читать ввод пользователя.
-#    Важно: НЕ делаем exec 0</dev/tty — это ломает чтение скрипта из пайпа!
-if [ -c /dev/tty ]; then
-    exec 3</dev/tty
-else
-    exec 3<&0
+# 0. При запуске через pipe (curl ... | bash) read не работает — пересохраняем и перезапускаем
+if [ ! -t 0 ]; then
+    TMPFILE=$(mktemp /tmp/sa-helper-install.XXXXXX.sh)
+    curl -sSL "https://raw.githubusercontent.com/boboden541/sa-helper/main/install.sh" -o "$TMPFILE"
+    exec bash "$TMPFILE"
 fi
 
 # 1. Проверка наличия Git
@@ -92,7 +90,7 @@ echo -e "  ${BLUE}[5]${NC} Cline"
 echo -e "  ${BLUE}[6]${NC} DevX"
 echo -e "  ${BLUE}[7]${NC} Universal (.agents)"
 echo ""
-read -u 3 -p "Введите номер [1-7]: " AGENT_CHOICE
+read -p "Введите номер [1-7]: " AGENT_CHOICE
 
 case "$AGENT_CHOICE" in
     1)
