@@ -13,8 +13,9 @@ IGNORED_DIRS = {
     ".gradle", ".mvn", ".dart_tool", "indexer", ".neo4j",
 }
 
+# Single-suffix extensions (compared against Path.suffix)
 IGNORED_EXTENSIONS = {
-    ".min.js", ".min.css", ".map", ".pyc", ".pyo", ".class",
+    ".map", ".pyc", ".pyo", ".class",
     ".jar", ".war", ".dll", ".exe", ".so", ".dylib",
     ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp",
     ".mp4", ".mp3", ".wav", ".avi", ".mov",
@@ -24,7 +25,42 @@ IGNORED_EXTENSIONS = {
     ".db", ".sqlite", ".sqlite3",
 }
 
+# Composite suffixes — must be matched against the full file name (name.endswith),
+# because Path.suffix only returns the final extension (".min.js" -> ".js").
+IGNORED_FILENAME_SUFFIXES = (
+    ".min.js", ".min.mjs", ".min.css",
+    ".js.map", ".css.map", ".mjs.map",
+    ".bundle.js", ".bundle.css", ".chunk.js",
+    "-min.js", "-min.css",
+    ".d.ts",
+)
+
 MAX_FILE_SIZE = 2 * 1024 * 1024  # 2 MB
+
+# Generated/minified code heuristic — language-agnostic, no project naming.
+# Bundles pack everything onto very long lines; flag files whose mean line
+# length exceeds the threshold (sampled from the file head for speed).
+GENERATED_AVG_LINE_LEN = 400
+GENERATED_SAMPLE_BYTES = 64 * 1024
+
+
+def _is_ignored_filename(name: str) -> bool:
+    """Check composite-suffix ignore list against the full file name."""
+    lower = name.lower()
+    return any(lower.endswith(suffix) for suffix in IGNORED_FILENAME_SUFFIXES)
+
+
+def _looks_generated(filepath: Path) -> bool:
+    """Heuristic for minified/generated code: very high average line length."""
+    try:
+        with open(filepath, "rb") as fh:
+            sample = fh.read(GENERATED_SAMPLE_BYTES)
+    except OSError:
+        return False
+    if not sample:
+        return False
+    line_count = sample.count(b"\n") + 1
+    return (len(sample) / line_count) > GENERATED_AVG_LINE_LEN
 
 FILENAME_TO_LANG = {
     "crontab": "cron",
@@ -63,6 +99,8 @@ def is_supported_file(rel_path: str) -> str | None:
     ext = filepath.suffix.lower()
     filename = filepath.name
 
+    if _is_ignored_filename(filename):
+        return None
     if ext in IGNORED_EXTENSIONS:
         return None
     return EXTENSION_TO_LANG.get(ext) or FILENAME_TO_LANG.get(filename)
@@ -83,6 +121,8 @@ def scan(project_path: str) -> list[tuple[str, str]]:
             filepath = Path(dirpath) / filename
             ext = filepath.suffix.lower()
 
+            if _is_ignored_filename(filename):
+                continue
             if ext in IGNORED_EXTENSIONS:
                 continue
 
@@ -94,6 +134,10 @@ def scan(project_path: str) -> list[tuple[str, str]]:
                 if filepath.stat().st_size > MAX_FILE_SIZE:
                     continue
             except OSError:
+                continue
+
+            # Drop minified/generated bundles that slipped past the name filter.
+            if lang == "javascript" and _looks_generated(filepath):
                 continue
 
             rel_path = str(filepath.relative_to(root))

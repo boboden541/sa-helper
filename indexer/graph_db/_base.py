@@ -35,29 +35,56 @@ def _url_segments(url: str) -> list[str]:
     return segments
 
 
-def _urls_match(frontend_url: str, backend_route: str) -> bool:
-    """Check if frontend URL matches backend endpoint route via segment comparison.
+# Routes with this many segments or fewer require a full (exact) segment match —
+# suffix matching on short routes collapses many unrelated calls onto one endpoint.
+SHORT_ROUTE_SEGMENTS = 2
 
-    Handles: prefix differences (/api/ vs none), trailing slashes, / vs - separators.
+
+def _url_match_score(frontend_url: str, backend_route: str) -> int | None:
+    """Score how well a frontend URL matches a backend route.
+
+    Returns the number of matched segments (higher = more specific), or None
+    if the URLs do not match at all. Short routes (<= SHORT_ROUTE_SEGMENTS)
+    require an exact segment match; longer routes allow suffix matching to
+    absorb prefix differences like '/api/'.
     """
     fe_segs = _url_segments(frontend_url)
     be_segs = _url_segments(backend_route)
 
     if not fe_segs or not be_segs:
-        return False
+        return None
 
     if fe_segs == be_segs:
-        return True
+        return len(be_segs)
+
+    # Short backend routes must match exactly — no suffix matching.
+    if len(be_segs) <= SHORT_ROUTE_SEGMENTS:
+        return None
 
     # Backend segments are suffix of frontend (frontend has extra prefix like 'api')
     if len(fe_segs) > len(be_segs):
-        return fe_segs[-len(be_segs):] == be_segs
+        if fe_segs[-len(be_segs):] == be_segs:
+            return len(be_segs)
+        return None
 
     # Frontend segments are suffix of backend (backend has extra suffix)
     if len(be_segs) > len(fe_segs):
-        return be_segs[-len(fe_segs):] == fe_segs
+        # Only meaningful when the frontend route is itself long enough.
+        if len(fe_segs) <= SHORT_ROUTE_SEGMENTS:
+            return None
+        if be_segs[-len(fe_segs):] == fe_segs:
+            return len(fe_segs)
+        return None
 
-    return False
+    return None
+
+
+def _urls_match(frontend_url: str, backend_route: str) -> bool:
+    """Check if frontend URL matches backend endpoint route via segment comparison.
+
+    Handles: prefix differences (/api/ vs none), trailing slashes, / vs - separators.
+    """
+    return _url_match_score(frontend_url, backend_route) is not None
 
 
 class GraphDBBase:

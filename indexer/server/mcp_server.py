@@ -107,13 +107,19 @@ def graph_impact(entity_name: str, entity_type: str = "auto") -> str:
 
 
 @mcp.tool
-def graph_schema() -> str:
+def graph_schema(limit: int = 100, offset: int = 0) -> str:
     """Get an overview of the project structure from the graph.
 
     Returns counts of classes, functions, tables, endpoints, external services,
-    plus lists of classes (with inheritance), endpoints, tables, and services.
+    plus paginated lists of classes (with inheritance), endpoints, tables, and
+    services. Full counts are in `stats`; the `pagination` block reports the
+    window and whether results were truncated. Use `offset` to page through.
+
+    Args:
+        limit: Max items per entity list (default 100, max 1000).
+        offset: Pagination offset into each entity list (default 0).
     """
-    return _run_query("graph_schema", "query_schema")
+    return _run_query("graph_schema", "query_schema", limit=limit, offset=offset)
 
 
 @mcp.tool
@@ -157,13 +163,19 @@ def graph_export(entity_name: str | None = None, fmt: str = "text") -> str:
 
 
 @mcp.tool
-def graph_arch_summary() -> str:
+def graph_arch_summary(limit: int = 20, offset: int = 0) -> str:
     """Get architecture summary: for each controller, trace its services, DAOs, tables, endpoints.
 
     Returns a structured view of the Controller -> Service -> DAO -> Table layers,
-    plus external service dependencies. Useful for understanding the big picture.
+    plus external service dependencies. Paginated over the controller list so the
+    response stays within token limits; the `pagination` block reports the total
+    controller count and whether results were truncated. Use `offset` to page.
+
+    Args:
+        limit: Max controllers to trace per call (default 20, max 1000).
+        offset: Pagination offset into the controller list (default 0).
     """
-    return _run_query("graph_arch_summary", "query_arch_summary")
+    return _run_query("graph_arch_summary", "query_arch_summary", limit=limit, offset=offset)
 
 
 @mcp.tool

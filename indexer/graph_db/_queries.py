@@ -4,6 +4,38 @@ from __future__ import annotations
 
 from neo4j import Session
 
+# Pagination defaults for overview queries (keeps responses within MCP token limits).
+DEFAULT_OVERVIEW_LIMIT = 100
+MAX_OVERVIEW_LIMIT = 1000
+# Architecture summaries are far heavier per item (services/DAOs/tables/endpoints
+# per controller), so they default to a smaller page.
+DEFAULT_ARCH_SUMMARY_LIMIT = 20
+
+# select_files fallback tuning
+SELECT_FILES_FALLBACK_LIMIT = 30
+SELECT_FILES_MIN_TOKEN_LEN = 4
+
+
+def _normalize_pagination(limit: int | None, offset: int | None) -> tuple[int, int]:
+    """Clamp limit/offset to safe bounds."""
+    if limit is None:
+        limit = DEFAULT_OVERVIEW_LIMIT
+    try:
+        limit = int(limit)
+    except (TypeError, ValueError):
+        limit = DEFAULT_OVERVIEW_LIMIT
+    if limit < 1:
+        limit = DEFAULT_OVERVIEW_LIMIT
+    if limit > MAX_OVERVIEW_LIMIT:
+        limit = MAX_OVERVIEW_LIMIT
+    try:
+        offset = int(offset) if offset is not None else 0
+    except (TypeError, ValueError):
+        offset = 0
+    if offset < 0:
+        offset = 0
+    return limit, offset
+
 
 def _find_db_object(session: Session, object_name: str) -> dict | None:
     """Find DB object with priority: exact match > schema.name > CONTAINS."""
@@ -144,7 +176,8 @@ class QueryMixin:
                 MATCH (src:{entity['type']}) WHERE src.name = $name
                 MATCH (src)<-[r]-(x)
                 RETURN labels(x)[0] AS xtype, x.name AS xname,
-                       x.file AS xfile, type(r) AS rel
+                       x.file AS xfile, type(r) AS rel,
+                       r.confidence AS confidence, r.source AS source
                 LIMIT 100
                 """,
                 name=entity["name"],
@@ -160,11 +193,19 @@ class QueryMixin:
                         "type": rec["xtype"],
                         "file": rec["xfile"],
                         "relation": rec["rel"],
+                        "confidence": rec["confidence"],
+                        "source": rec["source"],
                     })
             return {"entity": entity, "dependents": dependents, "total": len(dependents)}
 
-    def query_schema(self) -> dict:
-        """Return aggregated project structure from the graph."""
+    def query_schema(self, limit: int | None = None, offset: int | None = None) -> dict:
+        """Return aggregated project structure from the graph.
+
+        Each entity list is paginated (SKIP/LIMIT) so the response stays within
+        MCP token limits regardless of project size. Full counts are in `stats`;
+        the `pagination` block reports the window and whether it was truncated.
+        """
+        limit, offset = _normalize_pagination(limit, offset)
         with self.driver.session() as session:
             stats_result = session.run(
                 """
@@ -180,7 +221,9 @@ class QueryMixin:
             classes = []
             cls_result = session.run(
                 "MATCH (c:Class) RETURN c.name AS name, c.file AS file, "
-                "c.parent_class AS parent, c.interfaces AS ifaces"
+                "c.parent_class AS parent, c.interfaces AS ifaces "
+                "ORDER BY c.name SKIP $offset LIMIT $limit",
+                offset=offset, limit=limit,
             )
             for rec in cls_result:
                 classes.append({
@@ -190,7 +233,9 @@ class QueryMixin:
 
             tables = []
             tbl_result = session.run(
-                "MATCH (t:Table) RETURN t.name AS name, t.source_file AS src"
+                "MATCH (t:Table) RETURN t.name AS name, t.source_file AS src "
+                "ORDER BY t.name SKIP $offset LIMIT $limit",
+                offset=offset, limit=limit,
             )
             for rec in tbl_result:
                 tables.append({"name": rec["name"], "source_file": rec["src"]})
@@ -198,7 +243,9 @@ class QueryMixin:
             endpoints = []
             ep_result = session.run(
                 "MATCH (e:Endpoint) RETURN e.http_method AS method, e.route AS path, "
-                "e.handler_method AS handler, e.file AS file"
+                "e.handler_method AS handler, e.file AS file "
+                "ORDER BY e.route SKIP $offset LIMIT $limit",
+                offset=offset, limit=limit,
             )
             for rec in ep_result:
                 endpoints.append({
@@ -209,7 +256,9 @@ class QueryMixin:
             services = []
             svc_result = session.run(
                 "MATCH (es:ExternalService) RETURN es.display_name AS name, "
-                "es.type AS type, es.source_file AS src"
+                "es.type AS type, es.source_file AS src "
+                "ORDER BY es.display_name SKIP $offset LIMIT $limit",
+                offset=offset, limit=limit,
             )
             for rec in svc_result:
                 services.append({
@@ -217,12 +266,26 @@ class QueryMixin:
                     "source_file": rec["src"],
                 })
 
+            totals = {
+                "classes": stats.get("Class", 0),
+                "tables": stats.get("Table", 0),
+                "endpoints": stats.get("Endpoint", 0),
+                "external_services": stats.get("ExternalService", 0),
+            }
+            truncated = any(total > offset + limit for total in totals.values())
+
             return {
                 "stats": stats,
                 "classes": classes,
                 "tables": tables,
                 "endpoints": endpoints,
                 "external_services": services,
+                "pagination": {
+                    "limit": limit,
+                    "offset": offset,
+                    "totals": totals,
+                    "truncated": truncated,
+                },
             }
 
     def query_select_files(self, task_description: str) -> list[str]:
@@ -257,7 +320,9 @@ class QueryMixin:
                 matched_queries.add(cypher)
 
         if not matched_queries:
-            return []
+            # Fallback: no dictionary keyword matched — rank files by how many
+            # task tokens appear in entity names (Class/Function/Table/Endpoint).
+            return self._select_files_fallback(task_description)
 
         files = set()
         with self.driver.session() as session:
@@ -286,6 +351,44 @@ class QueryMixin:
                     files.add(rec["file"])
 
         return sorted(files)
+
+    def _select_files_fallback(self, task_description: str) -> list[str]:
+        """Rank files by how many task tokens appear in entity names.
+
+        Used when no dictionary keyword matched. Matches description tokens
+        (>= SELECT_FILES_MIN_TOKEN_LEN chars) against Class/Function/Table/Endpoint
+        names, returning the files of matched nodes ranked by match count and
+        capped at SELECT_FILES_FALLBACK_LIMIT.
+        """
+        import re
+
+        raw_tokens = re.findall(r"[a-zA-Z][a-zA-Z0-9_]+", task_description.lower())
+        tokens = sorted({t for t in raw_tokens if len(t) >= SELECT_FILES_MIN_TOKEN_LEN})
+        if not tokens:
+            return []
+
+        file_scores: dict[str, int] = {}
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                UNWIND $tokens AS tok
+                MATCH (n)
+                WHERE (n:Class OR n:Function OR n:Table OR n:Endpoint)
+                  AND n.name IS NOT NULL
+                  AND toLower(n.name) CONTAINS tok
+                WITH DISTINCT tok,
+                     coalesce(n.file, n.source_file) AS file
+                WHERE file IS NOT NULL
+                RETURN file, count(DISTINCT tok) AS score
+                ORDER BY score DESC, file
+                LIMIT $limit
+                """,
+                tokens=tokens, limit=SELECT_FILES_FALLBACK_LIMIT,
+            )
+            for rec in result:
+                file_scores[rec["file"]] = rec["score"]
+
+        return sorted(file_scores, key=lambda f: (-file_scores[f], f))
 
     def query_export(self, entity_name: str = None, format: str = "text") -> str:
         """Export graph data as text, mermaid, or json."""
@@ -403,8 +506,16 @@ class QueryMixin:
             lines.append("    Empty[Graph is empty]")
         return "\n".join(lines)
 
-    def query_arch_summary(self) -> list[dict]:
-        """Architecture summary: for each controller-like class, trace services, DAOs, tables, endpoints."""
+    def query_arch_summary(self, limit: int | None = None, offset: int | None = None) -> dict:
+        """Architecture summary: for each controller-like class, trace services, DAOs, tables, endpoints.
+
+        Paginated over the controller list so the response stays within MCP token
+        limits; only the requested window of controllers is traced. Returns a dict
+        with `summaries` and a `pagination` block (total controllers + truncation).
+        """
+        if limit is None:
+            limit = DEFAULT_ARCH_SUMMARY_LIMIT
+        limit, offset = _normalize_pagination(limit, offset)
         with self.driver.session() as session:
             controllers_result = session.run(
                 """
@@ -431,8 +542,11 @@ class QueryMixin:
                 for rec in all_classes_result:
                     controllers.append({"name": rec["name"], "file": rec["file"]})
 
+            total_controllers = len(controllers)
+            page = controllers[offset:offset + limit]
+
             summaries = []
-            for ctrl in controllers:
+            for ctrl in page:
                 ctrl_name = ctrl["name"]
 
                 svc_result = session.run(
@@ -506,7 +620,15 @@ class QueryMixin:
                     "endpoints": endpoints,
                 })
 
-            return summaries
+            return {
+                "summaries": summaries,
+                "pagination": {
+                    "limit": limit,
+                    "offset": offset,
+                    "total": total_controllers,
+                    "truncated": total_controllers > offset + limit,
+                },
+            }
 
     def query_db_schema(self, schema_name: str | None = None) -> dict:
         """Return all DB objects with types, schemas, columns."""
@@ -565,7 +687,8 @@ class QueryMixin:
                       AND (target:Table OR target:View OR target:StoredProcedure OR target:DatabaseFunction)
                       AND target.schema = $schema AND target.name = $name
                     RETURN labels(src)[0] AS type, src.name AS name,
-                           src.schema AS schema, src.file AS file, type(r) AS rel
+                           src.schema AS schema, src.file AS file, type(r) AS rel,
+                           r.confidence AS confidence, r.source AS source
                     LIMIT 100
                     """,
                     schema=obj["schema"], name=obj["name"],
@@ -575,6 +698,7 @@ class QueryMixin:
                         "type": rec["type"], "name": rec["name"],
                         "schema": rec["schema"], "file": rec["file"],
                         "relation": rec["rel"],
+                        "confidence": rec["confidence"], "source": rec["source"],
                     })
 
             upstream = []
@@ -584,7 +708,8 @@ class QueryMixin:
                     MATCH (src {schema: $schema, name: $name})-[r]->(target)
                     WHERE (target:Table OR target:View OR target:StoredProcedure OR target:DatabaseFunction)
                     RETURN labels(target)[0] AS type, target.name AS name,
-                           target.schema AS schema, type(r) AS rel
+                           target.schema AS schema, type(r) AS rel,
+                           r.confidence AS confidence, r.source AS source
                     LIMIT 100
                     """,
                     schema=obj["schema"], name=obj["name"],
@@ -593,6 +718,7 @@ class QueryMixin:
                     upstream.append({
                         "type": rec["type"], "name": rec["name"],
                         "schema": rec["schema"], "relation": rec["rel"],
+                        "confidence": rec["confidence"], "source": rec["source"],
                     })
 
             return {"object": obj, "upstream": upstream, "downstream": downstream}
@@ -656,17 +782,28 @@ class QueryMixin:
                 MATCH path = (src)-[:QUERIES|CALLS_SP|INSERTS_INTO|UPDATES|DELETES_FROM|DEPENDS_ON*1..3]->(target {schema: $schema, name: $name})
                 RETURN DISTINCT labels(src)[0] AS type, src.name AS name,
                        src.schema AS schema, src.file AS file,
-                       length(path) AS depth
+                       length(path) AS depth,
+                       [rel IN relationships(path) | rel.confidence] AS confidences,
+                       [rel IN relationships(path) | rel.source] AS sources
                 ORDER BY depth, src.name
                 LIMIT 200
                 """,
                 schema=obj["schema"], name=obj["name"],
             )
+            # Path confidence is the weakest edge along the path; inferred if any
+            # edge on the path came from the inventory resolver.
+            _rank = {"low": 0, "medium": 1, "high": 2}
             for rec in imp_result:
+                confs = [c for c in (rec["confidences"] or []) if c]
+                path_conf = min(confs, key=lambda c: _rank.get(c, 3)) if confs else None
+                srcs = [s for s in (rec["sources"] or []) if s]
+                path_source = "inventory_resolver" if "inventory_resolver" in srcs else (
+                    srcs[0] if srcs else None)
                 impacted.append({
                     "type": rec["type"], "name": rec["name"],
                     "schema": rec["schema"], "file": rec["file"],
                     "depth": rec["depth"],
+                    "confidence": path_conf, "source": path_source,
                 })
 
             return {"object": obj, "impacted": impacted}

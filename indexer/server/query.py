@@ -94,7 +94,8 @@ def cmd_impact(args):
             if not result["dependents"]:
                 print("  No dependents found.")
             for d in result["dependents"]:
-                print(f"  - {d['name']} ({d['type']}) [{d['relation']}] in {d['file']}")
+                conf = f" {{{d['confidence']}}}" if d.get("confidence") else ""
+                print(f"  - {d['name']} ({d['type']}) [{d['relation']}]{conf} in {d['file']}")
     finally:
         db.close()
 
@@ -102,7 +103,7 @@ def cmd_impact(args):
 def cmd_schema(args):
     db = connect_db(args)
     try:
-        result = db.query_schema()
+        result = db.query_schema(limit=args.limit, offset=args.offset)
         if args.format == "json":
             print(json.dumps(result, ensure_ascii=False, indent=2))
         elif args.format == "mermaid":
@@ -175,9 +176,10 @@ def cmd_export(args):
 def cmd_arch_summary(args):
     db = connect_db(args)
     try:
-        summaries = db.query_arch_summary()
+        result = db.query_arch_summary(limit=args.limit, offset=args.offset)
+        summaries = result["summaries"]
         if args.format == "json":
-            print(json.dumps(summaries, ensure_ascii=False, indent=2))
+            print(json.dumps(result, ensure_ascii=False, indent=2))
         elif args.format == "mermaid":
             lines = ["graph LR"]
             for s in summaries:
@@ -269,7 +271,8 @@ def cmd_db_lineage(args):
                 print(f"\nDownstream dependents ({len(result['downstream'])}):")
                 for d in result["downstream"]:
                     loc = f" in {d['file']}" if d.get("file") else ""
-                    print(f"  -> {d.get('schema', '')}.{d['name']} ({d['type']}) [{d['relation']}]{loc}")
+                    conf = f" {{{d['confidence']}}}" if d.get("confidence") else ""
+                    print(f"  -> {d.get('schema', '')}.{d['name']} ({d['type']}) [{d['relation']}]{conf}{loc}")
             else:
                 print("\nDownstream: none")
     finally:
@@ -333,7 +336,8 @@ def cmd_db_impact(args):
                     schema = imp.get("schema", "")
                     name = f"{schema}.{imp['name']}" if schema else imp["name"]
                     loc = f" in {imp['file']}" if imp.get("file") else ""
-                    print(f"  {'  ' * (imp['depth'] - 1)}{name} ({imp['type']}){loc}")
+                    conf = f" {{{imp['confidence']}}}" if imp.get("confidence") else ""
+                    print(f"  {'  ' * (imp['depth'] - 1)}{name} ({imp['type']}){conf}{loc}")
     finally:
         db.close()
 
@@ -363,6 +367,8 @@ def main():
     # schema
     p_sch = sub.add_parser("schema", help="Overview of project structure")
     p_sch.add_argument("--format", choices=["text", "json", "mermaid"], default="text")
+    p_sch.add_argument("--limit", type=int, default=None, help="Max items per entity list")
+    p_sch.add_argument("--offset", type=int, default=0, help="Pagination offset")
 
     # select-files
     p_sf = sub.add_parser("select-files", help="Select files relevant to a task")
@@ -377,6 +383,8 @@ def main():
     # arch-summary
     p_arch = sub.add_parser("arch-summary", help="Architecture summary: controllers, services, DAOs, tables")
     p_arch.add_argument("--format", choices=["text", "json", "mermaid"], default="text")
+    p_arch.add_argument("--limit", type=int, default=None, help="Max controllers to trace")
+    p_arch.add_argument("--offset", type=int, default=0, help="Pagination offset")
 
     # db-schema
     p_dbsch = sub.add_parser("db-schema", help="All DB objects with types, schemas, columns")

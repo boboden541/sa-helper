@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from graph_db._base import _urls_match
+from graph_db._base import _url_match_score
 
 
 class WriterMixin:
@@ -438,17 +438,30 @@ class WriterMixin:
 
         matches = []
         for svc in url_services:
+            # Pick the most specific endpoint (most matched segments), not the first
+            # match — suffix matching otherwise collapses unrelated short routes.
+            best = None
+            best_score = -1
             for ep in endpoints:
-                if ep["route"] and _urls_match(svc["http_url"], ep["route"]):
-                    matches.append({
-                        "function_name": svc["function_name"],
-                        "file": svc["file"],
-                        "http_method": svc["http_method"],
-                        "http_url": svc["http_url"],
-                        "endpoint_route": ep["route"],
-                        "endpoint_file": ep["file"],
-                    })
-                    break
+                if not ep["route"]:
+                    continue
+                score = _url_match_score(svc["http_url"], ep["route"])
+                if score is None:
+                    continue
+                # Deterministic tie-break by route for stable output.
+                if score > best_score or (score == best_score and best is not None
+                                          and ep["route"] < best["route"]):
+                    best = ep
+                    best_score = score
+            if best is not None:
+                matches.append({
+                    "function_name": svc["function_name"],
+                    "file": svc["file"],
+                    "http_method": svc["http_method"],
+                    "http_url": svc["http_url"],
+                    "endpoint_route": best["route"],
+                    "endpoint_file": best["file"],
+                })
 
         if not matches:
             return
