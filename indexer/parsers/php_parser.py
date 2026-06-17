@@ -13,6 +13,7 @@ from parsers.config_parser import _classify_entry
 from parsers.sql_utils import (
     SQL_KEYWORDS, SQL_FALSE_POSITIVES, TABLE_PATTERN,
     looks_like_sql, is_valid_table_name, clean_concat,
+    detect_primary_sql_keyword, SQL_FRAGMENT_MAX_LEN,
 )
 
 
@@ -490,6 +491,44 @@ class PHPParser(BaseParser):
 
         return results
 
+    def _extract_sql_candidates(self, root: Node, file_path: str, source: bytes) -> list[dict]:
+        """Collect SQL-looking function bodies as candidates for the inventory resolver.
+
+        Concatenated string literals are merged via clean_concat; only bodies that
+        pass looks_like_sql are emitted. The resolver (T2) matches inventory DDL
+        names inside these fragments — this recovers multi-line/concatenated SQL
+        that TABLE_PATTERN (name-adjacent-to-keyword) misses.
+        """
+        source_str = source.decode("utf-8", errors="replace")
+        results = []
+        seen = set()
+
+        for func_node, class_name in self._get_all_function_entries(root):
+            name_node = func_node.child_by_field_name("name")
+            if not name_node:
+                continue
+
+            func_text = clean_concat(source_str[func_node.start_byte:func_node.end_byte])
+            if not looks_like_sql(func_text):
+                continue
+
+            func_name = name_node.text.decode("utf-8", errors="replace")
+            func_line = func_node.start_point[0] + 1
+            key = (func_name, func_line)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            results.append({
+                "function_name": func_name,
+                "file": file_path,
+                "source_line": func_line,
+                "fragment": func_text[:SQL_FRAGMENT_MAX_LEN],
+                "keyword": detect_primary_sql_keyword(func_text),
+            })
+
+        return results
+
     def _extract_endpoints(self, root: Node, file_path: str, source: bytes) -> list[dict]:
         """Extract endpoints: annotations > config > convention."""
         source_str = source.decode("utf-8", errors="replace")
@@ -862,6 +901,7 @@ class PHPParser(BaseParser):
             "imports": self._extract_imports(root, file_path, source_code),
             "calls": self._extract_calls(root, file_path, source_code),
             "tables": self._extract_tables(root, file_path, source_code),
+            "sql_candidates": self._extract_sql_candidates(root, file_path, source_code),
             "endpoints": self._extract_endpoints(root, file_path, source_code),
             "external_services": self._extract_external_services(root, file_path, source_code),
             "framework_usage": self._extract_framework_usage(root, file_path, source_code),

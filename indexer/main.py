@@ -143,6 +143,7 @@ def _parse_files_parallel(root: Path, file_tasks: list[tuple]) -> tuple:
     all_imports = []
     all_calls = []
     all_tables = []
+    all_sql_candidates = []
     all_endpoints = []
     all_external_services = []
     all_framework_usage = []
@@ -184,6 +185,7 @@ def _parse_files_parallel(root: Path, file_tasks: list[tuple]) -> tuple:
             all_imports.extend(parsed["imports"])
             all_calls.extend(parsed["calls"])
             all_tables.extend(parsed["tables"])
+            all_sql_candidates.extend(parsed.get("sql_candidates", []))
             all_endpoints.extend(parsed["endpoints"])
             all_external_services.extend(parsed["external_services"])
             all_framework_usage.extend(parsed["framework_usage"])
@@ -204,16 +206,18 @@ def _parse_files_parallel(root: Path, file_tasks: list[tuple]) -> tuple:
 
     return (all_files_meta, all_classes, all_functions, all_imports, all_calls,
             all_tables, all_endpoints, all_external_services, all_framework_usage,
-            all_config_entries, all_scheduled_tasks, all_db_objects, total_lines)
+            all_config_entries, all_scheduled_tasks, all_db_objects,
+            all_sql_candidates, total_lines)
 
 
 def _write_to_db(db, data: tuple, projects: list[dict], root: Path, total_files: int,
                  neo4j_pass: str, save_state: str | None = None,
-                 default_schema: str | None = None):
+                 default_schema: str | None = None, resolver_enabled: bool = True):
     """Write parsed data to Neo4j and print stats."""
     (all_files_meta, all_classes, all_functions, all_imports, all_calls,
      all_tables, all_endpoints, all_external_services, all_framework_usage,
-     all_config_entries, all_scheduled_tasks, all_db_objects, total_lines) = data
+     all_config_entries, all_scheduled_tasks, all_db_objects,
+     all_sql_candidates, total_lines) = data
 
     project_name = root.name
 
@@ -289,6 +293,17 @@ def _write_to_db(db, data: tuple, projects: list[dict], root: Path, total_files:
     db.resolve_table_view_duplicates()
     db.refresh_global_links()
 
+    # Code->DB inventory resolver (T2) — MATCH-only edges to existing DDL nodes.
+    if resolver_enabled and all_sql_candidates:
+        print(f"  Resolver: matching {len(all_sql_candidates)} SQL candidates "
+              f"against DDL inventory...")
+        res_stats = db.resolve_code_db_inventory(all_sql_candidates,
+                                                 default_schema=default_schema)
+        print(f"  Resolver: created {res_stats['edges']} edges "
+              f"({res_stats['marked_dynamic']} functions marked has_dynamic_sql)")
+    elif not resolver_enabled:
+        print("  Resolver: disabled (--no-resolver)")
+
     # Create sub-project nodes
     for proj in projects:
         db.create_project(proj["name"], proj["path"], 0, 0, project_type=proj["type"])
@@ -339,6 +354,7 @@ def index_project(
     neo4j_pass: str = None,
     db_schema_paths: list[str] | None = None,
     default_schema: str | None = None,
+    resolver_enabled: bool = True,
 ):
     neo4j_uri = neo4j_uri or os.environ.get("NEO4J_URI", "bolt://localhost:7687")
     neo4j_user = neo4j_user or os.environ.get("NEO4J_USER", "neo4j")
@@ -416,7 +432,8 @@ def index_project(
     # 6. Write to Neo4j
     head_sha = get_head_commit(str(root))
     _write_to_db(db, data, projects, root, len(files), neo4j_pass,
-                 save_state=head_sha, default_schema=default_schema)
+                 save_state=head_sha, default_schema=default_schema,
+                 resolver_enabled=resolver_enabled)
 
 
 def index_incremental(
@@ -425,6 +442,7 @@ def index_incremental(
     neo4j_user: str = None,
     neo4j_pass: str = None,
     default_schema: str | None = None,
+    resolver_enabled: bool = True,
 ):
     """Incrementally update the graph based on git diff."""
     neo4j_uri = neo4j_uri or os.environ.get("NEO4J_URI", "bolt://localhost:7687")
@@ -511,7 +529,8 @@ def index_incremental(
 
     # 7. Write new nodes + refresh global links
     _write_to_db(db, data, project_name, root, len(all_files),
-                 neo4j_pass, save_state=head_sha, default_schema=default_schema)
+                 neo4j_pass, save_state=head_sha, default_schema=default_schema,
+                 resolver_enabled=resolver_enabled)
 
 
 if __name__ == "__main__":
@@ -528,11 +547,16 @@ if __name__ == "__main__":
                         help="Default DB schema for objects without explicit schema "
                              "(e.g. 'dbo' for MS SQL, 'public' for PostgreSQL). "
                              "Auto-detected from DDL if not specified.")
+    parser.add_argument("--no-resolver", dest="resolver", action="store_false",
+                        default=True,
+                        help="Disable the code->DB inventory resolver (T2). "
+                             "With it off the graph is identical to the pre-resolver build.")
 
     args = parser.parse_args()
     if args.incremental:
         index_incremental(args.project_path, args.neo4j_uri, args.neo4j_user, args.neo4j_pass,
-                          default_schema=args.default_schema)
+                          default_schema=args.default_schema, resolver_enabled=args.resolver)
     else:
         index_project(args.project_path, args.neo4j_uri, args.neo4j_user, args.neo4j_pass,
-                      db_schema_paths=args.db_schema, default_schema=args.default_schema)
+                      db_schema_paths=args.db_schema, default_schema=args.default_schema,
+                      resolver_enabled=args.resolver)

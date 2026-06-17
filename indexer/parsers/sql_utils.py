@@ -86,6 +86,33 @@ def clean_concat(text: str) -> str:
     return text
 
 
+# Maximum length of a SQL candidate fragment passed to the inventory resolver.
+SQL_FRAGMENT_MAX_LEN = 8000
+
+# Primary SQL keyword detection (first matching verb wins) — used to tag a
+# candidate fragment for the code->DB resolver.
+_PRIMARY_KEYWORD_PATTERNS = [
+    (re.compile(r'\bINSERT\s+INTO\b', re.IGNORECASE), "INSERT"),
+    (re.compile(r'\bUPDATE\b', re.IGNORECASE), "UPDATE"),
+    (re.compile(r'\bDELETE\b', re.IGNORECASE), "DELETE"),
+    (re.compile(r'\bEXEC(?:UTE)?\b', re.IGNORECASE), "EXEC"),
+    (re.compile(r'\bCALL\b', re.IGNORECASE), "CALL"),
+    (re.compile(r'\bSELECT\b', re.IGNORECASE), "SELECT"),
+]
+
+
+def detect_primary_sql_keyword(text: str) -> str | None:
+    """Return the dominant SQL verb in a fragment (earliest-positioned match)."""
+    best_kw = None
+    best_pos = None
+    for pattern, kw in _PRIMARY_KEYWORD_PATTERNS:
+        m = pattern.search(text)
+        if m and (best_pos is None or m.start() < best_pos):
+            best_pos = m.start()
+            best_kw = kw
+    return best_kw
+
+
 def extract_tables_from_text(
     func_text: str,
     func_name: str,
