@@ -53,8 +53,30 @@ description: Построение графа кодовой базы проек�
    ```
    python indexer/main.py .
    ```
+   Полный прогон строит и мост код→БД: инвентарный резолвер достраивает рёбра
+   `Function-[:QUERIES|INSERTS_INTO|UPDATES|DELETES_FROM|CALLS_SP]->DDL` к
+   существующим DDL-узлам (с `confidence`/`source`, без фантомных узлов). Чтобы
+   отключить резолвер — `python indexer/main.py . --no-resolver`.
 
 2. Дождись завершения. Индексатор выведет статистику: количество узлов и связей.
+
+### Этап 3.5: Регистрация MCP-сервера
+
+Чтобы остальные навыки могли обращаться к графу по MCP, зарегистрируй сервер
+`sa-helper-graph` (идемпотентно — при повторном запуске пересоздаётся):
+
+```
+claude mcp remove sa-helper-graph -s local 2>/dev/null
+claude mcp add sa-helper-graph -s local -- python indexer/server/mcp_server.py
+```
+
+Проверь подключение:
+```
+claude mcp get sa-helper-graph
+```
+
+Если сервер уже был подключён в текущей сессии, перечитай список инструментов:
+`/mcp` → `sa-helper-graph` → Reconnect (stdio-серверы не перечитывают код на лету).
 
 ### Этап 4: Отчёт
 

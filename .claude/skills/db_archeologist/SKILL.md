@@ -9,6 +9,7 @@ Neo4j-граф дополняет repomix-output.xml, а не заменяет �
 - **repomix-output.xml** — полный текст кода (чтение реализаций, SQL, комментариев)
 - **MCP-инструменты** (если sa-helper-graph подключён) — структура и связи (CALLS, QUERIES, DEPENDS_ON)
 - Оба источника используются одновременно; если MCP недоступен — только repomix
+- **Достоверность связей (`confidence`):** рёбра код→БД с `confidence='low'` или `source='inventory_resolver'` — выведенные (предположительные). В lineage помечай их как предполагаемые и подтверждай по фактическому SQL в repomix; точными считай связи без `confidence` или с `confidence='high'`.
 
 ## ПРИНЦИПЫ ВИЗУАЛИЗАЦИИ (Human-Centric Trace)
 
