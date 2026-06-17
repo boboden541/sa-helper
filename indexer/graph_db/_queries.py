@@ -198,6 +198,83 @@ class QueryMixin:
                     })
             return {"entity": entity, "dependents": dependents, "total": len(dependents)}
 
+    def query_introspect(self, limit: int | None = None) -> dict:
+        """Live schema introspection of the graph (labels, rel types, properties, shape).
+
+        Lets the model learn what is actually in the graph before writing ad-hoc
+        Cypher: every node label with its count and property names, every
+        relationship type, and the observed (label)-[REL]->(label) connectivity
+        patterns. The pattern list is capped (ordered by frequency) so the
+        response stays within MCP token limits.
+        """
+        limit, _ = _normalize_pagination(limit, 0)
+        with self.driver.session() as session:
+            labels = session.run(
+                "CALL db.labels() YIELD label RETURN label ORDER BY label"
+            ).value()
+            rel_types = session.run(
+                "CALL db.relationshipTypes() YIELD relationshipType AS r "
+                "RETURN r ORDER BY r"
+            ).value()
+
+            # Node counts per label (a node may carry several labels).
+            node_counts = {}
+            for rec in session.run(
+                "MATCH (n) UNWIND labels(n) AS label "
+                "RETURN label, count(*) AS c"
+            ):
+                node_counts[rec["label"]] = rec["c"]
+
+            # Property names per label — metadata-driven; tolerate older servers.
+            props: dict[str, set] = {}
+            try:
+                for rec in session.run(
+                    "CALL db.schema.nodeTypeProperties() "
+                    "YIELD nodeLabels, propertyName "
+                    "RETURN nodeLabels, propertyName"
+                ):
+                    if not rec["propertyName"]:
+                        continue
+                    for lab in rec["nodeLabels"]:
+                        props.setdefault(lab, set()).add(rec["propertyName"])
+            except Exception:
+                pass  # introspection procedure unavailable — return labels without props
+
+            # Observed connectivity, ordered by frequency, capped to `limit`.
+            patterns = []
+            pat_result = session.run(
+                "MATCH (a)-[r]->(b) "
+                "WITH labels(a)[0] AS f, type(r) AS rel, labels(b)[0] AS t, count(*) AS c "
+                "WHERE f IS NOT NULL AND t IS NOT NULL "
+                "RETURN f, rel, t, c ORDER BY c DESC LIMIT $limit",
+                limit=limit,
+            )
+            for rec in pat_result:
+                patterns.append({
+                    "from": rec["f"], "relationship": rec["rel"],
+                    "to": rec["t"], "count": rec["c"],
+                })
+
+            label_info = [
+                {
+                    "label": lab,
+                    "count": node_counts.get(lab, 0),
+                    "properties": sorted(props.get(lab, [])),
+                }
+                for lab in labels
+            ]
+
+            return {
+                "labels": label_info,
+                "relationship_types": rel_types,
+                "patterns": patterns,
+                "pagination": {
+                    "limit": limit,
+                    "pattern_count": len(patterns),
+                    "truncated": len(patterns) >= limit,
+                },
+            }
+
     def query_schema(self, limit: int | None = None, offset: int | None = None) -> dict:
         """Return aggregated project structure from the graph.
 

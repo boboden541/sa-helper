@@ -5,6 +5,7 @@ Uses FastMCP SDK for protocol handling. Transport: stdio.
 Tools exposed:
   - graph_call_chain(function_name, depth=3): Trace call chains from a function
   - graph_impact(entity_name, entity_type="auto"): Analyze entity dependencies
+  - graph_introspect(limit=100): Live schema (labels, rel types, properties, shape)
   - graph_schema(): Overview of project structure
   - graph_select_files(task_description): Select files relevant to a task
   - graph_export(entity_name=None, fmt="text"): Export graph data
@@ -104,6 +105,21 @@ def graph_impact(entity_name: str, entity_type: str = "auto") -> str:
         "graph_impact", "query_impact",
         entity_name, entity_type=entity_type,
     )
+
+
+@mcp.tool
+def graph_introspect(limit: int = 100) -> str:
+    """Introspect the live graph schema before writing ad-hoc Cypher.
+
+    Returns every node label (with count and property names), every relationship
+    type, and the observed (label)-[REL]->(label) connectivity patterns ordered
+    by frequency. Use this to discover exact label/property/relationship names so
+    graph_query Cypher matches what is actually in the graph.
+
+    Args:
+        limit: Max connectivity patterns to return (default 100, max 1000).
+    """
+    return _run_query("graph_introspect", "query_introspect", limit=limit)
 
 
 @mcp.tool

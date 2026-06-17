@@ -100,6 +100,28 @@ def cmd_impact(args):
         db.close()
 
 
+def cmd_introspect(args):
+    db = connect_db(args)
+    try:
+        result = db.query_introspect(limit=args.limit)
+        if args.format == "json":
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+        else:
+            print("=== Node labels ===")
+            for lab in result["labels"]:
+                props = ", ".join(lab["properties"])
+                print(f"  {lab['label']} ({lab['count']}): {props}")
+            print("\n=== Relationship types ===")
+            print("  " + ", ".join(result["relationship_types"]))
+            print(f"\n=== Connectivity patterns ({len(result['patterns'])}) ===")
+            for p in result["patterns"]:
+                print(f"  (:{p['from']})-[:{p['relationship']}]->(:{p['to']})  x{p['count']}")
+            if result["pagination"]["truncated"]:
+                print(f"\n  ... pattern list truncated at {result['pagination']['limit']}")
+    finally:
+        db.close()
+
+
 def cmd_schema(args):
     db = connect_db(args)
     try:
@@ -364,6 +386,11 @@ def main():
     p_imp.add_argument("--type", default="auto", choices=["class", "function", "table", "auto"])
     p_imp.add_argument("--format", choices=["text", "json"], default="text")
 
+    # introspect
+    p_int = sub.add_parser("introspect", help="Live graph schema: labels, rel types, properties, shape")
+    p_int.add_argument("--limit", type=int, default=None, help="Max connectivity patterns")
+    p_int.add_argument("--format", choices=["text", "json"], default="text")
+
     # schema
     p_sch = sub.add_parser("schema", help="Overview of project structure")
     p_sch.add_argument("--format", choices=["text", "json", "mermaid"], default="text")
@@ -420,6 +447,7 @@ def main():
     dispatch = {
         "call-chain": cmd_call_chain,
         "impact": cmd_impact,
+        "introspect": cmd_introspect,
         "schema": cmd_schema,
         "select-files": cmd_select_files,
         "export": cmd_export,
