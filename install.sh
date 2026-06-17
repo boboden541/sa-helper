@@ -86,8 +86,9 @@ echo -e "  ${BLUE}[1]${NC} Claude Code"
 echo -e "  ${BLUE}[2]${NC} Antigravity"
 echo -e "  ${BLUE}[3]${NC} Codex"
 echo -e "  ${BLUE}[4]${NC} OpenCode"
-echo -e "  ${BLUE}[5]${NC} DevX"
-echo -e "  ${BLUE}[6]${NC} Universal (.agents)"
+echo -e "  ${BLUE}[5]${NC} Cline"
+echo -e "  ${BLUE}[6]${NC} DevX"
+echo -e "  ${BLUE}[7]${NC} Universal (.agents)"
 echo ""
 read -p "Введите номер [1/7]: " AGENT_CHOICE
 
