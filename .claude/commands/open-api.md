@@ -31,7 +31,9 @@ description: Генерация машиночитаемой OpenAPI (Swagger) Y
 
 **Приоритет:** СТРОГОЕ соблюдение навыка `openapi-spec` (`.claude/skills/openapi-spec/SKILL.md`) и эталона `examples/ideal_openapi_spec.yaml`.
 
-**Ожидаемый результат:** файл `sa_documentation/openapi/<нормализованный_path>.yaml` — валидная OpenAPI 3.0.3 спецификация рассматриваемого метода, проходящая внешний линтер с 0 ошибок и рендерящаяся в IDE-плагине «OpenAPI (Swagger) Editor».
+**Ожидаемый результат:** **доменный** файл `sa_documentation/openapi/<domain>.yaml` (например `ticketland.yaml`), в который **дописывается** рассматриваемый метод (операция в `paths` + DTO в общий `components/schemas`). Файл — валидная OpenAPI 3.0.3 спецификация, проходящая внешний линтер с 0 ошибок и рендерящаяся в IDE-плагине «OpenAPI (Swagger) Editor».
+
+**Один файл на домен, не на метод.** DTO переиспользуются через общий `components/schemas` — но только если это **тот же класс в коде** (принцип идентичности 5а навыка). Разные классы с одинаковыми полями → разные схемы.
 
 **Целевая версия — OpenAPI 3.0.3.** Плагин «OpenAPI (Swagger) Editor» не поддерживает union-типы 3.1 (`type: [string, "null"]`) — обнуляемость кодируется `nullable: true`. См. `openapi-spec/SKILL.md`, принцип 3.
 
@@ -69,20 +71,14 @@ description: Генерация машиночитаемой OpenAPI (Swagger) Y
 1. Выдели из `<API + METHOD + PATH>`: имя API/сервиса, HTTP-метод, path.
 2. Зафиксируй path-параметры (`{id}`) — они станут `parameters` с `in: path`, `required: true`.
 
-### Этап 2: Имя файла (детерминированно)
+### Этап 2: Доменный файл и operationId (детерминированно)
 
-Нормализуй path по алгоритму (согласован с `context-gen.md:144-157`):
+**Файл — на домен**: `sa_documentation/openapi/<domain>.yaml`.
 
-1. Отбрось ведущий `/`.
-2. Остальные `/` → `_`; отбрось завершающий `/`.
-3. Параметры пути `{id}` → `by_<param>` (`{id}` → `by_id`).
-4. Коллизия одного path с разными методами → суффикс метода (`_get`, `_post`).
-5. Расширение `.yaml`. **Префикс `api_` НЕ добавляется** (папка `openapi/` уже разделяет артефакты).
+1. `<domain>` из хоста API (`servers[0].url`): `ticketland.ru` → `ticketland`. Если домен явно задан в аргументе — слугифицируй (lower-case; не-буквенно-цифровые → `_`).
+2. `operationId` (уникален в файле) из метода+path: `GET /api/shows/{id}` → `getApiShowsById`. Ключ в `paths` — сам путь.
 
-Целевой путь: `sa_documentation/openapi/<нормализованный_path>.yaml`.
-Примеры:
-- `GET /api/shows/{id}` → `sa_documentation/openapi/api_shows_by_id.yaml`
-- `POST /search/autocompleteMore/` → `sa_documentation/openapi/search_autocomplete_more.yaml`
+Целевой путь: `sa_documentation/openapi/<domain>.yaml` (например `sa_documentation/openapi/ticketland.yaml`).
 
 ### Этап 3: Сбор контекста (якоря истины)
 
@@ -96,15 +92,21 @@ description: Генерация машиночитаемой OpenAPI (Swagger) Y
 
 **Ветка harvest:** если фреймворк сам генерирует OpenAPI (FastAPI `/openapi.json`, Springdoc, NestJS, ASP.NET, drf-spectacular) — извлеки готовую спеку метода, а не синтезируй.
 
-### Этап 4: Reverse-engineering схем и генерация YAML
+### Этап 4: Reverse-engineering схем и merge в доменный файл
 
-1. Если папки `sa_documentation/openapi/` нет — создай.
-2. Собери схемы:
+1. Если папки `sa_documentation/openapi/` нет — создай. **Загрузи-или-создай** `<domain>.yaml`:
+   - нет файла → скелет (`openapi: 3.0.3`, `info`, `servers`, пустые `paths`, `components.schemas`);
+   - есть файл → распарси текущие `paths` и `components.schemas` для мёржа.
+2. Собери схемы метода:
    a. Вход: path/query/header-параметры, `requestBody` (для методов с телом).
    b. Выход: успешный ответ (`2xx`) + ошибки (`4xx`/`5xx`), явно обрабатываемые в коде.
 3. Для каждого поля примени `openapi_field_model.md`: `type`(+`format`), `required`, `nullable: true`, `pattern`, `minLength`/`maxLength`, `minimum`/`maximum`, `enum`, `example` — но ТОЛЬКО то, что подтверждено кодом (принцип 2 навыка).
-4. Именованные DTO → `components/schemas/<Name>`, ссылки через `$ref`.
-5. Запиши файл по структуре эталона. Версия — `openapi: 3.0.3`.
+4. **Добавь операцию** в `paths.<path>.<method>` (если уже есть — обнови и предупреди).
+5. **Мёрж DTO по идентичности (принцип 5а навыка):** перед добавлением каждой схемы ищи в `components/schemas` схему с тем же `x-source` (FQCN/файл класса):
+   - совпало → переиспользуй (`$ref`), не дублируй;
+   - не совпало → новая схема (имя класса; при коллизии разных классов — префикс модуля, напр. `Shows_Building`).
+   - Указывай `x-source` у каждой схемы — это ключ идентичности для будущих мёржей.
+6. Запиши обновлённый файл целиком. Версия — `openapi: 3.0.3`.
 
 ### Этап 5: Объективная валидация и самокоррекция — ОБЯЗАТЕЛЬНО
 
