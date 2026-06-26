@@ -182,6 +182,7 @@ flowchart TD
 | `/arch-gen` | Формирование архитектуры | C4 Level 3 диаграмма (PlantUML) |
 | `/data-trace` | Формирование DataFlow | Диаграмма по сущности или атрибуту |
 | `/create-doc` | Генерация документа | Спецификация API / метода / артефакта |
+| `/open-api` | Генерация OpenAPI-спеки | `sa_documentation/openapi/<path>.yaml` (Swagger, OpenAPI 3.0.3) |
 | `/validate-doc` | Тотальная проверка | Аудит на соответствие коду и стандартам |
 
 ### Системные требования (FNR Pipeline)

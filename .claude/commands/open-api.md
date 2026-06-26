@@ -1,0 +1,141 @@
+---
+description: Генерация машиночитаемой OpenAPI (Swagger) YAML-спецификации одного API-метода из кода
+---
+
+## Использование
+
+```
+/open-api <API + METHOD + PATH>
+```
+
+**Параметры:**
+
+- `<API + METHOD + PATH>` — имя API/сервиса/домена, HTTP-метод и path эндпоинта.
+  Например: `Catalog GET /api/shows/{id}` или `POST /search/autocompleteMore/`.
+
+## Примеры
+
+```
+/open-api Catalog GET /api/shows/{id}
+```
+
+```
+/open-api GET /api/shows/{id}
+**Необходимый контекст (Файлы):**
+- [ ] `routes/api.php` (Routing)
+- [ ] `app/Http/Controllers/ShowController.php` (Contract)
+- [ ] `app/DTO/ShowResource.php` (Model)
+```
+
+## Важно
+
+**Приоритет:** СТРОГОЕ соблюдение навыка `openapi-spec` (`.claude/skills/openapi-spec/SKILL.md`) и эталона `examples/ideal_openapi_spec.yaml`.
+
+**Ожидаемый результат:** файл `sa_documentation/openapi/<нормализованный_path>.yaml` — валидная OpenAPI 3.0.3 спецификация рассматриваемого метода, проходящая внешний линтер с 0 ошибок и рендерящаяся в IDE-плагине «OpenAPI (Swagger) Editor».
+
+**Целевая версия — OpenAPI 3.0.3.** Плагин «OpenAPI (Swagger) Editor» не поддерживает union-типы 3.1 (`type: [string, "null"]`) — обнуляемость кодируется `nullable: true`. См. `openapi-spec/SKILL.md`, принцип 3.
+
+**Универсальность:** команда не привязана к конкретному стеку, БД или фреймворку.
+
+---
+
+## Инструкция для LLM
+
+### Графовый контекст (complement-модель)
+
+Граф дополняет repomix-output.xml, а не заменяет его. Используй оба источника одновременно:
+
+- **repomix-output.xml** — полный текст кода (DTO, контроллеры, валидаторы, конфиги роутинга)
+- **MCP-инструменты** (если sa-helper-graph подключён) — структура и связи
+
+**Графовые запросы для данной команды:**
+
+- `graph_introspect` — реальные метки/свойства/связи графа перед запросами
+- `graph_export` — подграф вокруг контроллера/метода (точки входа, связи)
+- `graph_call_chain` — цепочка вызовов от обработчика эндпоинта
+- `graph_impact` — зависимые компоненты (DTO, сервисы)
+
+Если MCP-инструменты недоступны — пропусти графовые запросы, продолжай с repomix-output.xml / живым кодом.
+
+### Этап 0: Загрузка роли — ОБЯЗАТЕЛЬНО
+
+1. Загрузи навык `.claude/skills/openapi-spec/SKILL.md` — твоя персона и методология.
+2. Открой эталон `.claude/skills/openapi-spec/examples/ideal_openapi_spec.yaml` — образец структуры (структура берётся ИЗ ЭТАЛОНА, не из соседних `.yaml`).
+3. Загрузи `.claude/skills/openapi-spec/resources/openapi_field_model.md` — таблицу «код → ключ OpenAPI».
+4. Загрузи `.claude/skills/openapi-spec/resources/openapi_validation_checklist.md` — критерии готовности.
+
+### Этап 1: Разбор аргумента
+
+1. Выдели из `<API + METHOD + PATH>`: имя API/сервиса, HTTP-метод, path.
+2. Зафиксируй path-параметры (`{id}`) — они станут `parameters` с `in: path`, `required: true`.
+
+### Этап 2: Имя файла (детерминированно)
+
+Нормализуй path по алгоритму (согласован с `context-gen.md:144-157`):
+
+1. Отбрось ведущий `/`.
+2. Остальные `/` → `_`; отбрось завершающий `/`.
+3. Параметры пути `{id}` → `by_<param>` (`{id}` → `by_id`).
+4. Коллизия одного path с разными методами → суффикс метода (`_get`, `_post`).
+5. Расширение `.yaml`. **Префикс `api_` НЕ добавляется** (папка `openapi/` уже разделяет артефакты).
+
+Целевой путь: `sa_documentation/openapi/<нормализованный_path>.yaml`.
+Примеры:
+- `GET /api/shows/{id}` → `sa_documentation/openapi/api_shows_by_id.yaml`
+- `POST /search/autocompleteMore/` → `sa_documentation/openapi/search_autocomplete_more.yaml`
+
+### Этап 3: Сбор контекста (якоря истины)
+
+Переиспользуй правила добычи из навыка `technical-documentation` (следуй, не копируй). Найди:
+
+- **Anchor 1 (Routing):** конфиг роутинга / аннотация контроллера — маппинг path → метод.
+- **Anchor 2 (Contract):** контроллер/интерфейс/прото — сигнатура, входные параметры, тип ответа.
+- **Anchor 3 (Model):** DTO/Entity/сериализатор — ПОЛНЫЙ состав полей и их ограничений.
+
+Не приступай к генерации, пока не найдены ≥2 из 3 якорей. Недостающее → `[NEEDS_INVESTIGATION]`.
+
+**Ветка harvest:** если фреймворк сам генерирует OpenAPI (FastAPI `/openapi.json`, Springdoc, NestJS, ASP.NET, drf-spectacular) — извлеки готовую спеку метода, а не синтезируй.
+
+### Этап 4: Reverse-engineering схем и генерация YAML
+
+1. Если папки `sa_documentation/openapi/` нет — создай.
+2. Собери схемы:
+   a. Вход: path/query/header-параметры, `requestBody` (для методов с телом).
+   b. Выход: успешный ответ (`2xx`) + ошибки (`4xx`/`5xx`), явно обрабатываемые в коде.
+3. Для каждого поля примени `openapi_field_model.md`: `type`(+`format`), `required`, `nullable: true`, `pattern`, `minLength`/`maxLength`, `minimum`/`maximum`, `enum`, `example` — но ТОЛЬКО то, что подтверждено кодом (принцип 2 навыка).
+4. Именованные DTO → `components/schemas/<Name>`, ссылки через `$ref`.
+5. Запиши файл по структуре эталона. Версия — `openapi: 3.0.3`.
+
+### Этап 5: Объективная валидация и самокоррекция — ОБЯЗАТЕЛЬНО
+
+Прогон внешнего валидатора через Bash (порядок предпочтения):
+
+1. **Основной:**
+   ```bash
+   npx --yes @redocly/cli@latest lint --extends minimal sa_documentation/openapi/<file>.yaml
+   ```
+   Флаг `--extends minimal` проверяет структурную конформность (как плагин IDE) и не навязывает governance-правила (`security`/`license`), чтобы не выдумывать отсутствующее в коде.
+2. **Фолбэк (нет Node/`npx`):**
+   ```bash
+   python -m openapi_spec_validator sa_documentation/openapi/<file>.yaml
+   ```
+3. **Деградация (нет обоих):** проверка синтаксиса YAML
+   ```bash
+   python -c "import yaml,sys; yaml.safe_load(open(sys.argv[1])); print('YAML OK')" sa_documentation/openapi/<file>.yaml
+   ```
+   и **явно предупреди** пользователя, что семантическая валидация пропущена (нет валидатора).
+
+**Цикл самокоррекции:** пока валидатор возвращает ошибки — исправляй спеку и перезапускай линтер. Предел — **5 итераций**. По исчерпании файл НЕ удаляй, выдай отчёт с остаточными ошибками.
+
+Сверься с `openapi_validation_checklist.md` (все Hard Gates 🔴 должны быть закрыты), особое внимание:
+- каждый `type` — одиночная строка (нет union-типов 3.1);
+- нет висячих `$ref`, каждый `array` имеет `items`;
+- нет выдуманных ограничений.
+
+### Этап 6: Завершение
+
+Выведи:
+1. Путь к файлу `.yaml`.
+2. Итог валидации: имя валидатора, число errors/warnings.
+3. Список полей с пометкой `[NEEDS_INVESTIGATION]`, если они есть.
+4. Сообщение: "Спецификация готова. Откройте `sa_documentation/openapi/<file>.yaml` в плагине «OpenAPI (Swagger) Editor» для рендера."
