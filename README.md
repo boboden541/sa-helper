@@ -184,6 +184,7 @@ flowchart TD
 | `/create-doc` | Генерация документа | Спецификация API / метода / артефакта |
 | `/open-api` | Генерация OpenAPI-спеки | `sa_documentation/openapi/<path>.yaml` (Swagger, OpenAPI 3.0.3) |
 | `/validate-doc` | Тотальная проверка | Аудит на соответствие коду и стандартам |
+| `/prd-grooming` | Груминг PRD (понятность / валидность / реализуемость / противоречия) | `sa_documentation/prd/{file_name}.md` |
 
 ### Системные требования (FNR Pipeline)
 
@@ -279,6 +280,7 @@ flowchart TD
 | `solution-designer/` | Генерация спектра решений |
 | `architectural-debate/` | Дебаты: Архитектор vs Адвокат Дьявола |
 | `system-analyst-sysreq/` | Формирование системных требований |
+| `prd-groomer/` | Груминг PRD: диагностика требований и отчёт о находках |
 
 ---
 
