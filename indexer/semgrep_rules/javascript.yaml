@@ -1,0 +1,34 @@
+rules:
+  - id: sa-helper.js.class-definition
+    patterns:
+      - pattern: "class $NAME { ... }"
+    message: "JavaScript class definition"
+    languages: [javascript, typescript]
+    severity: INFO
+    metadata:
+      entity_type: class
+
+  - id: sa-helper.js.function-definition
+    patterns:
+      - pattern-either:
+          - pattern: "function $NAME(...) { ... }"
+          - pattern: "const $NAME = (...) => { ... }"
+          - pattern: "let $NAME = (...) => { ... }"
+    message: "JavaScript function definition"
+    languages: [javascript, typescript]
+    severity: INFO
+    metadata:
+      entity_type: function
+
+  - id: sa-helper.js.endpoint-express
+    patterns:
+      - pattern-either:
+          - pattern: "$APP.get($ROUTE, ...)"
+          - pattern: "$APP.post($ROUTE, ...)"
+          - pattern: "$APP.put($ROUTE, ...)"
+          - pattern: "$APP.delete($ROUTE, ...)"
+    message: "Express / Fastify REST Endpoint"
+    languages: [javascript, typescript]
+    severity: INFO
+    metadata:
+      entity_type: endpoint

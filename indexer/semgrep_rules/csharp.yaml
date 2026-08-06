@@ -1,0 +1,33 @@
+rules:
+  - id: sa-helper.csharp.class-definition
+    patterns:
+      - pattern: "class $NAME { ... }"
+    message: "C# class definition"
+    languages: [csharp]
+    severity: INFO
+    metadata:
+      entity_type: class
+
+  - id: sa-helper.csharp.method-definition
+    patterns:
+      - pattern: "$TYPE $NAME(...) { ... }"
+    message: "C# method definition"
+    languages: [csharp]
+    severity: INFO
+    metadata:
+      entity_type: function
+
+  - id: sa-helper.csharp.endpoint-aspnet
+    patterns:
+      - pattern-either:
+          - pattern: |
+              [HttpGet($ROUTE)]
+              $TYPE $METHOD(...) { ... }
+          - pattern: |
+              [HttpPost($ROUTE)]
+              $TYPE $METHOD(...) { ... }
+    message: "C# ASP.NET REST Endpoint"
+    languages: [csharp]
+    severity: INFO
+    metadata:
+      entity_type: endpoint

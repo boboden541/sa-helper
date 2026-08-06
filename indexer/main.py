@@ -11,16 +11,26 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 # Allow running from project root: python indexer/main.py
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from scanner import scan, is_supported_file
+from scanner import scan, is_supported_file, detect_stack
 from graph_db import GraphDB
 from git_utils import get_head_commit, get_changed_files, is_git_repo
+from semgrep_indexer import SemgrepIndexer
 from collections import Counter
+
+
+_WORKER_INDEXER = None
+
+
+def _get_worker_indexer() -> SemgrepIndexer:
+    global _WORKER_INDEXER
+    if _WORKER_INDEXER is None:
+        _WORKER_INDEXER = SemgrepIndexer()
+    return _WORKER_INDEXER
 
 
 def _parse_file(task: tuple) -> dict | None:
     """Worker function for parallel parsing. Runs in child process."""
     abs_path, lang, rel_path = task
-    from parsers import get_parser
 
     try:
         with open(abs_path, "rb") as f:
@@ -30,20 +40,24 @@ def _parse_file(task: tuple) -> dict | None:
 
     line_count = source.count(b"\n") + 1
 
-    parser = get_parser(lang)
-    if parser is None:
-        return {
-            "file_meta": {
-                "rel_path": rel_path,
-                "language": lang,
-                "lines": line_count,
-                "bytes": len(source),
-            },
-            "parsed": None,
+    try:
+        indexer = _get_worker_indexer()
+        res_dict = indexer.process(str(Path(abs_path).parent), [(abs_path, lang, rel_path)])
+
+        result = {
+            "classes": res_dict.get("classes", []),
+            "functions": res_dict.get("functions", []),
+            "imports": res_dict.get("imports", []),
+            "calls": res_dict.get("calls", []),
+            "tables": res_dict.get("tables", []),
+            "endpoints": res_dict.get("endpoints", []),
+            "external_services": res_dict.get("external_services", []),
+            "framework_usage": res_dict.get("framework_usage", []),
+            "db_objects": res_dict.get("db_objects", []),
+            "config_entries": res_dict.get("config_entries", []),
+            "scheduled_tasks": res_dict.get("scheduled_tasks", []),
         }
 
-    try:
-        result = parser.parse(source, rel_path)
     except Exception as e:
         return {
             "file_meta": {
@@ -65,6 +79,7 @@ def _parse_file(task: tuple) -> dict | None:
         },
         "parsed": result,
     }
+
 
 
 def _connect_db(neo4j_uri, neo4j_user, neo4j_pass):
@@ -158,12 +173,21 @@ def _parse_files_parallel(root: Path, file_tasks: list[tuple]) -> tuple:
         futures = {executor.submit(_parse_file, t): t[2] for t in file_tasks}
         done_count = 0
         total = len(futures)
+        bar_length = 30
+
         for future in as_completed(futures):
             done_count += 1
-            if total <= 20 or done_count % 200 == 0 or done_count == total:
-                print(f"  Parsed {done_count}/{total} files...")
+            if total <= 100 or done_count % 20 == 0 or done_count == total:
+                percent = (done_count / total) * 100 if total > 0 else 100
+                filled = int(bar_length * done_count // total) if total > 0 else bar_length
+                bar = "█" * filled + "░" * (bar_length - filled)
+                sys.stdout.write(f"\r  Parsing files: [{bar}] {percent:5.1f}% ({done_count}/{total})")
+                sys.stdout.flush()
+                if done_count == total:
+                    sys.stdout.write("\n")
 
             result = future.result()
+
             if result is None:
                 continue
 
@@ -385,6 +409,10 @@ def index_project(
         print("No parseable files found.")
         return
 
+    detected_stack = detect_stack(str(root))
+    stack_str = ", ".join(f"{lang} ({cnt})" for lang, cnt in sorted(detected_stack.items()))
+    print(f"  [Semgrep Auto-Stack] Detected tech stack: {stack_str or 'Unknown'}")
+
     lang_dist = {}
     for _, lang, _ in files:
         lang_dist[lang] = lang_dist.get(lang, 0) + 1
@@ -392,6 +420,7 @@ def index_project(
         print(f"  {lang}: {count} files")
     print(f"  Total: {len(files)} files")
     print()
+
 
     # 3. Connect to Neo4j
     print("Connecting to Neo4j...")

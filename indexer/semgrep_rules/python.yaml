@@ -1,0 +1,46 @@
+rules:
+  - id: sa-helper.python.class-definition
+    patterns:
+      - pattern: |
+          class $NAME(...):
+              ...
+    message: "Python class definition"
+    languages: [python]
+    severity: INFO
+    metadata:
+      entity_type: class
+
+  - id: sa-helper.python.function-definition
+    patterns:
+      - pattern: |
+          def $NAME(...):
+              ...
+    message: "Python function or method definition"
+    languages: [python]
+    severity: INFO
+    metadata:
+      entity_type: function
+
+  - id: sa-helper.python.endpoint-fastapi
+    patterns:
+      - pattern-either:
+          - pattern: "@$APP.get($ROUTE, ...)"
+          - pattern: "@$APP.post($ROUTE, ...)"
+          - pattern: "@$APP.put($ROUTE, ...)"
+          - pattern: "@$APP.delete($ROUTE, ...)"
+          - pattern: "@$APP.patch($ROUTE, ...)"
+          - pattern: "@$APP.route($ROUTE, ...)"
+    message: "Python Web REST Endpoint"
+    languages: [python]
+    severity: INFO
+    metadata:
+      entity_type: endpoint
+
+  - id: sa-helper.python.sql-table
+    patterns:
+      - pattern-regex: "(?i)(FROM|JOIN|UPDATE|INSERT INTO)\\s+([a-zA-Z0-9_]+)"
+    message: "Database table reference"
+    languages: [python]
+    severity: INFO
+    metadata:
+      entity_type: table

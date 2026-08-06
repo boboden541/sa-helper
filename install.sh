@@ -193,16 +193,28 @@ fi
 # Удаление .DS_Store
 find "$TARGET_DIR" -name ".DS_Store" -delete
 
-# 5.1 Установка индексатора графа
+# 5.1 Установка индексатора графа (Semgrep Engine)
 if [ -d "$TEMP_DIR/indexer" ]; then
-    echo -e "${YELLOW}📊 Установка индексатора графа...${NC}"
-    mkdir -p "indexer/parsers"
+    echo -e "${YELLOW}📊 Установка индексатора графа (Semgrep Engine)...${NC}"
+    
+    # Проверка и установка Semgrep CLI
+    if ! command -v semgrep &> /dev/null; then
+        echo -e "${YELLOW}⚙️ Semgrep CLI не найден в PATH. Попытка установки через pip...${NC}"
+        pip install semgrep &> /dev/null || brew install semgrep &> /dev/null || echo -e "${YELLOW}⚠️ Не удалось установить Semgrep CLI через сеть. Адаптер автоматически включит автономный Tree-sitter fallback.${NC}"
+    fi
+
+    mkdir -p "indexer/semgrep_rules"
     cp -R "$TEMP_DIR/indexer/." "indexer/"
     chmod +x "indexer/main.py" 2>/dev/null
 fi
 
-# 6. Очистка временной папки
-rm -rf "$TEMP_DIR"
+
+# 6. Надежная очистка временной папки (с поддержкой Windows/Git Bash)
+chmod -R 777 "$TEMP_DIR" 2>/dev/null || true
+rm -rf "$TEMP_DIR" 2>/dev/null || true
+if [ -d "$TEMP_DIR" ]; then
+    powershell.exe -Command "Remove-Item -Recurse -Force '$TEMP_DIR'" 2>/dev/null || true
+fi
 
 # 7. Финальное сообщение
 echo ""
@@ -220,16 +232,19 @@ else
     echo -e "              └── ${SKILL_DIR}/     (навыки с frontmatter)"
 fi
 echo ""
-echo -e "Доступные команды:"
+echo -e "Доступные команды (13 команд):"
 echo -e "  ${BLUE}/context-gen${NC}              — Подготовка контекста"
 echo -e "  ${BLUE}/arch-gen${NC}                 — Генерация архитектуры (C4)"
 echo -e "  ${BLUE}/data-trace${NC}               — Генерация DataFlow"
 echo -e "  ${BLUE}/create-doc${NC}               — Генерация документации"
-echo -e "  ${BLUE}/validate-doc${NC}             — Проверка на ошибки"
-echo -e "  ${BLUE}/fnr-new-task${NC}             — Постановка задачи"
-echo -e "  ${BLUE}/fnr-concept${NC}              — Генерация решений"
+echo -e "  ${BLUE}/open-api${NC}                 — Генерация OpenAPI-спецификации"
+echo -e "  ${BLUE}/validate-doc${NC}             — Тотальный аудит документа"
+echo -e "  ${BLUE}/prd-grooming${NC}             — Груминг требований PRD"
+echo -e "  ${BLUE}/bft-build${NC}                — Построение БФТ из PRD/текста"
+echo -e "  ${BLUE}/fnr-new-task${NC}             — Анализ проблемы и корня в коде"
+echo -e "  ${BLUE}/fnr-concept${NC}              — Генерация спектра решений"
 echo -e "  ${BLUE}/fnr-debate${NC}               — Архитектурные дебаты"
-echo -e "  ${BLUE}/fnr-system-requirements${NC}  — Системные требования"
+echo -e "  ${BLUE}/fnr-system-requirements${NC}  — Формирование BR/FR/NFR + Jira"
 echo -e "  ${BLUE}/project-map${NC}             — Построение графа проекта (Neo4j)"
 echo ""
 echo -e "${YELLOW}⚠️  Важно: Перезагрузите IDE (Reload Window).${NC}"
@@ -237,3 +252,4 @@ echo -e "${BLUE}==========================================${NC}"
 
 # Очистка возможных stale temp-файлов от старых версий
 rm -f /tmp/sa-helper-install.*.sh 2>/dev/null
+

@@ -1,0 +1,56 @@
+rules:
+  - id: sa-helper.java.class-definition
+    patterns:
+      - pattern-either:
+          - pattern: "class $NAME { ... }"
+          - pattern: "interface $NAME { ... }"
+          - pattern: "enum $NAME { ... }"
+    message: "Java class or interface definition"
+    languages: [java]
+    severity: INFO
+    metadata:
+      entity_type: class
+
+  - id: sa-helper.java.method-definition
+    patterns:
+      - pattern: "$TYPE $NAME(...) { ... }"
+    message: "Java method definition"
+    languages: [java]
+    severity: INFO
+    metadata:
+      entity_type: function
+
+  - id: sa-helper.java.endpoint-spring-get
+    patterns:
+      - pattern: |
+          @GetMapping(...)
+          $TYPE $METHOD(...) { ... }
+    message: "Spring GET REST Endpoint"
+    languages: [java]
+    severity: INFO
+    metadata:
+      entity_type: endpoint
+      http_method: GET
+
+  - id: sa-helper.java.endpoint-spring-post
+    patterns:
+      - pattern: |
+          @PostMapping(...)
+          $TYPE $METHOD(...) { ... }
+    message: "Spring POST REST Endpoint"
+    languages: [java]
+    severity: INFO
+    metadata:
+      entity_type: endpoint
+      http_method: POST
+
+  - id: sa-helper.java.endpoint-spring-request
+    patterns:
+      - pattern: |
+          @RequestMapping(...)
+          $TYPE $METHOD(...) { ... }
+    message: "Spring RequestMapping REST Endpoint"
+    languages: [java]
+    severity: INFO
+    metadata:
+      entity_type: endpoint

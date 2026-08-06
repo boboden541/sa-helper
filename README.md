@@ -40,7 +40,7 @@
 | Платформа | Команда |
 |-----------|---------|
 | **macOS / Linux** | `curl -sSL https://raw.githubusercontent.com/boboden541/sa-helper/main/install.sh \| bash` |
-| **Windows (Обязательное через терминал Git Bash)** | `curl -sSL https://raw.githubusercontent.com/boboden541/sa-helper/main/install.sh -o /tmp/sa-install.sh && bash /tmp/sa-install.sh && rm /tmp/sa-install.sh` |
+| **Windows (Git Bash)** | `curl --ssl-no-revoke -sSL https://raw.githubusercontent.com/boboden541/sa-helper/main/install.sh -o /tmp/sa-install.sh && bash /tmp/sa-install.sh && rm -f /tmp/sa-install.sh` |
 
 > **Обновление после правок эталонов и ресурсов.** Команды и навыки работают с **установленной** копией в вашем проекте. Если изменились эталоны (`examples/`) или ресурсы навыков (`resources/`) — запустите установку повторно, иначе установленная копия останется на прежней версии и команды продолжат работать по старым правилам.
 
@@ -68,7 +68,7 @@
 2. Запишите алиас:
 
 ```bash
-echo "alias init_sa='curl -sSL https://raw.githubusercontent.com/boboden541/sa-helper/main/install.sh -o /tmp/sa-install.sh && bash /tmp/sa-install.sh && rm /tmp/sa-install.sh'" >> ~/.zshrc
+echo "alias init_sa='curl -sSL https://raw.githubusercontent.com/boboden541/sa-helper/main/install.sh -o /tmp/sa-install.sh && bash /tmp/sa-install.sh && rm -f /tmp/sa-install.sh'" >> ~/.zshrc
 ```
 
 1. Примените: `source ~/.zshrc`
@@ -80,11 +80,11 @@ echo "alias init_sa='curl -sSL https://raw.githubusercontent.com/boboden541/sa-h
 ```bash
 # zsh
 sed -i '' '/alias init_sa/d' ~/.zshrc
-echo "alias init_sa='curl -sSL https://raw.githubusercontent.com/boboden541/sa-helper/main/install.sh -o /tmp/sa-install.sh && bash /tmp/sa-install.sh && rm /tmp/sa-install.sh'" >> ~/.zshrc
+echo "alias init_sa='curl -sSL https://raw.githubusercontent.com/boboden541/sa-helper/main/install.sh -o /tmp/sa-install.sh && bash /tmp/sa-install.sh && rm -f /tmp/sa-install.sh'" >> ~/.zshrc
 
 # bash — замените sed -i '' на sed -i
 sed -i '/alias init_sa/d' ~/.bashrc
-echo "alias init_sa='curl -sSL https://raw.githubusercontent.com/boboden541/sa-helper/main/install.sh -o /tmp/sa-install.sh && bash /tmp/sa-install.sh && rm /tmp/sa-install.sh'" >> ~/.bashrc
+echo "alias init_sa='curl -sSL https://raw.githubusercontent.com/boboden541/sa-helper/main/install.sh -o /tmp/sa-install.sh && bash /tmp/sa-install.sh && rm -f /tmp/sa-install.sh'" >> ~/.bashrc
 ```
 
 </details>
@@ -103,9 +103,10 @@ notepad $PROFILE
 
 ```powershell
 function init_sa {
-    git clone --depth 1 https://github.com/boboden541/sa-helper.git $env:TEMP\sa-helper
-    bash $env:TEMP\sa-helper\install.sh
-    Remove-Item -Recurse -Force $env:TEMP\sa-helper
+    $tempDir = Join-Path $env:TEMP "sa-helper-$(Get-Random)"
+    git clone --depth 1 https://github.com/boboden541/sa-helper.git $tempDir
+    bash "$tempDir\install.sh"
+    Remove-Item -Recurse -Force $tempDir -ErrorAction SilentlyContinue
 }
 ```
 
@@ -134,10 +135,12 @@ flowchart TD
     B -->|"Архитектура"| C["/arch-gen"]
     B -->|"DataFlow"| D["/data-trace"]
     B -->|"API / Документ"| E["/create-doc"]
+    B -->|"OpenAPI 3.0"| OA["/open-api"]
 
     C -->|"C4 L3 диаграмма"| F["/validate-doc"]
     D -->|"DataFlow диаграмма"| F
     E -->|"Спецификация / артефакт"| F
+    OA -->|"OpenAPI yaml"| F
 
     F -->|"Аудит пройден"| G(("Done"))
     F -->|"Ошибки найдены"| E
@@ -172,9 +175,23 @@ flowchart TD
     style H fill:#51cf66,color:#fff
 ```
 
+### Процесс 3: Анализ требований (PRD Grooming & BFT)
+
+```mermaid
+flowchart TD
+    PRD["PRD документ / ТЗ"] --> B["/prd-grooming"]
+    B -->|"Отчёт о находках и дефектах"| C["/bft-build"]
+    C -->|"БФТ спецификация (bft_name.md)"| D["/fnr-new-task"]
+
+    style PRD fill:#4a9eff,color:#fff
+    style B fill:#9c36b5,color:#fff
+    style C fill:#2b8a3e,color:#fff
+    style D fill:#ffd43b,color:#000
+```
+
 ---
 
-## 🛠 Доступные команды
+## 🛠 Доступные команды (13 команд)
 
 ### Реверс‑инжиниринг
 
@@ -187,7 +204,8 @@ flowchart TD
 | `/open-api` | Генерация OpenAPI-спеки | `sa_documentation/openapi/<path>.yaml` (Swagger, OpenAPI 3.0.3) |
 | `/validate-doc` | Тотальная проверка | Аудит на соответствие коду и стандартам |
 | `/prd-grooming` | Груминг PRD (понятность / валидность / реализуемость / противоречия) | `sa_documentation/prd/{file_name}.md` |
-| `/bft-build` | Построение БФТ по входящему контексту (PRD / текст / отчёт груминга) с учётом ограничений системы | `sa_documentation/bft/{bft_name}.md` |
+| `/bft-build` | Построение БФТ по входящему контексту (PRD / текст / отчёт груминга) | `sa_documentation/bft/{bft_name}.md` |
+| `/project-map` | Сканирование и построение графа Neo4j | Графовая карта классов, функций, SQL и REST-вызовов |
 
 ### Системные требования (FNR Pipeline)
 
@@ -196,7 +214,8 @@ flowchart TD
 | `/fnr-new-task` | Problem Analyst | Анализ проблемы, поиск корня в коде | `FNR/FNR_N/task.md` |
 | `/fnr-concept` | Solution Designer | Спектр решений: от чистой архитектуры до костыля | `FNR/FNR_N/concept.md` |
 | `/fnr-debate` | Architectural Debate | Архитектор vs Адвокат Дьявола — 3 раунда | Вердикт дописан в `concept.md` |
-| `/fnr-system-requirements` | System Requirements Analyst | BR / FR / NFR + Jira‑декомпозиция; описание каждой доработки двухуровневое: «Общее описание доработки» (обзорный уровень) + «Описание доработок» (системно‑аналитический уровень) | `FNR/FNR_N/system_requirements.md` |
+| `/fnr-system-requirements` | System Requirements Analyst | BR / FR / NFR + Jira‑декомпозиция; двухслойное описание | `FNR/FNR_N/system_requirements.md` |
+
 
 ---
 
@@ -412,6 +431,8 @@ Remove-Item -Recurse -Force $env:TEMP\sa-gt
 
 </details>
 
+Индексатор построения архитектурной карты проекта работает на базе промышленного статичного анализатора **Semgrep Engine** с поддержкой автоматического определения языкового стека и декларативных YAML-правил (`indexer/semgrep_rules/`). Для автономных и закрытых контуров предусмотрен прозрачный встроенный fallback на `py-tree-sitter`.
+
 #### Шаг 2: Создайте окружение и установите зависимости
 
 <details>
@@ -434,6 +455,7 @@ python -m venv .venv
 </details>
 
 #### Шаг 3: Запустите базу и проиндексируйте проект
+
 
 ```bash
 # Запустите Neo4j

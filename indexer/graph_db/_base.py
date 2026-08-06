@@ -114,14 +114,29 @@ class GraphDBBase:
             indexes = [
                 "CREATE INDEX IF NOT EXISTS FOR (f:Function) ON (f.name)",
                 "CREATE INDEX IF NOT EXISTS FOR (f:Function) ON (f.file)",
+                "CREATE INDEX IF NOT EXISTS FOR (f:Function) ON (f.name, f.file)",
                 "CREATE INDEX IF NOT EXISTS FOR (c:Class) ON (c.name)",
                 "CREATE INDEX IF NOT EXISTS FOR (c:Class) ON (c.file)",
+                "CREATE INDEX IF NOT EXISTS FOR (c:Class) ON (c.name, c.file)",
                 "CREATE INDEX IF NOT EXISTS FOR (file:File) ON (file.path)",
                 "CREATE INDEX IF NOT EXISTS FOR (dir:Directory) ON (dir.path)",
                 "CREATE INDEX IF NOT EXISTS FOR (t:Table) ON (t.schema, t.name)",
                 "CREATE INDEX IF NOT EXISTS FOR (v:View) ON (v.schema, v.name)",
                 "CREATE INDEX IF NOT EXISTS FOR (sp:StoredProcedure) ON (sp.schema, sp.name)",
                 "CREATE INDEX IF NOT EXISTS FOR (df:DatabaseFunction) ON (df.schema, df.name)",
+                "CREATE INDEX IF NOT EXISTS FOR (e:Endpoint) ON (e.name)",
+                "CREATE INDEX IF NOT EXISTS FOR (e:Endpoint) ON (e.name, e.type)",
+                "CREATE INDEX IF NOT EXISTS FOR (e:Endpoint) ON (e.file)",
+                "CREATE INDEX IF NOT EXISTS FOR (i:Import) ON (i.source)",
+                "CREATE INDEX IF NOT EXISTS FOR (i:Import) ON (i.file)",
+                "CREATE INDEX IF NOT EXISTS FOR (i:Import) ON (i.source, i.file)",
+                "CREATE INDEX IF NOT EXISTS FOR (ext:ExternalClass) ON (ext.name)",
+                "CREATE INDEX IF NOT EXISTS FOR (st:ScheduledTask) ON (st.name, st.file)",
+                "CREATE INDEX IF NOT EXISTS FOR (ce:ConfigEntry) ON (ce.key, ce.file)",
             ]
             for idx in indexes:
                 session.run(idx)
+
+
+
+

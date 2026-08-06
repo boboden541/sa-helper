@@ -144,3 +144,14 @@ def scan(project_path: str) -> list[tuple[str, str]]:
             results.append((str(filepath), lang, rel_path))
 
     return results
+
+
+def detect_stack(project_path: str) -> dict[str, int]:
+    """Detect programming language stack and file counts for a project."""
+    files = scan(project_path)
+    counts: dict[str, int] = {}
+    for _, lang, _ in files:
+        if lang not in ("config", "cron"):
+            counts[lang] = counts.get(lang, 0) + 1
+    return counts
+

@@ -1,0 +1,35 @@
+rules:
+  - id: sa-helper.php.class-definition
+    patterns:
+      - pattern: "class $NAME { ... }"
+    message: "PHP class definition"
+    languages: [php]
+    severity: INFO
+    metadata:
+      entity_type: class
+
+  - id: sa-helper.php.function-definition
+    patterns:
+      - pattern-either:
+          - pattern: "function $NAME(...) { ... }"
+          - pattern: "public function $NAME(...) { ... }"
+          - pattern: "protected function $NAME(...) { ... }"
+          - pattern: "private function $NAME(...) { ... }"
+    message: "PHP method or function definition"
+    languages: [php]
+    severity: INFO
+    metadata:
+      entity_type: function
+
+  - id: sa-helper.php.endpoint-route
+    patterns:
+      - pattern-either:
+          - pattern: "Route::get($ROUTE, ...)"
+          - pattern: "Route::post($ROUTE, ...)"
+          - pattern: "Route::put($ROUTE, ...)"
+          - pattern: "Route::delete($ROUTE, ...)"
+    message: "PHP Laravel/Symfony Route Endpoint"
+    languages: [php]
+    severity: INFO
+    metadata:
+      entity_type: endpoint

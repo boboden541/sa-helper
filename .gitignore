@@ -6,6 +6,7 @@
 .idea/
 .vscode/
 .neo4j/
-.sa_documentation/
+sa_documentation
 __pycache__/
 future-features.md
+.venv
