@@ -11,8 +11,8 @@ rules:
   - id: sa-helper.go.function-definition
     patterns:
       - pattern-either:
-          - pattern: "func $NAME(...) ... { ... }"
-          - pattern: "func ($RECV *$TYPE) $NAME(...) ... { ... }"
+          - pattern: "func $NAME(...) { ... }"
+          - pattern: "func ($RECV *$TYPE) $NAME(...) { ... }"
     message: "Go function or method definition"
     languages: [go]
     severity: INFO

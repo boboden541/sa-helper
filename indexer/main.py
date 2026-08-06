@@ -31,7 +31,7 @@ def _get_worker_indexer() -> SemgrepIndexer:
 
 def _parse_file(task: tuple) -> dict | None:
     """Worker function for parallel parsing. Runs in child process."""
-    abs_path, lang, rel_path = task
+    abs_path, lang, rel_path, semgrep_ran, sg_payload = task
 
     try:
         with open(abs_path, "rb") as f:
@@ -43,21 +43,50 @@ def _parse_file(task: tuple) -> dict | None:
 
     try:
         indexer = _get_worker_indexer()
-        res_dict = indexer.process(str(Path(abs_path).parent), [(abs_path, lang, rel_path)])
 
-        result = {
-            "classes": res_dict.get("classes", []),
-            "functions": res_dict.get("functions", []),
-            "imports": res_dict.get("imports", []),
-            "calls": res_dict.get("calls", []),
-            "tables": res_dict.get("tables", []),
-            "endpoints": res_dict.get("endpoints", []),
-            "external_services": res_dict.get("external_services", []),
-            "framework_usage": res_dict.get("framework_usage", []),
-            "db_objects": res_dict.get("db_objects", []),
-            "config_entries": res_dict.get("config_entries", []),
-            "scheduled_tasks": res_dict.get("scheduled_tasks", []),
-        }
+        # SQL DDL — всегда через DDL-парсер (сущности — таблицы/объекты БД).
+        if lang == "sql_ddl" or rel_path.endswith(".sql"):
+            sql_res = indexer.parse_sql_ddl(abs_path, rel_path)
+            result = {
+                "classes": [], "functions": [], "imports": [], "calls": [],
+                "endpoints": [], "external_services": [], "framework_usage": [],
+                "tables": sql_res.get("tables", []),
+                "db_objects": sql_res.get("db_objects", []),
+                "config_entries": [], "scheduled_tasks": [],
+            }
+        elif semgrep_ran:
+            # Semgrep-путь: сущности — из single-pass находок (без subprocess в воркере),
+            # отношения (импорты/встроенный SQL/HTTP) — из regex.
+            code_rels = indexer.parse_code_file_relationships(abs_path, lang, rel_path)
+            sg = sg_payload or {}
+            result = {
+                "classes": sg.get("classes", []),
+                "functions": sg.get("functions", []),
+                "endpoints": sg.get("endpoints", []),
+                "tables": sg.get("tables", []) + code_rels.get("tables", []),
+                "imports": code_rels.get("imports", []),
+                "calls": code_rels.get("calls", []),
+                "external_services": code_rels.get("external_services", []),
+                "db_objects": code_rels.get("db_objects", []),
+                "framework_usage": [],
+                "config_entries": [], "scheduled_tasks": [],
+            }
+        else:
+            # Фолбэк на Tree-sitter (Semgrep не запускался) — прежнее поведение.
+            res_dict = indexer.run_native_tree_sitter([(abs_path, lang, rel_path)])
+            result = {
+                "classes": res_dict.get("classes", []),
+                "functions": res_dict.get("functions", []),
+                "imports": res_dict.get("imports", []),
+                "calls": res_dict.get("calls", []),
+                "tables": res_dict.get("tables", []),
+                "endpoints": res_dict.get("endpoints", []),
+                "external_services": res_dict.get("external_services", []),
+                "framework_usage": res_dict.get("framework_usage", []),
+                "db_objects": res_dict.get("db_objects", []),
+                "config_entries": res_dict.get("config_entries", []),
+                "scheduled_tasks": res_dict.get("scheduled_tasks", []),
+            }
 
     except Exception as e:
         return {
@@ -151,7 +180,8 @@ def _detect_projects(root: Path, db_schema_paths: list[str] | None = None) -> li
     return projects
 
 
-def _parse_files_parallel(root: Path, file_tasks: list[tuple]) -> tuple:
+def _parse_files_parallel(root: Path, file_tasks: list[tuple],
+                          semgrep_ran: bool = False, sg_by_file: dict | None = None) -> tuple:
     """Parse files in parallel, return aggregated results."""
     all_files_meta = []
     all_classes = []
@@ -171,7 +201,12 @@ def _parse_files_parallel(root: Path, file_tasks: list[tuple]) -> tuple:
     skipped_by_lang = {}
 
     with ProcessPoolExecutor() as executor:
-        futures = {executor.submit(_parse_file, t): t[2] for t in file_tasks}
+        futures = {}
+        for t in file_tasks:
+            abs_path, lang, rel_path = t
+            payload = sg_by_file.get(os.path.normpath(rel_path)) if semgrep_ran else None
+            futures[executor.submit(
+                _parse_file, (abs_path, lang, rel_path, semgrep_ran, payload))] = rel_path
         done_count = 0
         total = len(futures)
         bar_length = 30
@@ -421,13 +456,22 @@ def index_project(
         print(f"  {lang}: {count} files")
     print(f"  Total: {len(files)} files")
 
-    # Engine transparency: показываем, какой движок реально отработает.
-    semgrep_bin = shutil.which("semgrep")
-    if semgrep_bin:
-        print(f"  [Engine] Semgrep CLI detected — using Semgrep engine.")
+    # Движок индексации: запускаем Semgrep ОДИН раз по всему проекту (single pass),
+    # а не на каждый файл. Находки группируются по файлам и переиспользуются воркерами.
+    semgrep_ran = False
+    sg_by_file = None
+    if shutil.which("semgrep"):
+        print("  [Engine] Running Semgrep over the whole project (single pass)...")
+        _sg_indexer = SemgrepIndexer()
+        sg_by_file = _sg_indexer.run_semgrep_on_project(root)
+        if sg_by_file is not None:
+            semgrep_ran = True
+            print(f"  [Engine] Semgrep done — entities for {len(sg_by_file)} file(s). Using Semgrep engine.")
+        else:
+            print("  [Engine] Semgrep scan failed — falling back to Tree-sitter.")
     else:
-        print(f"  [Engine] Semgrep not found — using built-in Tree-sitter "
-              f"(install for richer extraction: indexer/requirements-semgrep.txt).")
+        print("  [Engine] Semgrep not installed — using built-in Tree-sitter "
+              "(install via indexer/requirements-semgrep.txt).")
     print()
 
 
@@ -458,7 +502,8 @@ def index_project(
                 print(f"  DB schema ({schema_root.name}): {len(sql_files)} SQL files")
                 file_tasks.extend(sql_files)
 
-    data = _parse_files_parallel(root, file_tasks)
+    data = _parse_files_parallel(root, file_tasks,
+                                 semgrep_ran=semgrep_ran, sg_by_file=sg_by_file)
 
     # 5. Resolve default schema
     if default_schema is None:

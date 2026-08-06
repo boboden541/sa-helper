@@ -368,6 +368,93 @@ class SemgrepIndexer:
             print(f"Semgrep CLI execution error: {e}")
         return None
 
+    def run_semgrep_on_project(self, root) -> dict | None:
+        """Запускает Semgrep ОДИН раз по всему проекту (single pass) и группирует
+        находки по файлам. Возвращает {rel_path: {classes, functions, endpoints, tables}}
+        или None, если Semgrep недоступен / упал."""
+        if not self.semgrep_bin or not os.path.exists(self.rules_dir):
+            return None
+        cmd = [
+            self.semgrep_bin, "scan",
+            "--config", self.rules_dir,
+            "--json", "--quiet",
+            str(root),
+        ]
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+        except subprocess.TimeoutExpired:
+            print("  [Engine] Semgrep scan timed out — falling back to Tree-sitter.")
+            return None
+        except Exception as e:
+            print(f"  [Engine] Semgrep scan error: {e} — falling back to Tree-sitter.")
+            return None
+        # semgrep может выйти с code 2 (например, при ошибке в одном из правил),
+        # но при этом всё равно отдать валидный JSON с находками по остальным правилам.
+        # Поэтому опираемся на наличие stdout и его парсимость, а не на return code.
+        if not proc.stdout:
+            return None
+        try:
+            data = json.loads(proc.stdout)
+        except json.JSONDecodeError:
+            return None
+        return self._group_semgrep_by_file(data, root)
+
+    def _group_semgrep_by_file(self, data: dict, root) -> dict:
+        """Группирует JSON-находки Semgrep по файлам: rel_path -> {classes, functions, endpoints, tables}."""
+        root_path = Path(str(root)).resolve()
+        grouped: dict[str, dict] = {}
+        for match in data.get("results", []):
+            raw_path = match.get("path", "")
+            try:
+                rel_path = str(Path(raw_path).relative_to(root_path))
+            except ValueError:
+                rel_path = raw_path
+            rel_path = os.path.normpath(rel_path)
+
+            start_line = match.get("start", {}).get("line", 1)
+            end_line = match.get("end", {}).get("line", start_line)
+            extra = match.get("extra", {})
+            metadata = extra.get("metadata", {})
+            entity_type = metadata.get("entity_type", "")
+            metavars = extra.get("metavars", {})
+            name = (metavars.get("$NAME", {}).get("abstract_content", "")
+                    or metavars.get("$METHOD", {}).get("abstract_content", "")
+                    or "Unnamed")
+
+            bucket = grouped.setdefault(
+                rel_path, {"classes": [], "functions": [], "endpoints": [], "tables": []})
+
+            if entity_type == "class":
+                bucket["classes"].append({
+                    "name": name, "file": rel_path, "rel_path": rel_path,
+                    "line": start_line, "line_start": start_line, "line_end": end_line,
+                    "parent_class": None, "interfaces": [],
+                })
+            elif entity_type == "function":
+                bucket["functions"].append({
+                    "name": name, "file": rel_path, "rel_path": rel_path,
+                    "line": start_line, "line_start": start_line, "line_end": end_line,
+                    "class_name": None, "parameters": "",
+                    "is_method": False, "is_entry_point": False,
+                })
+            elif entity_type == "endpoint":
+                route = metavars.get("$ROUTE", {}).get("abstract_content", "").strip("'\" ") or "/api"
+                http_method = metadata.get("http_method", "GET")
+                bucket["endpoints"].append({
+                    "name": f"{http_method} {route}", "type": "http", "path": route,
+                    "route": route, "http_method": http_method,
+                    "handler_method": name, "handler_func": name, "handler_class": None,
+                    "file": rel_path, "rel_path": rel_path, "line": start_line,
+                })
+            elif entity_type == "table":
+                bucket["tables"].append({
+                    "name": name, "table_name": name, "schema": None, "type": "table",
+                    "operation": "SELECT", "file": rel_path, "rel_path": rel_path,
+                    "line": start_line, "source_file": rel_path,
+                    "source_line": start_line, "function_name": None,
+                })
+        return grouped
+
     def run_native_tree_sitter(self, files: List[Tuple[str, str, str]]) -> Dict[str, List[Dict[str, Any]]]:
         """Native Tree-sitter query fallback for environments without Semgrep CLI."""
         res = {
