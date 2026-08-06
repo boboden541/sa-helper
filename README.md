@@ -48,11 +48,12 @@
 
 Скрипт спросит, какой IDE‑агент вы используете:
 
-| | 1. Claude Code | 2. Antigravity | 3. Codex | 4. OpenCode | 5. Cline | 6. DevX (МТС) | 7. Universal | 8. Cursor |
-|:---|:---|:---|:---|:---|:---|:---|:---|:---|
-| **Корень** | `.claude/` | `.agent/` | `.agents/` | `.opencode/` | `.cline/` | `.clinerules/` | `.agents/` | `.cursor/` |
-| **Команды** | `commands/` | `workflows/` | `prompts/` | `commands/` | `workflows/` | `workflows/` | `commands/` | `rules/` |
-| **Навыки** | `skills/` | `skills/` | `skills/` | `skills/` | `skills/` | `skills/` | `skills/` | `skills/` |
+| | 1. Claude Code | 2. Antigravity | 3. Codex | 4. OpenCode | 5. Cline | 6. DevX (МТС) | 7. Universal | 8. Cursor | 9. Windsurf | 10. Roo Code | 11. Continue | 12. GitHub Copilot | 13. Aider |
+|:---|:---|:---|:---|:---|:---|:---|:---|:---|:---|:---|:---|:---|:---|
+| **Корень** | `.claude/` | `.agent/` | `.agents/` | `.opencode/` | `.cline/` | `.clinerules/` | `.agents/` | `.cursor/` | `.windsurf/` | `.roo/` | `.continue/` | `.github/` | `.aider/` |
+| **Команды** | `commands/` | `workflows/` | `prompts/` | `commands/` | `workflows/` | `workflows/` | `commands/` | `rules/` | `rules/` | `workflows/` | `prompts/` | `prompts/` | `prompts/` |
+| **Навыки** | `skills/` | `skills/` | `skills/` | `skills/` | `skills/` | `skills/` | `skills/` | `skills/` | `skills/` | `skills/` | `skills/` | `skills/` | `skills/` |
+
 
 
 > Существующие файлы не удаляются — обновляются только управляемые подпапки.

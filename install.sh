@@ -90,8 +90,13 @@ echo -e "  ${BLUE}[5]${NC} Cline"
 echo -e "  ${BLUE}[6]${NC} DevX"
 echo -e "  ${BLUE}[7]${NC} Universal (.agents)"
 echo -e "  ${BLUE}[8]${NC} Cursor"
+echo -e "  ${BLUE}[9]${NC} Windsurf (Cascade)"
+echo -e "  ${BLUE}[10]${NC} Roo Code"
+echo -e "  ${BLUE}[11]${NC} Continue.dev"
+echo -e "  ${BLUE}[12]${NC} GitHub Copilot"
+echo -e "  ${BLUE}[13]${NC} Aider"
 echo ""
-read -p "Введите номер [1/8]: " AGENT_CHOICE
+read -p "Введите номер [1/13]: " AGENT_CHOICE
 
 case "$AGENT_CHOICE" in
     1)
@@ -150,11 +155,47 @@ case "$AGENT_CHOICE" in
         SKILL_DIR="skills"
         SKILL_SYNC="canonical"
         ;;
+    9)
+        AGENT_NAME="Windsurf"
+        TARGET_DIR=".windsurf"
+        COMMAND_DIR="rules"
+        SKILL_DIR="skills"
+        SKILL_SYNC="canonical"
+        ;;
+    10)
+        AGENT_NAME="Roo Code"
+        TARGET_DIR=".roo"
+        COMMAND_DIR="workflows"
+        SKILL_DIR="skills"
+        SKILL_SYNC="canonical"
+        ;;
+    11)
+        AGENT_NAME="Continue.dev"
+        TARGET_DIR=".continue"
+        COMMAND_DIR="prompts"
+        SKILL_DIR="skills"
+        SKILL_SYNC="canonical"
+        ;;
+    12)
+        AGENT_NAME="GitHub Copilot"
+        TARGET_DIR=".github"
+        COMMAND_DIR="prompts"
+        SKILL_DIR="skills"
+        SKILL_SYNC="canonical"
+        ;;
+    13)
+        AGENT_NAME="Aider"
+        TARGET_DIR=".aider"
+        COMMAND_DIR="prompts"
+        SKILL_DIR="skills"
+        SKILL_SYNC="canonical"
+        ;;
     *)
-        echo -e "${RED}❌ Некорректный выбор. Введите число от 1 до 8.${NC}"
+        echo -e "${RED}❌ Некорректный выбор. Введите число от 1 до 13.${NC}"
         exit 1
         ;;
 esac
+
 
 
 echo ""
