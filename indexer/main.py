@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 import os
+import shutil
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
@@ -411,7 +412,7 @@ def index_project(
 
     detected_stack = detect_stack(str(root))
     stack_str = ", ".join(f"{lang} ({cnt})" for lang, cnt in sorted(detected_stack.items()))
-    print(f"  [Semgrep Auto-Stack] Detected tech stack: {stack_str or 'Unknown'}")
+    print(f"  [Stack] Detected tech stack: {stack_str or 'Unknown'}")
 
     lang_dist = {}
     for _, lang, _ in files:
@@ -419,6 +420,14 @@ def index_project(
     for lang, count in sorted(lang_dist.items()):
         print(f"  {lang}: {count} files")
     print(f"  Total: {len(files)} files")
+
+    # Engine transparency: показываем, какой движок реально отработает.
+    semgrep_bin = shutil.which("semgrep")
+    if semgrep_bin:
+        print(f"  [Engine] Semgrep CLI detected — using Semgrep engine.")
+    else:
+        print(f"  [Engine] Semgrep not found — using built-in Tree-sitter "
+              f"(install for richer extraction: indexer/requirements-semgrep.txt).")
     print()
 
 

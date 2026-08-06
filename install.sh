@@ -331,8 +331,10 @@ find "$TARGET_DIR" -name ".DS_Store" -delete 2>/dev/null || true
 if [ -d "$TEMP_DIR/indexer" ]; then
     echo -e "${YELLOW}📊 Настройка индексатора кодовой базы (Semgrep Engine)...${NC}"
     
-    if ! command -v semgrep &> /dev/null; then
-        echo -e "${DIM}⚙️ Semgrep CLI не найден в PATH. Автоматический фолбэк на автономный Tree-sitter.${NC}"
+    if command -v semgrep &> /dev/null; then
+        echo -e "${DIM}✔ Semgrep найден в PATH — будет использован как основной движок индексации.${NC}"
+    else
+        echo -e "${DIM}ℹ️ Semgrep не установлен. Граф построится на встроенном Tree-sitter; Semgrep будет установлен автоматически при первом запуске /project-map (опциональный, рекомендуемый движок).${NC}"
     fi
 
     mkdir -p "indexer/semgrep_rules"
