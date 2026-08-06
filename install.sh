@@ -35,10 +35,11 @@ print_banner() {
     echo -e "      ___) / ___ \   |  _  | |___| |___|  __/| |___|  _ < "
     echo -e "     |____/_/   \_\  |_| |_|_____|_____|_|   |_____|_| \_\"
     echo -e "${NC}"
-    echo -e "       ${CYAN}${BOLD}System Analyst Helper Framework v3.0${NC} ${DIM}(Neo4j & Semgrep Engine)${NC}"
+    echo -e "       ${CYAN}${BOLD}System Analyst Helper Framework v3.0${NC} ${DIM}[Neo4j & Semgrep Engine]${NC}"
     echo -e " ${DIM}----------------------------------------------------------------------${NC}"
     echo ""
 }
+
 
 sync_managed_tree() {
     local src_dir="$1"
@@ -104,7 +105,8 @@ select_option_menu() {
 
     while true; do
         print_banner
-        echo -e "${CYAN}${BOLD}$prompt${NC} ${DIM}(используйте ↑/↓ или введите номер 1-$count):${NC}\n"
+        echo -e "${CYAN}${BOLD}$prompt${NC} ${DIM}[используйте ↑/↓ или введите номер 1-$count]:${NC}\n"
+
 
         for i in "${!options[@]}"; do
             local num=$((i + 1))
