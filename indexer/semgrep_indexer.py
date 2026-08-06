@@ -12,6 +12,13 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+# Список исключаемых каталогов берём из scanner.py, чтобы semgrep сканировал
+# ровно то, что индексатор реально обрабатывает (без .venv/node_modules/build и т.п.).
+try:
+    from scanner import IGNORED_DIRS as _SCANNER_IGNORED_DIRS
+except ImportError:
+    _SCANNER_IGNORED_DIRS = set()
+
 try:
     import tree_sitter
     from tree_sitter import Language, Parser, QueryCursor
@@ -374,12 +381,13 @@ class SemgrepIndexer:
         или None, если Semgrep недоступен / упал."""
         if not self.semgrep_bin or not os.path.exists(self.rules_dir):
             return None
-        cmd = [
-            self.semgrep_bin, "scan",
-            "--config", self.rules_dir,
-            "--json", "--quiet",
-            str(root),
-        ]
+        # Ограничиваем область semgrep тем же набором файлов, что берёт индексатор:
+        # исключаем зависимые/мусорные каталоги (как scanner.py) и SQL-дампы
+        # (их парсит быстрый DDL-парсер, правил для SQL в semgrep нет).
+        cmd = [self.semgrep_bin, "scan", "--config", self.rules_dir, "--json", "--quiet"]
+        for _ex in list(_SCANNER_IGNORED_DIRS) + ["*.sql"]:
+            cmd += ["--exclude", str(_ex)]
+        cmd.append(str(root))
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
         except subprocess.TimeoutExpired:

@@ -43,7 +43,7 @@ print_banner() {
     echo -e "      ___) / ___ \   |  _  | |___| |___|  __/| |___|  _ < "
     echo -e "     |____/_/   \_\  |_| |_|_____|_____|_|   |_____|_| \_\\"
     echo -e "${NC}"
-    echo -e "       ${CYAN}${BOLD}System Analyst Helper Framework v3.0${NC} ${DIM}[Neo4j & Semgrep Engine]${NC}"
+    echo -e "       ${CYAN}${BOLD}System Analyst Helper Framework v3.0${NC} ${DIM}[Neo4j & Tree-sitter Engine]${NC}"
     echo -e " ${DIM}----------------------------------------------------------------------${NC}"
     echo ""
 }
@@ -327,15 +327,9 @@ fi
 # Удаление .DS_Store
 find "$TARGET_DIR" -name ".DS_Store" -delete 2>/dev/null || true
 
-# 5.1 Установка индексатора графа (Semgrep Engine)
+# 5.1 Установка индексатора графа (Tree-sitter Engine)
 if [ -d "$TEMP_DIR/indexer" ]; then
-    echo -e "${YELLOW}📊 Настройка индексатора кодовой базы (Semgrep Engine)...${NC}"
-    
-    if command -v semgrep &> /dev/null; then
-        echo -e "${DIM}✔ Semgrep найден в PATH — будет использован как основной движок индексации.${NC}"
-    else
-        echo -e "${DIM}ℹ️ Semgrep не установлен. Граф построится на встроенном Tree-sitter; Semgrep будет установлен автоматически при первом запуске /project-map (опциональный, рекомендуемый движок).${NC}"
-    fi
+    echo -e "${YELLOW}📊 Настройка индексатора кодовой базы (Tree-sitter Engine)...${NC}"
 
     mkdir -p "indexer/semgrep_rules"
     cp -R "$TEMP_DIR/indexer/." "indexer/"

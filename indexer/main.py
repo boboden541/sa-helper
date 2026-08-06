@@ -415,6 +415,7 @@ def index_project(
     db_schema_paths: list[str] | None = None,
     default_schema: str | None = None,
     resolver_enabled: bool = True,
+    use_semgrep: bool = False,
 ):
     neo4j_uri = neo4j_uri or os.environ.get("NEO4J_URI", "bolt://localhost:7687")
     neo4j_user = neo4j_user or os.environ.get("NEO4J_USER", "neo4j")
@@ -456,22 +457,26 @@ def index_project(
         print(f"  {lang}: {count} files")
     print(f"  Total: {len(files)} files")
 
-    # Движок индексации: запускаем Semgrep ОДИН раз по всему проекту (single pass),
-    # а не на каждый файл. Находки группируются по файлам и переиспользуются воркерами.
+    # Движок индексации. По умолчанию — быстрый встроенный Tree-sitter.
+    # Semgrep (один прогон по всему проекту) включается только явным флагом use_semgrep,
+    # т.к. на крупных проектах он работает медленно.
     semgrep_ran = False
     sg_by_file = None
-    if shutil.which("semgrep"):
-        print("  [Engine] Running Semgrep over the whole project (single pass)...")
-        _sg_indexer = SemgrepIndexer()
-        sg_by_file = _sg_indexer.run_semgrep_on_project(root)
-        if sg_by_file is not None:
-            semgrep_ran = True
-            print(f"  [Engine] Semgrep done — entities for {len(sg_by_file)} file(s). Using Semgrep engine.")
+    if use_semgrep:
+        if shutil.which("semgrep"):
+            print("  [Engine] --semgrep: запускаю Semgrep по всему проекту (один прогон)...")
+            _sg_indexer = SemgrepIndexer()
+            sg_by_file = _sg_indexer.run_semgrep_on_project(root)
+            if sg_by_file is not None:
+                semgrep_ran = True
+                print(f"  [Engine] Semgrep готов — находки для {len(sg_by_file)} файл(ов).")
+            else:
+                print("  [Engine] Semgrep не отработал — откат на Tree-sitter.")
         else:
-            print("  [Engine] Semgrep scan failed — falling back to Tree-sitter.")
+            print("  [Engine] Флаг --semgrep задан, но Semgrep не установлен — работаю на Tree-sitter. "
+                  "(установить: pip install semgrep)")
     else:
-        print("  [Engine] Semgrep not installed — using built-in Tree-sitter "
-              "(install via indexer/requirements-semgrep.txt).")
+        print("  [Engine] Tree-sitter (движок по умолчанию). Для Semgrep передайте --semgrep.")
     print()
 
 
@@ -526,6 +531,7 @@ def index_incremental(
     neo4j_pass: str = None,
     default_schema: str | None = None,
     resolver_enabled: bool = True,
+    use_semgrep: bool = False,
 ):
     """Incrementally update the graph based on git diff."""
     neo4j_uri = neo4j_uri or os.environ.get("NEO4J_URI", "bolt://localhost:7687")
@@ -543,14 +549,14 @@ def index_incremental(
     if not is_git_repo(str(root)):
         print("Not a git repository. Falling back to full index...")
         index_project(project_path, neo4j_uri, neo4j_user, neo4j_pass,
-                      default_schema=default_schema)
+                      default_schema=default_schema, use_semgrep=use_semgrep)
         return
 
     head_sha = get_head_commit(str(root))
     if not head_sha:
         print("Cannot determine HEAD commit. Falling back to full index...")
         index_project(project_path, neo4j_uri, neo4j_user, neo4j_pass,
-                      default_schema=default_schema)
+                      default_schema=default_schema, use_semgrep=use_semgrep)
         return
 
     # 2. Connect and get previous state
@@ -561,7 +567,7 @@ def index_incremental(
     if not prev_sha:
         print("No previous index found. Falling back to full index...")
         index_project(project_path, neo4j_uri, neo4j_user, neo4j_pass,
-                      default_schema=default_schema)
+                      default_schema=default_schema, use_semgrep=use_semgrep)
         return
 
     print(f"Previous index: {prev_sha[:8]}")
@@ -595,7 +601,7 @@ def index_incremental(
     if len(all_diff) > len(all_files) * 0.3:
         print(f"WARNING: {len(all_diff)} files changed (>30%). Falling back to full index...")
         index_project(project_path, neo4j_uri, neo4j_user, neo4j_pass,
-                      default_schema=default_schema)
+                      default_schema=default_schema, use_semgrep=use_semgrep)
         return
 
     # 5. Delete old nodes for changed + deleted files
@@ -634,12 +640,18 @@ if __name__ == "__main__":
                         default=True,
                         help="Disable the code->DB inventory resolver (T2). "
                              "With it off the graph is identical to the pre-resolver build.")
+    parser.add_argument("--semgrep", action="store_true",
+                        help="Использовать движок Semgrep (один прогон по всему проекту) "
+                             "вместо Tree-sitter по умолчанию. Медленнее на крупных проектах, "
+                             "но даёт более глубокое извлечение (фреймворк-эндпоинты, C#). "
+                             "Требует установленный semgrep (pip install semgrep).")
 
     args = parser.parse_args()
     if args.incremental:
         index_incremental(args.project_path, args.neo4j_uri, args.neo4j_user, args.neo4j_pass,
-                          default_schema=args.default_schema, resolver_enabled=args.resolver)
+                          default_schema=args.default_schema, resolver_enabled=args.resolver,
+                          use_semgrep=args.semgrep)
     else:
         index_project(args.project_path, args.neo4j_uri, args.neo4j_user, args.neo4j_pass,
                       db_schema_paths=args.db_schema, default_schema=args.default_schema,
-                      resolver_enabled=args.resolver)
+                      resolver_enabled=args.resolver, use_semgrep=args.semgrep)
