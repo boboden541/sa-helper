@@ -89,8 +89,9 @@ echo -e "  ${BLUE}[4]${NC} OpenCode"
 echo -e "  ${BLUE}[5]${NC} Cline"
 echo -e "  ${BLUE}[6]${NC} DevX"
 echo -e "  ${BLUE}[7]${NC} Universal (.agents)"
+echo -e "  ${BLUE}[8]${NC} Cursor"
 echo ""
-read -p "Введите номер [1/7]: " AGENT_CHOICE
+read -p "Введите номер [1/8]: " AGENT_CHOICE
 
 case "$AGENT_CHOICE" in
     1)
@@ -142,11 +143,19 @@ case "$AGENT_CHOICE" in
         SKILL_DIR="skills"
         SKILL_SYNC="canonical"
         ;;
+    8)
+        AGENT_NAME="Cursor"
+        TARGET_DIR=".cursor"
+        COMMAND_DIR="rules"
+        SKILL_DIR="skills"
+        SKILL_SYNC="canonical"
+        ;;
     *)
-        echo -e "${RED}❌ Некорректный выбор. Введите число от 1 до 7.${NC}"
+        echo -e "${RED}❌ Некорректный выбор. Введите число от 1 до 8.${NC}"
         exit 1
         ;;
 esac
+
 
 echo ""
 echo -e "${GREEN}Выбран агент: ${AGENT_NAME}${NC}"
