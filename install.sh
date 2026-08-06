@@ -1,10 +1,18 @@
 #!/bin/bash
 
-# Если stdin — pipe (curl | bash), сохраняем себя в temp и перезапускаем с терминалом
+# Если stdin — pipe (curl | bash / curl | sh), сохраняем себя во временный файл
+# и перезапускаемся с терминалом, чтобы интерактивное меню могло читать нажатия клавиш.
 if [ ! -t 0 ]; then
-    TEMP_SCRIPT="$(mktemp /tmp/sa-helper-install.XXXXXXXXXX.sh)"
+    TEMP_SCRIPT="$(mktemp)"
     cat > "$TEMP_SCRIPT"
     exec bash "$TEMP_SCRIPT" < /dev/tty
+fi
+
+# Если скрипт запустили через POSIX-шелл (sh/dash), а не через bash — перезапуск под bash.
+# Иначе bash-массивы AGENT_LIST=(...) ниже вызовут: syntax error near unexpected token '('.
+# (шебанг #!/bin/bash игнорируется при явном вызове `sh install.sh` или `curl ... | sh`.)
+if [ -z "$BASH_VERSION" ]; then
+    exec bash "$0" "$@"
 fi
 
 # --- Цвета и стилевое оформление ---
@@ -33,7 +41,7 @@ print_banner() {
     echo -e "     / ___|  / \     | | | | ____| |   |  _ \| ____|  _ \ "
     echo -e "     \___ \ / _ \    | |_| |  _| | |   | |_) |  _| | |_) |"
     echo -e "      ___) / ___ \   |  _  | |___| |___|  __/| |___|  _ < "
-    echo -e "     |____/_/   \_\  |_| |_|_____|_____|_|   |_____|_| \_\"
+    echo -e "     |____/_/   \_\  |_| |_|_____|_____|_|   |_____|_| \_\\"
     echo -e "${NC}"
     echo -e "       ${CYAN}${BOLD}System Analyst Helper Framework v3.0${NC} ${DIM}[Neo4j & Semgrep Engine]${NC}"
     echo -e " ${DIM}----------------------------------------------------------------------${NC}"
