@@ -7,18 +7,38 @@ if [ ! -t 0 ]; then
     exec bash "$TEMP_SCRIPT" < /dev/tty
 fi
 
-# --- Цвета для оформления ---
+# --- Цвета и стилевое оформление ---
+BOLD='\033[1m'
 GREEN='\033[0;32m'
+BRIGHT_GREEN='\033[1;32m'
 BLUE='\033[0;34m'
+BRIGHT_BLUE='\033[1;34m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
 CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
+DIM='\033[2m'
 NC='\033[0m' # No Color
 
 # --- Настройки репозитория ---
 REPO_URL="https://github.com/boboden541/sa-helper.git"
 TEMP_DIR=".sa_helper_temp"
 SOURCE_ROOT=".claude"
+
+# --- Красивый ASCII Логотип ---
+print_banner() {
+    clear 2>/dev/null || true
+    echo -e "${BRIGHT_BLUE}"
+    echo -e "  🔮  ____    _       _   _ _____ _     ____  _____ ____  "
+    echo -e "     / ___|  / \     | | | | ____| |   |  _ \| ____|  _ \ "
+    echo -e "     \___ \ / _ \    | |_| |  _| | |   | |_) |  _| | |_) |"
+    echo -e "      ___) / ___ \   |  _  | |___| |___|  __/| |___|  _ < "
+    echo -e "     |____/_/   \_\  |_| |_|_____|_____|_|   |_____|_| \_\"
+    echo -e "${NC}"
+    echo -e "       ${CYAN}${BOLD}System Analyst Helper Framework v3.0${NC} ${DIM}(Neo4j & Semgrep Engine)${NC}"
+    echo -e " ${DIM}----------------------------------------------------------------------${NC}"
+    echo ""
+}
 
 sync_managed_tree() {
     local src_dir="$1"
@@ -69,9 +89,60 @@ sync_canonical_skills() {
     done
 }
 
-echo -e "${BLUE}==========================================${NC}"
-echo -e "${BLUE}  System Analyst Helper: Installation${NC}"
-echo -e "${BLUE}==========================================${NC}"
+# --- Функция интерактивного меню (Стрелочки / Цифры) ---
+select_option_menu() {
+    local prompt="$1"
+    shift
+    local options=("$@")
+    local cur=0
+    local count=${#options[@]}
+    local key
+
+    # Показать курсор при выходе
+    trap 'printf "\e[?25h"' EXIT INT TERM
+    printf "\e[?25l" # Скрыть курсор
+
+    while true; do
+        print_banner
+        echo -e "${CYAN}${BOLD}$prompt${NC} ${DIM}(используйте ↑/↓ или введите номер 1-$count):${NC}\n"
+
+        for i in "${!options[@]}"; do
+            local num=$((i + 1))
+            if [ "$i" -eq "$cur" ]; then
+                echo -e "   ${BRIGHT_GREEN}❯ [$num] ${options[$i]}${NC}"
+            else
+                echo -e "     ${DIM}[$num] ${options[$i]}${NC}"
+            fi
+        done
+
+        # Считывание нажатия клавиши
+        read -rsn1 key 2>/dev/null
+        if [ "$key" == $'\x1b' ]; then
+            read -rsn2 key 2>/dev/null
+            if [ "$key" == "[A" ]; then # Вверх
+                cur=$(( (cur - 1 + count) % count ))
+            elif [ "$key" == "[B" ]; then # Вниз
+                cur=$(( (cur + 1) % count ))
+            fi
+        elif [ "$key" == "" ]; then # Enter
+            break
+        elif [[ "$key" =~ [0-9] ]]; then
+            # Цифровой ввод (поддержка 2-значных чисел)
+            read -t 0.5 -n 1 second_digit 2>/dev/null || second_digit=""
+            local full_num="${key}${second_digit}"
+            local idx=$((full_num - 1))
+            if [ "$idx" -ge 0 ] && [ "$idx" -lt "$count" ]; then
+                cur=$idx
+                break
+            fi
+        fi
+    done
+
+    printf "\e[?25h" # Показать курсор обратно
+    return "$cur"
+}
+
+print_banner
 
 # 1. Проверка наличия Git
 if ! command -v git &> /dev/null; then
@@ -79,111 +150,113 @@ if ! command -v git &> /dev/null; then
     exit 1
 fi
 
-# 2. Выбор агента
-echo ""
-echo -e "${CYAN}Какой IDE-агент вы используете?${NC}"
-echo -e "  ${BLUE}[1]${NC} Claude Code"
-echo -e "  ${BLUE}[2]${NC} Antigravity"
-echo -e "  ${BLUE}[3]${NC} Codex"
-echo -e "  ${BLUE}[4]${NC} OpenCode"
-echo -e "  ${BLUE}[5]${NC} Cline"
-echo -e "  ${BLUE}[6]${NC} DevX"
-echo -e "  ${BLUE}[7]${NC} Universal (.agents)"
-echo -e "  ${BLUE}[8]${NC} Cursor"
-echo -e "  ${BLUE}[9]${NC} Windsurf (Cascade)"
-echo -e "  ${BLUE}[10]${NC} Roo Code"
-echo -e "  ${BLUE}[11]${NC} Continue.dev"
-echo -e "  ${BLUE}[12]${NC} GitHub Copilot"
-echo -e "  ${BLUE}[13]${NC} Aider"
-echo ""
-read -p "Введите номер [1/13]: " AGENT_CHOICE
+# Список агентов
+AGENT_LIST=(
+    "Claude Code (.claude/)"
+    "Antigravity (.agent/)"
+    "Codex (.agents/)"
+    "OpenCode (.opencode/)"
+    "Cline (.cline/)"
+    "DevX (МТС) (.clinerules/)"
+    "Universal (.agents/)"
+    "Cursor (.cursor/)"
+    "Windsurf (Cascade) (.windsurf/)"
+    "Roo Code (.roo/)"
+    "Continue.dev (.continue/)"
+    "GitHub Copilot (.github/)"
+    "Aider CLI (.aider/)"
+)
 
-case "$AGENT_CHOICE" in
-    1)
+# 2. Интерактивный выбор агента
+select_option_menu "Какой IDE-агент вы используете?" "${AGENT_LIST[@]}"
+AGENT_INDEX=$?
+
+case "$AGENT_INDEX" in
+    0)
         AGENT_NAME="Claude Code"
         TARGET_DIR=".claude"
         COMMAND_DIR="commands"
         SKILL_DIR="skills"
         SKILL_SYNC="managed"
         ;;
-    2)
+    1)
         AGENT_NAME="Antigravity"
         TARGET_DIR=".agent"
         COMMAND_DIR="workflows"
         SKILL_DIR="skills"
         SKILL_SYNC="managed"
         ;;
-    3)
+    2)
         AGENT_NAME="Codex"
         TARGET_DIR=".agents"
         COMMAND_DIR="prompts"
         SKILL_DIR="skills"
         SKILL_SYNC="canonical"
         ;;
-    4)
+    3)
         AGENT_NAME="OpenCode"
         TARGET_DIR=".opencode"
         COMMAND_DIR="commands"
         SKILL_DIR="skills"
         SKILL_SYNC="canonical"
         ;;
-    5)
+    4)
         AGENT_NAME="Cline"
         TARGET_DIR=".cline"
         COMMAND_DIR="workflows"
         SKILL_DIR="skills"
         SKILL_SYNC="canonical"
         ;;
-    6)
+    5)
         AGENT_NAME="DevX"
         TARGET_DIR=".clinerules"
         COMMAND_DIR="workflows"
         SKILL_DIR="skills"
         SKILL_SYNC="canonical"
         ;;
-    7)
+    6)
         AGENT_NAME="Universal"
         TARGET_DIR=".agents"
         COMMAND_DIR="commands"
         SKILL_DIR="skills"
         SKILL_SYNC="canonical"
         ;;
-    8)
+    7)
         AGENT_NAME="Cursor"
         TARGET_DIR=".cursor"
         COMMAND_DIR="rules"
         SKILL_DIR="skills"
         SKILL_SYNC="canonical"
         ;;
-    9)
+    8)
         AGENT_NAME="Windsurf"
         TARGET_DIR=".windsurf"
         COMMAND_DIR="rules"
         SKILL_DIR="skills"
         SKILL_SYNC="canonical"
         ;;
-    10)
+    9)
         AGENT_NAME="Roo Code"
         TARGET_DIR=".roo"
         COMMAND_DIR="workflows"
         SKILL_DIR="skills"
         SKILL_SYNC="canonical"
         ;;
-    11)
+    10)
         AGENT_NAME="Continue.dev"
         TARGET_DIR=".continue"
         COMMAND_DIR="prompts"
         SKILL_DIR="skills"
         SKILL_SYNC="canonical"
         ;;
-    12)
+    11)
         AGENT_NAME="GitHub Copilot"
         TARGET_DIR=".github"
         COMMAND_DIR="prompts"
         SKILL_DIR="skills"
         SKILL_SYNC="canonical"
         ;;
-    13)
+    12)
         AGENT_NAME="Aider"
         TARGET_DIR=".aider"
         COMMAND_DIR="prompts"
@@ -191,25 +264,26 @@ case "$AGENT_CHOICE" in
         SKILL_SYNC="canonical"
         ;;
     *)
-        echo -e "${RED}❌ Некорректный выбор. Введите число от 1 до 13.${NC}"
-        exit 1
+        AGENT_NAME="Claude Code"
+        TARGET_DIR=".claude"
+        COMMAND_DIR="commands"
+        SKILL_DIR="skills"
+        SKILL_SYNC="managed"
         ;;
 esac
 
-
-
-echo ""
-echo -e "${GREEN}Выбран агент: ${AGENT_NAME}${NC}"
+print_banner
+echo -e "${BRIGHT_GREEN}✔ Выбран агент:${NC} ${BOLD}${CYAN}${AGENT_NAME}${NC}"
 if [ -n "$COMMAND_DIR" ]; then
-    echo -e "  Структура: ${YELLOW}${TARGET_DIR}/${COMMAND_DIR}/${NC} + ${YELLOW}${TARGET_DIR}/${SKILL_DIR}/${NC}"
+    echo -e "  ${DIM}Целевая структура:${NC} ${YELLOW}${TARGET_DIR}/${COMMAND_DIR}/${NC} + ${YELLOW}${TARGET_DIR}/${SKILL_DIR}/${NC}"
 else
-    echo -e "  Структура: ${YELLOW}${TARGET_DIR}/${SKILL_DIR}/${NC}"
+    echo -e "  ${DIM}Целевая структура:${NC} ${YELLOW}${TARGET_DIR}/${SKILL_DIR}/${NC}"
 fi
 
 # 3. Скачивание репозитория
 echo ""
-echo -e "${YELLOW}📡 Получение файлов из репозитория...${NC}"
-rm -rf "$TEMP_DIR"
+echo -e "${YELLOW}📡 Клонирование шаблонов из репозитория...${NC}"
+rm -rf "$TEMP_DIR" 2>/dev/null
 git clone --depth 1 "$REPO_URL" "$TEMP_DIR" &> /dev/null
 
 if [ $? -ne 0 ]; then
@@ -220,16 +294,16 @@ fi
 # 4. Проверка исходной структуры
 if [ ! -d "$TEMP_DIR/$SOURCE_ROOT" ]; then
     echo -e "${RED}❌ Ошибка: В репозитории не найдена папка ${SOURCE_ROOT}/${NC}"
-    rm -rf "$TEMP_DIR"
+    chmod -R 777 "$TEMP_DIR" 2>/dev/null || true
+    rm -rf "$TEMP_DIR" 2>/dev/null || true
     exit 1
 fi
 
 # 5. Установка
-echo -e "${YELLOW}📂 Установка компонентов для ${AGENT_NAME}...${NC}"
+echo -e "${YELLOW}📂 Копирование команд и навыков для ${AGENT_NAME}...${NC}"
 
 mkdir -p "$TARGET_DIR"
 
-# Обновляем только управляемые подпапки выбранного агента.
 if [ -n "$COMMAND_DIR" ]; then
     sync_managed_tree "$TEMP_DIR/$SOURCE_ROOT/commands" "$TARGET_DIR/$COMMAND_DIR"
 fi
@@ -241,23 +315,20 @@ elif [ "$SKILL_SYNC" = "managed" ]; then
 fi
 
 # Удаление .DS_Store
-find "$TARGET_DIR" -name ".DS_Store" -delete
+find "$TARGET_DIR" -name ".DS_Store" -delete 2>/dev/null || true
 
 # 5.1 Установка индексатора графа (Semgrep Engine)
 if [ -d "$TEMP_DIR/indexer" ]; then
-    echo -e "${YELLOW}📊 Установка индексатора графа (Semgrep Engine)...${NC}"
+    echo -e "${YELLOW}📊 Настройка индексатора кодовой базы (Semgrep Engine)...${NC}"
     
-    # Проверка и установка Semgrep CLI
     if ! command -v semgrep &> /dev/null; then
-        echo -e "${YELLOW}⚙️ Semgrep CLI не найден в PATH. Попытка установки через pip...${NC}"
-        pip install semgrep &> /dev/null || brew install semgrep &> /dev/null || echo -e "${YELLOW}⚠️ Не удалось установить Semgrep CLI через сеть. Адаптер автоматически включит автономный Tree-sitter fallback.${NC}"
+        echo -e "${DIM}⚙️ Semgrep CLI не найден в PATH. Автоматический фолбэк на автономный Tree-sitter.${NC}"
     fi
 
     mkdir -p "indexer/semgrep_rules"
     cp -R "$TEMP_DIR/indexer/." "indexer/"
     chmod +x "indexer/main.py" 2>/dev/null
 fi
-
 
 # 6. Надежная очистка временной папки (с поддержкой Windows/Git Bash)
 chmod -R 777 "$TEMP_DIR" 2>/dev/null || true
@@ -266,40 +337,40 @@ if [ -d "$TEMP_DIR" ]; then
     powershell.exe -Command "Remove-Item -Recurse -Force '$TEMP_DIR'" 2>/dev/null || true
 fi
 
-# 7. Финальное сообщение
+# 7. Финальное красивое сообщение
 echo ""
-echo -e "${BLUE}------------------------------------------${NC}"
-echo -e "${GREEN}✨ Установка завершена успешно!${NC}"
+echo -e "${BLUE}================================--------------------------------------${NC}"
+echo -e " ${BRIGHT_GREEN}✨ Установка SA-Helper успешно завершена!${NC}"
+echo -e "${BLUE}================================--------------------------------------${NC}"
 echo ""
-echo -e "Агент:        ${CYAN}${AGENT_NAME}${NC}"
-echo -e "Структура:    ${YELLOW}${TARGET_DIR}/${NC}"
+echo -e "  Агент:        ${CYAN}${BOLD}${AGENT_NAME}${NC}"
+echo -e "  Директория:   ${YELLOW}${TARGET_DIR}/${NC}"
 if [ -n "$COMMAND_DIR" ]; then
-    echo -e "              ├── ${COMMAND_DIR}/  (команды)"
+    echo -e "                ├── ${COMMAND_DIR}/  ${DIM}(команды и правила)${NC}"
 fi
 if [ "$SKILL_SYNC" = "managed" ]; then
-    echo -e "              └── ${SKILL_DIR}/     (навыки)"
+    echo -e "                └── ${SKILL_DIR}/     ${DIM}(навыки)${NC}"
 else
-    echo -e "              └── ${SKILL_DIR}/     (навыки с frontmatter)"
+    echo -e "                └── ${SKILL_DIR}/     ${DIM}(навыки с frontmatter)${NC}"
 fi
 echo ""
-echo -e "Доступные команды (13 команд):"
-echo -e "  ${BLUE}/context-gen${NC}              — Подготовка контекста"
-echo -e "  ${BLUE}/arch-gen${NC}                 — Генерация архитектуры (C4)"
-echo -e "  ${BLUE}/data-trace${NC}               — Генерация DataFlow"
-echo -e "  ${BLUE}/create-doc${NC}               — Генерация документации"
-echo -e "  ${BLUE}/open-api${NC}                 — Генерация OpenAPI-спецификации"
-echo -e "  ${BLUE}/validate-doc${NC}             — Тотальный аудит документа"
-echo -e "  ${BLUE}/prd-grooming${NC}             — Груминг требований PRD"
-echo -e "  ${BLUE}/bft-build${NC}                — Построение БФТ из PRD/текста"
-echo -e "  ${BLUE}/fnr-new-task${NC}             — Анализ проблемы и корня в коде"
-echo -e "  ${BLUE}/fnr-concept${NC}              — Генерация спектра решений"
-echo -e "  ${BLUE}/fnr-debate${NC}               — Архитектурные дебаты"
-echo -e "  ${BLUE}/fnr-system-requirements${NC}  — Формирование BR/FR/NFR + Jira"
-echo -e "  ${BLUE}/project-map${NC}             — Построение графа проекта (Neo4j)"
+echo -e "  ${BOLD}Доступные производственные команды (13):${NC}"
+echo -e "    ${BRIGHT_BLUE}/context-gen${NC}              — Подготовка контекста и репрезентации"
+echo -e "    ${BRIGHT_BLUE}/arch-gen${NC}                 — Генерация архитектуры C4 (PlantUML)"
+echo -e "    ${BRIGHT_BLUE}/data-trace${NC}               — Генерация DataFlow диаграмм"
+echo -e "    ${BRIGHT_BLUE}/create-doc${NC}               — Спецификации и документация API"
+echo -e "    ${BRIGHT_BLUE}/open-api${NC}                 — Генерация OpenAPI 3.0 (Swagger) specs"
+echo -e "    ${BRIGHT_BLUE}/validate-doc${NC}             — Тотальный аудит соответствия коду"
+echo -e "    ${BRIGHT_BLUE}/prd-grooming${NC}             — Диагностика и груминг требований PRD"
+echo -e "    ${BRIGHT_BLUE}/bft-build${NC}                — Формирование БФТ спецификаций"
+echo -e "    ${BRIGHT_BLUE}/fnr-new-task${NC}             — Постановка задачи и root-cause анализ"
+echo -e "    ${BRIGHT_BLUE}/fnr-concept${NC}              — Генерация спектра архитектурных решений"
+echo -e "    ${BRIGHT_BLUE}/fnr-debate${NC}               — Дебаты: Архитектор vs Адвокат Дьявола"
+echo -e "    ${BRIGHT_BLUE}/fnr-system-requirements${NC}  — Формирование BR/FR/NFR + Jira"
+echo -e "    ${BRIGHT_BLUE}/project-map${NC}             — Построение графа проекта (Neo4j)"
 echo ""
-echo -e "${YELLOW}⚠️  Важно: Перезагрузите IDE (Reload Window).${NC}"
-echo -e "${BLUE}==========================================${NC}"
+echo -e "${YELLOW}⚠️  Важно: Перезагрузите окно вашей IDE (Reload Window) для активации.${NC}"
+echo -e "${BLUE}----------------------------------------------------------------------${NC}"
 
-# Очистка возможных stale temp-файлов от старых версий
+# Очистка возможных stale temp-файлов
 rm -f /tmp/sa-helper-install.*.sh 2>/dev/null
-
