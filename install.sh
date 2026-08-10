@@ -360,7 +360,7 @@ else
     echo -e "                └── ${SKILL_DIR}/     ${DIM}(навыки с frontmatter)${NC}"
 fi
 echo ""
-echo -e "  ${BOLD}Доступные производственные команды (13):${NC}"
+echo -e "  ${BOLD}Доступные производственные команды (16):${NC}"
 echo -e "    ${BRIGHT_BLUE}/context-gen${NC}              — Подготовка контекста и репрезентации"
 echo -e "    ${BRIGHT_BLUE}/arch-gen${NC}                 — Генерация архитектуры C4 (PlantUML)"
 echo -e "    ${BRIGHT_BLUE}/data-trace${NC}               — Генерация DataFlow диаграмм"
@@ -369,6 +369,9 @@ echo -e "    ${BRIGHT_BLUE}/open-api${NC}                 — Генерация
 echo -e "    ${BRIGHT_BLUE}/validate-doc${NC}             — Тотальный аудит соответствия коду"
 echo -e "    ${BRIGHT_BLUE}/prd-grooming${NC}             — Диагностика и груминг требований PRD"
 echo -e "    ${BRIGHT_BLUE}/bft-build${NC}                — Формирование БФТ спецификаций"
+echo -e "    ${BRIGHT_BLUE}/discovery${NC}                — Discovery: контекст, развилки, брифинг для руководства"
+echo -e "    ${BRIGHT_BLUE}/discovery-answer${NC}         — Фиксация ответа руководства по развилке"
+echo -e "    ${BRIGHT_BLUE}/discovery-brief${NC}          — Пересборка брифинга из Decision Backlog"
 echo -e "    ${BRIGHT_BLUE}/fnr-new-task${NC}             — Постановка задачи и root-cause анализ"
 echo -e "    ${BRIGHT_BLUE}/fnr-concept${NC}              — Генерация спектра архитектурных решений"
 echo -e "    ${BRIGHT_BLUE}/fnr-debate${NC}               — Дебаты: Архитектор vs Адвокат Дьявола"

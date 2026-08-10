@@ -13,7 +13,8 @@
 ---
 
 > **Реверс‑инжиниринг** — превращайте код в C4‑диаграммы, DataFlow и API‑спецификации.<br>
-> **Системные требования** — проходите путь от проблемы до формального BR/FR/NFR с Jira‑декомпозицией.
+> **Системные требования** — проходите путь от проблемы до формального BR/FR/NFR с Jira‑декомпозицией.<br>
+> **Discovery** — превращайте размытую постановку в конкретные вопросы‑развилки для руководства и брифинг для согласования.
 >
 > Ключевой принцип — **нулевой допуск к галлюцинациям**: каждый факт прослеживается до строки кода (Traceability).
 
@@ -191,9 +192,30 @@ flowchart TD
     style D fill:#ffd43b,color:#000
 ```
 
+### Процесс 4: Discovery (формирование требований)
+
+Когда задача от руководства размыта и требований нет: `/discovery` собирает контекст, находит развилки (Decision Backlog), формирует брифинг для согласования и action points. По мере ответов руководства досье обновляется, пока не будет готово к постановке (`/fnr-concept`).
+
+```mermaid
+flowchart TD
+    T["Размытая задача от руководства"] --> D["/discovery"]
+    D -->|"00_context · 01_decision_backlog · 03_brief · 04_action_points · task.md"| Q{Развилки открыты?}
+
+    Q -->|"Ответ руководства"| A["/discovery-answer D-N «ответ»"]
+    A -->|"02_answers · статусы D-N → 🟢"| Q
+    Q -->|"Свежий брифинг"| B["/discovery-brief"]
+    B -->|"03_brief.md пересобран"| Q
+    Q -->|"Все блокеры 🟢 — готов к постановке"| C["/fnr-concept task.md"]
+
+    style D fill:#16a085,color:#fff
+    style A fill:#ffd43b,color:#000
+    style B fill:#ffd43b,color:#000
+    style C fill:#1abc9c,color:#fff
+```
+
 ---
 
-## 🛠 Доступные команды (13 команд)
+## 🛠 Доступные команды (16 команд)
 
 ### Реверс‑инжиниринг
 
@@ -217,6 +239,14 @@ flowchart TD
 | `/fnr-concept` | Solution Designer | Спектр решений: от чистой архитектуры до костыля | `FNR/FNR_N/concept.md` |
 | `/fnr-debate` | Architectural Debate | Архитектор vs Адвокат Дьявола — 3 раунда | Вердикт дописан в `concept.md` |
 | `/fnr-system-requirements` | System Requirements Analyst | BR / FR / NFR + Jira‑декомпозиция; двухслойное описание | `FNR/FNR_N/system_requirements.md` |
+
+### Discovery (формирование требований)
+
+| Команда | Роль | Описание | Результат |
+|:--------|:-----|:---------|:----------|
+| `/discovery` | Discovery Analyst | Из размытой задачи — контекст, развилки (Decision Backlog), брифинг для руководства, action points | Досье `FNR/FNR_N/`: `00_context`, `01_decision_backlog`, `03_brief`, `04_action_points`, `02_answers`, `task.md` |
+| `/discovery-answer` | Discovery Analyst | Зафиксировать ответ руководства по развилке, пересчитать досье | Обновлённые `02_answers`, `01_decision_backlog`, `task.md` |
+| `/discovery-brief` | Discovery Analyst | Пересобрать 1‑страничный брифинг из текущего бэклога | Обновлённый `03_brief.md` |
 
 
 ---
@@ -306,6 +336,7 @@ flowchart TD
 | `system-analyst-sysreq/` | Формирование системных требований |
 | `prd-groomer/` | Груминг PRD: диагностика требований и отчёт о находках |
 | `bft-builder/` | Построение БФТ: генерация бизнес-функциональных требований из входящего контекста |
+| `discovery-analyst/` | Discovery: превращение размытой задачи в требования‑развилки и брифинг для руководства |
 
 ---
 
@@ -379,6 +410,19 @@ flowchart TD
 
 6. /validate-doc  sa_documentation/FNR/FNR_1/system_requirements.md
 ```
+
+### Discovery: из размытой задачи в требования
+
+```text
+1. /discovery  Заказчик хочет перевести сервис X на загрузку данных в Y вместо старой базы. Требований пока нет.
+   → досье FNR/FNR_N/: контекст, развилки (Decision Backlog), брифинг для руководства, action points, task.md
+2. Покажи 03_brief.md руководству, собери ответы по открытым развилкам.
+3. /discovery-answer D-2 "Временно пишем в обе базы 2 спринта"  → статус D-2 → 🟢, пересчёт зависимостей
+4. /discovery-brief  → свежий брифинг из текущего состояния бэклога
+5. Когда все блокеры 🟢:  /fnr-concept sa_documentation/FNR/FNR_N/task.md
+```
+
+> Discovery **не пишет** в `tasks.md` — он формирует `04_action_points.md`, из которого аналитик сам переносит нужное в мастер‑план.
 
 ---
 
@@ -566,6 +610,7 @@ claude mcp add sa-helper-graph -- "$PWD\.venv\Scripts\python" indexer\server\mcp
 | `/create-doc` | Подграф вокруг сущности — точки входа, связи, зависимости |
 | `/validate-doc` | Сверка утверждений с рёбрами графа (`CALLS`, `QUERIES`, `EXTENDS`) |
 | `/fnr-*` | Структура проекта и зависимости для диагностики проблем |
+| `/discovery-*` | Blast‑radius (`impact`, `db-impact`) и gap‑finder (`call-chain`, `db-lineage`, `db-unresolved`, `db-orphans`) для поиска развилок |
 
 > **Fallback:** если Neo4j не запущен — команды работают через `repomix-output.xml` как раньше.
 
