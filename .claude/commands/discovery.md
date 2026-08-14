@@ -73,7 +73,7 @@ description: Discovery — из размытой задачи сформиров
 
 1. Прочитай `discovery-analyst/SKILL.md` — твоя персона, принципы (особенно **два слоя языка**), методология.
 2. Загрузи шаблоны из `discovery-analyst/examples/`: `ideal_context.md`, `ideal_decision_backlog.md`, `ideal_brief.md`, `ideal_action_points.md`, `ideal_task_handoff.md`.
-3. Прочитай `discovery-analyst/resources/two_layer_language.md` и `mapping_methodology.md`.
+3. Прочитай `discovery-analyst/resources/two_layer_language.md`, `mapping_methodology.md` и `question_coverage.md`.
 4. Прочитай артефакты `sa_documentation/` (только чтение!): `naming_conventions.md`, существующие документы — не дублировать, использовать терминологию.
 5. Проверь `sa_documentation/repomix-output.xml` — если нет, предупреди и работай по живому коду.
 
@@ -83,7 +83,7 @@ description: Discovery — из размытой задачи сформиров
 
 **MAP** — по `mapping_methodology.md`: blast-radius (`graph_impact`/`graph_db_impact`) + gap-finder (`graph_call_chain`/`graph_db_lineage`/`graph_db_unresolved`/`graph_db_orphans`). Дополнить «Зоны изменений» и «Разрывы» в `00_context.md`.
 
-**DECIDE** — превратить разрывы в карточки-развилки в `01_decision_backlog.md` по шаблону `ideal_decision_backlog.md`. Критерий включения: развилку нельзя закрыть чтением кода — решение за человеком. Ранжировать, пометить блокеров. Проверить по `resources/decision_backlog_checklist.md` (Hard Gates).
+**DECIDE** — превратить разрывы в карточки-развилки в `01_decision_backlog.md` по шаблону `ideal_decision_backlog.md`. Источники развилок — не только код: (1) разрывы из MAP («миграционные» вопросы); (2) обязательный свип по `resources/question_coverage.md` — 12 измерений требований (цель, пользователи, функциональный охват, стратегия, интерфейс, права, данные, интеграции, надёжность, эксплуатация, правила игры, приёмка), каждое закрыто карточкой или явным «не применимо» с причиной; (3) два взгляда — «изнутри» (как устроено, что сломается) и «снаружи» (если бы строили с нуля): для задач замены/переезда хотя бы одна карточка с вариантом «не переносить / переосмыслить». Добавь «Карту покрытия» и «Баланс адресатов» в конец бэклога (шаблон в `ideal_decision_backlog.md`). Критерий включения: развилку нельзя закрыть чтением кода — решение за человеком. Ранжировать, пометить блокеров. Проверить по `resources/decision_backlog_checklist.md` (Hard Gates).
 
 **BRIEF** — спроецировать бэклог в `03_brief.md` по `ideal_brief.md`: только бизнес, топ-3 для руководства, рекомендации, цена ошибки. Проверить тестом «понял бы руководитель без кода?».
 
@@ -96,13 +96,15 @@ description: Discovery — из размытой задачи сформиров
 Работаешь **в существующем досье** (новая папка НЕ создаётся).
 
 1. Прочитай уже существующие `00_context.md`, `01_decision_backlog.md`, `02_answers.md`, `03_brief.md`/`04_action_points.md` этого досье.
-2. Если на входе `03_brief.md`: (пере)сформируй `01_decision_backlog.md` и `04_action_points.md` из брифинга (например, после встречи брифинг обновлён) и финализируй `task.md`.
-3. Если на входе `04_action_points.md`: финализируй `task.md` из текущего состояния досье (action_points + answers + backlog), проверь Definition of Ready.
-4. Проверь `task.md` по Definition of Ready (SKILL.md). Дай явный ответ: готов к `/fnr-concept` или какие развилки ещё блокируют.
+2. Прогони бэклог по карте покрытия (`resources/question_coverage.md`, 12 измерений + два взгляда). Незакрытые измерения — сформулируй новые карточки (🔴), добавь/обнови «Карту покрытия» и «Сводку бэклога». Это штатный путь дозаполнения существующего досье: существующие 🟢-ответы не трогай, новые вопросы открывай отдельными карточками.
+3. Если на входе `03_brief.md`: (пере)сформируй `01_decision_backlog.md` и `04_action_points.md` из брифинга (например, после встречи брифинг обновлён) и финализируй `task.md`.
+4. Если на входе `04_action_points.md`: финализируй `task.md` из текущего состояния досье (action_points + answers + backlog), проверь Definition of Ready.
+5. Проверь `task.md` по Definition of Ready (SKILL.md). Дай явный ответ: готов к `/fnr-concept` или какие развилки ещё блокируют.
 
 ### Этап 3: Самопроверка
 
 - Прогони `resources/decision_backlog_checklist.md` по `01_decision_backlog.md` — устранить нарушения Hard Gates.
+- Проверь «Карту покрытия» (`resources/question_coverage.md`): все 12 измерений закрыты карточкой или «не применимо» с причиной; для задач замены есть вариант «не переносить / переосмыслить»; адресаты сбалансированы.
 - Проверь два слоя языка (`resources/two_layer_language.md`): в `03_brief.md` и бизнес-полях карточек нет техники.
 - Убедись, что каждая `[NEEDS_INVESTIGATION]` из бэклога отражена в `04_action_points.md`.
 - Убедись, что `tasks.md` **не тронут**.
