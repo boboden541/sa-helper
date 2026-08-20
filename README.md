@@ -155,12 +155,24 @@ flowchart TD
 
 ### Процесс 2: Системные требования (FNR Pipeline)
 
+У процесса **два входа**:
+
+- **Задача понятна** → постановка через анализ проблемы: `/fnr-new-task` формирует `task.md`.
+- **Задача от руководства размыта, требований нет** → discovery‑этапы (`/discovery` → цикл вопросов‑ответов `/discovery-answer` / `/discovery-brief`), которые закрывают развилки и готовят тот же `task.md` (детали — Процесс 4).
+
+Дальше пути сходятся: `/fnr-concept` → `/fnr-debate` → `/fnr-system-requirements` → `/validate-doc`.
+
 ```mermaid
 flowchart TD
     A["/context-gen"] -->|"Контекст проекта"| B["/fnr-new-task"]
-    B -->|"task.md"| C["/fnr-concept"]
-    C -->|"concept.md · 3–5 концептов"| D["/fnr-debate"]
-    D -->|"Вердикт в concept.md"| E{Вердикт?}
+    T["Размытая задача от руководства<br/>(требований нет)"] --> D["/discovery"]
+    D -->|"Досье: развилки Decision Backlog · брифинг"| Q["Цикл «вопрос → ответ»<br/>/discovery-answer · /discovery-brief"]
+    Q -->|"Все блокеры 🟢"| T2["task.md — готов к постановке"]
+    B -->|"task.md"| T2
+
+    T2 --> C["/fnr-concept"]
+    C -->|"concept.md · 3–5 концептов"| DD["/fnr-debate"]
+    DD -->|"Вердикт в concept.md"| E{Вердикт?}
 
     E -->|"Принят"| F["/fnr-system-requirements"]
     E -->|"Забраковано"| C
@@ -170,9 +182,13 @@ flowchart TD
     G -->|"Ошибки найдены"| F
 
     style A fill:#4a9eff,color:#fff
+    style T fill:#4a9eff,color:#fff
+    style D fill:#16a085,color:#fff
+    style Q fill:#ffd43b,color:#000
     style B fill:#ffd43b,color:#000
+    style T2 fill:#1abc9c,color:#fff
     style C fill:#ffd43b,color:#000
-    style D fill:#ffd43b,color:#000
+    style DD fill:#ffd43b,color:#000
     style F fill:#ffd43b,color:#000
     style G fill:#ff6b6b,color:#fff
     style H fill:#51cf66,color:#fff
@@ -396,6 +412,8 @@ flowchart TD
 
 ### Пройти путь от проблемы до системных требований
 
+> Если задача понятна — начинайте с шага 1. Если постановка размыта и требований нет — начните с Discovery (следующий раздел), а с `/fnr-concept` вернётесь на шаг 3 этого пути.
+
 ```text
 1. /context-gen  Я, как системный аналитик, должен провести дорабрику текущего проекта. Мне нужен глубокий анализ проекта, доработки могут затронуть любой слой и абстракцию текущего проекта.
 
@@ -422,6 +440,8 @@ flowchart TD
 5. Когда все блокеры 🟢:  /fnr-concept sa_documentation/FNR/FNR_N/task.md
 ```
 
+> Дальше — общий путь Процесса 2: `/fnr-debate` → `/fnr-system-requirements` → `/validate-doc`.
+>
 > Discovery **не пишет** в `tasks.md` — он формирует `04_action_points.md`, из которого аналитик сам переносит нужное в мастер‑план.
 
 ---
