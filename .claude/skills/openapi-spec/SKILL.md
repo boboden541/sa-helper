@@ -128,7 +128,7 @@ Neo4j-граф дополняет repomix-output.xml, а не заменяет �
 1. Определи `<domain>` из хоста API (`servers[0].url`): `ticketland.ru` → `ticketland`. Если домен явно задан в аргументе — слугифицируй его (lower-case; не-буквенно-цифровые → `_`).
 2. Если файл `sa_documentation/<сервис>-docs/api/openapi/<domain>.yaml` отсутствует — он будет создан; если есть — метод **дописывается** в него (Этап 4).
 
-**`operationId`** (уникален в пределах файла) выводится из метода+path по алгоритму нормализации (согласован с `context-gen.md:144-157`):
+**`operationId`** (уникален в пределах файла) выводится из метода+path по алгоритму нормализации (согласован с `/reverse-plan-tasks` — раздел «Формат имени файла: API», `.claude/commands/reverse-plan-tasks.md`):
 
 1. Отбрось ведущий `/`; остальные `/` → camelCase или `_`; `{id}` → `ById`/`by_id`.
 2. Добавь HTTP-метод префиксом (`get`/`post`/...): `GET /api/shows/{id}` → `getApiShowsById`.
