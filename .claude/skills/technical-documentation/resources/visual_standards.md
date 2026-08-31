@@ -16,6 +16,9 @@
 | **API Doc** | `activity` (Алгоритм) | `partition` для слоев, `fork` для параллельных запросов. |
 | **Data Trace** | `activity` или `component` | Трассировка от URL до конкретной таблицы БД. |
 | **Architecture** | `component` (C4 L3) | Использование нотации C4 (System, Container, Component). |
+| **Integration Doc** | `sequence` (+ `activity`) | Наш сервис и партнёр как участники; URL API обращения в подписи стрелки (правило 3.1), `note` с примером JSON, `alt/else` негативный сценарий. |
+| **ERD** | `entity` (ER-нотация) | `hide circle`; `entity` с PK/FK; связи с кардинальностью и бизнес-подписью. |
+| **Process Doc** | `activity` + `sequence` | `partition` по участникам; `if/else` на всех ветвлениях; `fork` для параллельных шагов; на стрелках Sequence — `METHOD /path`. |
 
 ## 3. Правила оформления (Hard Rules)
 

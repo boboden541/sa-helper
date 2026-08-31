@@ -74,8 +74,8 @@ description: Discovery — из размытой задачи сформиров
 1. Прочитай `discovery-analyst/SKILL.md` — твоя персона, принципы (особенно **два слоя языка**), методология.
 2. Загрузи шаблоны из `discovery-analyst/examples/`: `ideal_context.md`, `ideal_decision_backlog.md`, `ideal_brief.md`, `ideal_action_points.md`, `ideal_task_handoff.md`.
 3. Прочитай `discovery-analyst/resources/two_layer_language.md`, `mapping_methodology.md` и `question_coverage.md`.
-4. Прочитай артефакты `sa_documentation/` (только чтение!): `naming_conventions.md`, существующие документы — не дублировать, использовать терминологию.
-5. Проверь `sa_documentation/repomix-output.xml` — если нет, предупреди и работай по живому коду.
+4. Прочитай артефакты `sa_documentation/` (только чтение!): `naming_conventions.md` из `<сервис>-docs/`, существующие документы — не дублировать, использовать терминологию.
+5. Найди `repomix-output.xml` в `sa_documentation/*-docs/` (несколько сервисов — спроси пользователя; legacy-файл в корне `sa_documentation/` тоже принимается) — если нет, предупреди и работай по живому коду.
 
 ### Этап 2-NEW: CONTEXT → MAP → DECIDE → BRIEF (для режима NEW)
 
