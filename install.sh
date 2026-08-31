@@ -360,11 +360,12 @@ else
     echo -e "                └── ${SKILL_DIR}/     ${DIM}(навыки с frontmatter)${NC}"
 fi
 echo ""
-echo -e "  ${BOLD}Доступные производственные команды (17):${NC}"
+echo -e "  ${BOLD}Доступные производственные команды (18):${NC}"
 echo -e "    ${BRIGHT_BLUE}/context-gen${NC}              — Подготовка контекста и репрезентации"
 echo -e "    ${BRIGHT_BLUE}/reverse-plan-tasks${NC}       — Формирование единого плана задач документирования"
 echo -e "    ${BRIGHT_BLUE}/arch-gen${NC}                 — Генерация архитектуры C4 (PlantUML)"
 echo -e "    ${BRIGHT_BLUE}/data-trace${NC}               — Генерация DataFlow диаграмм"
+echo -e "    ${BRIGHT_BLUE}/mindmap${NC}                 — Карта погружения в сервис (PlantUML mindmap)"
 echo -e "    ${BRIGHT_BLUE}/create-doc${NC}               — Спецификации и документация API"
 echo -e "    ${BRIGHT_BLUE}/open-api${NC}                 — Генерация OpenAPI 3.0 (Swagger) specs"
 echo -e "    ${BRIGHT_BLUE}/validate-doc${NC}             — Тотальный аудит соответствия коду"
