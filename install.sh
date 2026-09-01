@@ -360,7 +360,7 @@ else
     echo -e "                └── ${SKILL_DIR}/     ${DIM}(навыки с frontmatter)${NC}"
 fi
 echo ""
-echo -e "  ${BOLD}Доступные производственные команды (16):${NC}"
+echo -e "  ${BOLD}Доступные производственные команды (17):${NC}"
 echo -e "    ${BRIGHT_BLUE}/context-gen${NC}              — Подготовка контекста и репрезентации"
 echo -e "    ${BRIGHT_BLUE}/arch-gen${NC}                 — Генерация архитектуры C4 (PlantUML)"
 echo -e "    ${BRIGHT_BLUE}/data-trace${NC}               — Генерация DataFlow диаграмм"
@@ -377,6 +377,7 @@ echo -e "    ${BRIGHT_BLUE}/fnr-concept${NC}              — Генерация
 echo -e "    ${BRIGHT_BLUE}/fnr-debate${NC}               — Дебаты: Архитектор vs Адвокат Дьявола"
 echo -e "    ${BRIGHT_BLUE}/fnr-system-requirements${NC}  — Формирование BR/FR/NFR + Jira"
 echo -e "    ${BRIGHT_BLUE}/project-map${NC}             — Построение графа проекта (Neo4j)"
+echo -e "    ${BRIGHT_BLUE}/babelfish-check${NC}         — SELECT rewrite/shadow; writes → отчёт"
 echo ""
 echo -e "${YELLOW}⚠️  Важно: Перезагрузите окно вашей IDE (Reload Window) для активации.${NC}"
 echo -e "${BLUE}----------------------------------------------------------------------${NC}"

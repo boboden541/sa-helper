@@ -25,6 +25,7 @@
 | Discovery-досье | `FNR` | Контекст, Decision Backlog, ответы, бриф, action points по неизвестным | `/discovery`, `/discovery-answer`, `/discovery-brief` | `00_…`–`04_…` |
 | PRD-grooming | `prd` | Разбор и подготовка PRD: уточнение требований, открытые вопросы | `/prd-grooming` | `<slug>-grooming.md` |
 | BFT | `bft` | Бизнес-/функциональные требования инициативы с метками scope по коду | `/bft-build` | `<slug>-bft.md` |
+| Babelfish compatibility | `babelfish` | Разработка совместимых SELECT: Compass, rewrite, MSSQL primary/Babelfish shadow и parity-тесты; side-effecting SQL только документируется | `/babelfish-check` | `<scope>-compatibility.md` |
 
 ## Правила пользования
 
