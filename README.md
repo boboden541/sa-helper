@@ -758,3 +758,7 @@ claude mcp add sa-helper-graph -- "$PWD\.venv\Scripts\python" indexer\server\mcp
 **Визуализация в браузере:** [http://localhost:7474](http://localhost:7474) — логин: `neo4j` / `sahelper2026`.
 
 ---
+
+## 📄 Лицензия
+
+Проект распространяется под лицензией [MIT](LICENSE). Используя SA-Helper, вы соглашаетесь с её условиями.
