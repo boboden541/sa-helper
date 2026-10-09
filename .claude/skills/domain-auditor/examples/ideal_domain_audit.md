@@ -1,191 +1,164 @@
-# Доменный и интеграционный аудит As-Is: Сервис синхронизации внешних поставок и материальных ресурсов
+# Доменный и технический аудит: Модуль управления подписками и лимитами использования
 
 ## 1. Введение и цели аудита
 
-Настоящий аудит подготовлен в рамках задачи рефакторинга/миграции слоя интеграции в сервисе `resource-ingestion-service`.
-Цель аудита — восстановить полную доменную модель данных, включая атомарные листовые сущности, зафиксировать фактический след персистентности в кодовой базе и выявить расхождения контрактов до проектирования целевой архитектуры.
+Настоящий аудит подготовлен в рамках задачи расширения логики тарификации и контроля квот в сервисе `subscription-service`.
+Цель аудита — проанализировать фактические структуры данных в кодовой базе, механизмы хранения, параметры конфигурации и обработку нештатных ситуаций перед проектированием концептов и системных требований.
 
-Анализируемые репозитории и хранилища:
-- Репозиторий: `services/resource-ingestion` (Java / Spring Boot);
-- База данных адаптера и трансляции ключей: `ingestion_state_db` (PostgreSQL);
-- Заменяемое целевое хранилище As-Is: `legacy_ledger_db` (реляционная СУБД).
+Анализируемые компоненты кодовой базы:
+- Пакет доменных моделей: `src/domain/subscription/`;
+- Слой хранения и репозиториев: `src/infrastructure/repositories/`;
+- Конфигурации и параметры сервиса: `config/application.yml`.
 
 ---
 
-## 2. Иерархическое дерево доменных сущностей (Domain Entity Tree)
+## 2. Модель данных и доменные сущности (Data & Entity Model)
 
-### 2.1 Диаграмма структуры домена
+### 2.1 Диаграмма структуры сущностей
 
 ```plantuml
 @startuml
 skinparam classAttributeIconSize 0
 
-class "Каталожная группа поставщика (Catalog Group)" as RootAgg {
-    + id: int
-    + external_code: string
+class "Подписка (Subscription)" as Sub {
+    + id: UUID
+    + account_id: UUID
+    + plan_code: string
+    + status: SubscriptionStatus
+    + current_period_end: timestamptz
+    + auto_renew: boolean
+    + created_at: timestamptz
+}
+
+class "Тарифный план (Plan)" as Plan {
+    + code: string
     + name: string
+    + interval: string
+    + is_active: boolean
 }
 
-class "Логистический узел (Logistics Facility)" as Facility {
+class "Лимит функции (FeatureLimit)" as Limit {
     + id: int
-    + name: string
-    + address: string
+    + plan_code: string
+    + feature_key: string
+    + limit_value: int
+    + is_unlimited: boolean
 }
 
-class "Зона размещения (Storage Zone)" as Zone {
-    + id: int
-    + facility_id: int
-    + topology_hash: string
+class "Учет использования (UsageRecord)" as Usage {
+    + account_id: UUID
+    + feature_key: string
+    + usage_count: int
+    + period_start: timestamptz
+    + updated_at: timestamptz
 }
 
-class "Сектор топологии (Topology Sector)" as Sector {
-    + id: int
-    + zone_id: int
-    + is_pooled_capacity: boolean
-    + geometry_points: string
+enum "SubscriptionStatus" as Status {
+    TRIAL
+    ACTIVE
+    PAST_DUE
+    CANCELED
 }
 
-class "Дискретная ячейка учета (Discrete Cell)" as Cell {
-    + id: int
-    + sector_id: int
-    + level_label: string
-    + position_label: string
-    + coordinate_x: int
-    + coordinate_y: int
-}
-
-class "Операционный транш поставки (Consignment Slot)" as Slot {
-    + id: int
-    + group_id: int
-    + zone_id: int
-    + dispatch_time: timestamp
-}
-
-class "Сериализованная единица учета (Serialized Ledger Item)" as Item {
-    + id: int
-    + slot_id: int
-    + cell_id: int (nullable)
-    + base_cost: numeric
-    + identification_barcode: string
-    + state_status: string
-}
-
-class "Пул несериализованной емкости (Bulk Capacity Pool)" as Pool {
-    + id: int
-    + slot_id: int
-    + sector_id: int
-    + total_capacity: int
-    + utilized_capacity: int
-}
-
-RootAgg "1" *-- "many" Slot : содержит
-Facility "1" *-- "many" Zone : содержит
-Zone "1" *-- "many" Sector : разбивается на
-Sector "1" *-- "many" Cell : физические ячейки
-Slot "1" *-- "many" Item : номенклатурные единицы
-Slot "1" *-- "many" Pool : агрегированные пулы
-Cell "0..1" <-- "1" Item : привязка к ячейке
-Sector "1" <-- "1" Pool : привязка к сектору
+Sub "many" --> "1" Plan : ссылается на
+Plan "1" *-- "many" Limit : определяет
+Sub --> Status : имеет состояние
+Sub "1" .. "many" Usage : контекст лимитов
 @enduml
 ```
 
-### 2.2 Реестр сущностей до листовых элементов
+### 2.2 Спецификация атрибутов и типов данных
 
-| Уровень | Сущность | Тип идентификатора | Листовая? | Описание и назначение |
-|---------|----------|-------------------|-----------|------------------------|
-| 1 (Корень) | Каталожная группа (`Catalog Group`) | `int` (`GroupKey`) | Нет | Корневой агрегат описания номенклатурного потока |
-| 2 (Контекст) | Логистический узел (`Logistics Facility`) | `int` (`FacilityKey`) | Нет | Физический объект размещения |
-| 3 (Топология) | Зона размещения (`Storage Zone`) | `int` (`ZoneKey`) | Нет | Конфигурация зоны с вычислением хэша топологии |
-| 4 (Топология) | Сектор (`Topology Sector`) | `int` (`SectorKey`) | Нет | Логический сегмент зоны (полигон, признак пула) |
-| 5 (Лист) | Дискретная ячейка учета (`Discrete Cell`) | `int` (`CellKey`) | **Да** | Физическая квантованная позиция (уровень, ряд, координаты) |
-| 2 (Операции) | Операционный транш (`Consignment Slot`) | `int` (`SlotKey`) | Нет | Сессия поставки с привязкой к дате и зоне |
-| 6 (Лист) | Сериализованная единица (`Serialized Ledger Item`) | `int` (`ItemKey`) | **Да** | Единичная номенклатурная позиция с атрибутами цены, штрих-кода и статуса |
-| 6 (Лист) | Пул несериализованной емкости (`Bulk Capacity Pool`) | `int` (`PoolKey`) | **Да** | Квотируемый объем ресурсов без индивидуального позиционирования |
-
----
-
-## 3. Реестр механизмов хранения и адаптеров (Persistence Footprint)
-
-| Сущность | Адаптер в кодовой базе | Хранимые процедуры / SQL As-Is | Таблицы сопоставления (`Identity Maps`) |
-|----------|------------------------|-------------------------------|-----------------------------------------|
-| Каталожная группа | `CatalogBatchImporter.java:120` | `sp_RegisterCatalogGroup`, `sp_UpdateCatalogGroup` | `ingestion_state_db.sys_crossref (type='GROUP')` |
-| Зона размещения | `TopologySyncService.java:85` | `sp_CreateStorageZone`, `sp_UpdateStorageZone` | `ingestion_state_db.sys_crossref (type='ZONE')` |
-| Секторы топологии | `SectorProcessor.java:64` | `sp_CreateTopologySector`, `sp_BindSector` | `ingestion_state_db.sys_crossref (type='SECTOR')` |
-| Дискретные ячейки | `CellBatchWriter.java:140` | `sp_InsertCellsBatch`, `sp_UpdateCellAttributes` | `ingestion_state_db.sys_crossref (type='CELL')` |
-| Операционные транши | `ConsignmentRepository.java:95` | `sp_CreateConsignmentSlot`, `sp_DeactivateSlot` | `ingestion_state_db.sys_crossref (type='SLOT')` |
-| Номенклатурные единицы | `ItemStateSynchronizer.java:210` | `sp_MarkItemAvailable`, `sp_MarkItemAllocated` | Прямое обновление статусов в `legacy_ledger_db` |
-| Пулы емкости | `PooledQuotaManager.java:78` | `sp_AllocateVirtualQuotaBatch` | `ingestion_state_db.quota_crossref` |
+| Сущность | Атрибут | Тип данных | Обязательность | Описание и ограничения |
+|----------|---------|------------|----------------|------------------------|
+| `Subscription` | `id` | `UUID` | Обязательное | Первичный ключ подписки |
+| `Subscription` | `account_id` | `UUID` | Обязательное | Владелец подписки; уникальный индекс в паре с `status=ACTIVE` |
+| `Subscription` | `plan_code` | `string(64)` | Обязательное | Код тарифного плана |
+| `Subscription` | `status` | `enum` | Обязательное | Допустимые значения: `TRIAL`, `ACTIVE`, `PAST_DUE`, `CANCELED` |
+| `Subscription` | `current_period_end` | `timestamptz` | Обязательное | Время окончания текущего расчетного периода |
+| `FeatureLimit` | `limit_value` | `int` | Обязательное | Максимальное число операций в рамках периода |
+| `UsageRecord` | `usage_count` | `int` | Обязательное | Текущее накопленное количество использований |
 
 ---
 
-## 4. Матрица конфликта контрактов и типов (Impedance Mismatch Matrix)
+## 3. Слой персистентности и жизненный цикл состояния
 
-| Сущность / Атрибут | Модель источника (As-Is) | Модель целевой системы (To-Be) | Характер конфликта | Архитектурное решение для спецификации |
-|-------------------|--------------------------|--------------------------------|-------------------|---------------------------------------|
-| Первичные ключи всех сущностей | `Integer` (32-bit int) | `String` (UUID / BSON ObjectId) | Несовместимость типов идентификаторов | Введение таблицы трансляции идентификаторов `sys_identity_mapping` |
-| Номер позиции (`position_label`) | `String` (буквенно-цифровые индексы) | `Integer` (строго числовое поле) | Валидационный отказ сериализации | Хранение сырого значения в буфере черновиков и нормализация при публикации |
-| Время завершения транша | Отсутствует в источнике (`null`) | Обязательный атрибут `expiry_time` | Нарушение схемы целевого контракта | Синтетический расчет планового времени завершения по бизнес-правилу |
-| Дедупликация топологии зоны | Вычисление контрольной суммы (хэша) ячеек | Сравнение по внешнему коду логистического узла | Риск создания дублирующих топологий | Сохранение алгоритма хэширования в интеграционном слое черновиков |
+### 3.1 Механизмы хранения
+- **Реляционное хранилище:** таблицы `subscriptions`, `plans`, `feature_limits` в PostgreSQL (`SubscriptionEntity.kt:42`).
+- **Быстрый счетчик использования:** значения `usage_count` кэшируются и инкрементируются атомарно в Redis (`UsageRedisRepository.kt:18`) с периодическим сбросом в основное хранилище.
 
----
-
-## 5. Анализ контуров управления и администрирования (Control Plane)
-
-### 5.1 Топология взаимодействия
-- **Панель администрирования (Admin UI):** Оператор регистрирует внешнего поставщика, устанавливает коэффициенты наценки/тарифов и привязывает параметры договора.
-- **Маршрутизация:** Панель администрирования обращается к шлюзовому сервису, не вмешиваясь напрямую в транзакционное ядро.
-
-### 5.2 Бизнес-соглашения и взаиморасчеты
-- В As-Is параметры поставщиков хранятся в модуле договорных условий (`ContractTerms`).
-- При исполнении операций реализуется цепочка взаиморасчетов между участниками процесса.
-- В To-Be контур управления обязан материализовать условия интеграционного соглашения до запуска синхронизации потока единиц учета.
-
----
-
-## 6. Обратная трассировка ключевого сценария (Reverse Lineage)
-
-### 6.1 Сценарий: Клиентское списание единицы учета в целевой системе
+### 3.2 Жизненный цикл состояния подписки
 
 ```plantuml
 @startuml
-skinparam BoxPadding 10
-
-box "Целевая платформа" #GhostWhite
-participant "Витрина / Потребитель" as Client
-participant "Core Engine" as CORE
-database "Target DB" as TDB
-end box
-
-box "Слой адаптеров и черновиков" #LightCyan
-entity "sys_identity_mapping" as IDMAP
-participant "Ingestion Gateway" as GATEWAY
-database "Draft State DB" as DRAFT
-end box
-
-box "Внешний поставщик" #Lavender
-participant "Внешняя система источника" as EXT
-end box
-
-Client -> CORE: Списание единицы (target_slot_id, target_item_id)
-CORE -> TDB: Фиксация резервирования в Target DB
-
-CORE -> IDMAP: Поиск внешних ключей по target_item_id
-IDMAP --> CORE: draft_item_id, external_item_id
-
-CORE -> GATEWAY: POST /v1/operations/allocate (external_item_id, external_slot_id)
-GATEWAY -> EXT: Вызов API источника на фиксацию операции
-EXT --> GATEWAY: 200 OK (external_operation_code)
-
-GATEWAY -> DRAFT: Фиксация статуса в буферных таблицах
-GATEWAY --> CORE: 200 OK (Подтверждено)
-CORE --> Client: Операция успешно подтверждена
+[*] --> TRIAL : Регистрация аккаунта
+TRIAL --> ACTIVE : Успешная оплата
+ACTIVE --> PAST_DUE : Ошибка автоплатежа
+PAST_DUE --> ACTIVE : Повторный успешный платеж
+PAST_DUE --> CANCELED : Истечение грейс-периода (14 дней)
+ACTIVE --> CANCELED : Отмена пользователем
+CANCELED --> [*]
 @enduml
 ```
 
 ---
 
-## 7. Критические архитектурные выводы для последующих этапов
+## 4. Конфигурация и управление поведением
 
-1. **Недопустимость изоляции агрегатов без листовых сущностей:** Любая целевая архитектура обязана поддерживать атомарные идентификаторы позиций и секторов на этапе интеграции, иначе внутренние модули пакетной обработки завершатся фатальным сбоем.
-2. **Обязательность двухфазной публикации данных:** Из-за несовместимости типов валидации данных сырые транши и топологии должны поступать в буферное хранилище черновиков с последующей нормализацией и операторской верификацией.
-3. **Реализация двусторонней трансляции идентификаторов:** В системных требованиях обязана присутствовать таблица сопоставления ключей `sys_identity_mapping`, покрывающая все уровни доменной модели.
+Поведение модуля параметризуется через конфигурацию сервиса (`config/application.yml:55`):
+- `billing.grace-period-days` (по умолчанию: `14`) — длительность ожидания оплаты в статусе `PAST_DUE` до перевода в `CANCELED`;
+- `limits.enforcement-mode` (значения: `BLOCKING` / `WARNING_ONLY`) — стратегия поведения при исчерпании лимита;
+- `features.overage-allowed` — флаг разрешения перерасхода лимитов.
+
+---
+
+## 5. Сквозной поток исполнения и сценарии отказов
+
+### 5.1 Сценарий: Проверка и учет использования функции
+
+```plantuml
+@startuml
+participant "API Клиент" as Client
+participant "UsageController" as Ctrl
+participant "LimitEvaluatorService" as Svc
+database "Redis (Counters)" as Cache
+database "PostgreSQL (DB)" as DB
+
+Client -> Ctrl: POST /v1/features/check-and-consume (feature_key)
+Ctrl -> Svc: evaluateAccess(account_id, feature_key)
+
+Svc -> DB: getActiveSubscription(account_id)
+alt Подписка не найдена или CANCELED
+    DB --> Svc: null
+    Svc --> Ctrl: AccessDenied(Reason: NoActiveSubscription)
+    Ctrl --> Client: 403 Forbidden
+else Подписка активна
+    DB --> Svc: subscription (plan_code)
+    Svc -> DB: getLimit(plan_code, feature_key)
+    DB --> Svc: limit_value (например, 1000)
+
+    Svc -> Cache: INCRBY account:{id}:feature:{key} 1
+    Cache --> Svc: new_count (например, 1001)
+
+    alt new_count > limit_value
+        Svc -> Cache: DECRBY account:{id}:feature:{key} 1
+        Svc --> Ctrl: LimitExceeded(current: 1000, limit: 1000)
+        Ctrl --> Client: 429 Too Many Requests
+    else Лимит не превышен
+        Svc --> Ctrl: AccessGranted
+        Ctrl --> Client: 200 OK
+    end
+end
+@enduml
+```
+
+### 5.2 Поведение в нештатных ситуациях
+1. **Недоступность Redis:** при сбое кэша сервис переключается на прямой запрос к PostgreSQL (`fallbackToDatabase: true`, `UsageEvaluator.kt:88`).
+2. **Конкурентные запросы:** инкремент счетчика выполняется атомарной командой, что исключает состояние гонки при одновременных обращениях.
+
+---
+
+## 6. Выводы и архитектурные ограничения
+
+1. **Необходимость учета состояния подписки:** Любые новые методы или проверки обязаны валидировать статус `ACTIVE` / `TRIAL`, иначе возможен несанкционированный доступ к функциям аккаунтов в статусе `PAST_DUE`.
+2. **Атомарность учета:** При расширении модели данных на составные квоты необходимо сохранить атомарный характер проверки и списания для предотвращения превышения лимитов при параллельных запросах.

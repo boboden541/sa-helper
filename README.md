@@ -174,7 +174,7 @@ flowchart TD
     Q -->|"Все блокеры 🟢"| T2["task.md — готов к постановке"]
     B -->|"task.md"| T2
 
-    T2 -->|"Миграция / адаптеры"| DA["/fnr-domain-audit"]
+    T2 -->|"Глубокий аудит кода"| DA["/fnr-domain-audit"]
     DA -->|"domain_audit.md"| C["/fnr-concept"]
     T2 -->|"Стандартный путь"| C
     C -->|"concept.md · 3–5 концептов"| DD["/fnr-debate"]
@@ -261,7 +261,7 @@ flowchart TD
 | Команда | Роль | Описание | Результат |
 |:--------|:-----|:---------|:----------|
 | `/fnr-new-task` | Problem Analyst | Анализ проблемы, поиск корня в коде | `FNR/FNR_N/task.md` |
-| `/fnr-domain-audit` | Domain & Legacy Auditor | Реверс-инжиниринг As-Is: дерево листовых сущностей, след адаптеров/БД, типы, Control Plane | `FNR/FNR_N/domain_audit.md` |
+| `/fnr-domain-audit` | Domain & Technical Auditor | Глубокий аудит кода: структуры данных, персистентность, конфигурации, краевые случаи | `FNR/FNR_N/domain_audit.md` |
 | `/fnr-concept` | Solution Designer | Спектр решений: от чистой архитектуры до костыля | `FNR/FNR_N/concept.md` |
 | `/fnr-debate` | Architectural Debate | Архитектор vs Адвокат Дьявола — 3 раунда | Вердикт дописан в `concept.md` |
 | `/fnr-system-requirements` | System Requirements Analyst | BR / FR / NFR + Jira‑декомпозиция; двухслойное описание | `FNR/FNR_N/system_requirements.md` |
@@ -483,8 +483,8 @@ sa_documentation/
 
 2. /fnr-new-task  После cron‑импорта данные, созданные вручную в web_db, пропадают. Нужно понять причину и описать проблему. -> sa_documentation/FNR/FNR_1/task.md
 
-[Опционально / для миграций и адаптеров]:
-   /fnr-domain-audit  sa_documentation/FNR/FNR_1/task.md -> domain_audit.md — аудит листовых сущностей, SQL/процедур, типов и Control Plane
+[Опционально / при необходимости глубокого аудита кода]:
+   /fnr-domain-audit  sa_documentation/FNR/FNR_1/task.md -> domain_audit.md — детальный анализ структур данных, персистентности, конфигураций и краевых случаев в коде
 
 3. /fnr-concept  sa_documentation/FNR/FNR_1/task.md -> concept.md — 3–5 концептов (от чистой архитектуры до костыля)
 
