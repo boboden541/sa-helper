@@ -102,4 +102,8 @@ description: Постановка задачи — структурирован�
 
 ### Этап 6: Завершение
 
-Выведи: "Задача FNR-<N> описана в `sa_documentation/FNR/FNR_<N>/task.md`. Следующий шаг: `/fnr-concept sa_documentation/FNR/FNR_<N>/task.md`"
+Выведи:
+- Если задача связана с миграцией данных, заменой хранилища, рефакторингом адаптеров или внешней интеграцией:
+  "Задача FNR-<N> описана в `sa_documentation/FNR/FNR_<N>/task.md`. Рекомендуемый следующий шаг (аудит доменных сущностей и адаптеров): `/fnr-domain-audit sa_documentation/FNR/FNR_<N>/task.md`."
+- Для прочих задач:
+  "Задача FNR-<N> описана в `sa_documentation/FNR/FNR_<N>/task.md`. Следующий шаг: `/fnr-concept sa_documentation/FNR/FNR_<N>/task.md`"
