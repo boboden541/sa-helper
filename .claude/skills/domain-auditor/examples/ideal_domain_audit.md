@@ -1,14 +1,14 @@
-# Доменный и интеграционный аудит As-Is: Сервис синхронизации инвентаря
+# Доменный и интеграционный аудит As-Is: Сервис синхронизации внешних поставок и материальных ресурсов
 
 ## 1. Введение и цели аудита
 
-Настоящий аудит подготовлен в рамках задачи рефакторинга/миграции слоя сохранения данных в сервисе `provider-sync-service`.
+Настоящий аудит подготовлен в рамках задачи рефакторинга/миграции слоя интеграции в сервисе `resource-ingestion-service`.
 Цель аудита — восстановить полную доменную модель данных, включая атомарные листовые сущности, зафиксировать фактический след персистентности в кодовой базе и выявить расхождения контрактов до проектирования целевой архитектуры.
 
 Анализируемые репозитории и хранилища:
-- Репозиторий: `services/provider-sync` (Java / Spring);
-- База данных источника/маппинга: `sync_db` (PostgreSQL);
-- Заменяемое хранилище данных As-Is: `legacy_core_db` (MS SQL Server / Oracle).
+- Репозиторий: `services/resource-ingestion` (Java / Spring Boot);
+- База данных адаптера и трансляции ключей: `ingestion_state_db` (PostgreSQL);
+- Заменяемое целевое хранилище As-Is: `legacy_ledger_db` (реляционная СУБД).
 
 ---
 
@@ -20,72 +20,72 @@
 @startuml
 skinparam classAttributeIconSize 0
 
-class "Каталожная группа (Catalog Group)" as RootAgg {
+class "Каталожная группа поставщика (Catalog Group)" as RootAgg {
     + id: int
     + external_code: string
     + name: string
 }
 
-class "Пункт присутствия (Facility / Venue)" as Facility {
+class "Логистический узел (Logistics Facility)" as Facility {
     + id: int
     + name: string
     + address: string
 }
 
-class "Пространственная зона (Zone / Hall)" as Zone {
+class "Зона размещения (Storage Zone)" as Zone {
     + id: int
     + facility_id: int
-    + layout_hash: string
+    + topology_hash: string
 }
 
 class "Сектор топологии (Topology Sector)" as Sector {
     + id: int
     + zone_id: int
-    + is_seatless_quota: boolean
+    + is_pooled_capacity: boolean
     + geometry_points: string
 }
 
-class "Дискретная позиция (Discrete Unit / Seat)" as Unit {
+class "Дискретная ячейка учета (Discrete Cell)" as Cell {
     + id: int
     + sector_id: int
-    + row_label: string
-    + unit_label: string
-    + coord_x: int
-    + coord_y: int
+    + level_label: string
+    + position_label: string
+    + coordinate_x: int
+    + coordinate_y: int
 }
 
-class "Операционный слот (Operating Slot / Event)" as Slot {
+class "Операционный транш поставки (Consignment Slot)" as Slot {
     + id: int
     + group_id: int
     + zone_id: int
-    + start_time: timestamp
+    + dispatch_time: timestamp
 }
 
-class "Инвентарная позиция (Inventory Item / Ticket)" as Item {
+class "Сериализованная единица учета (Serialized Ledger Item)" as Item {
     + id: int
     + slot_id: int
-    + unit_id: int (nullable)
-    + price_amount: numeric
-    + barcode: string
-    + availability_status: string
+    + cell_id: int (nullable)
+    + base_cost: numeric
+    + identification_barcode: string
+    + state_status: string
 }
 
-class "Квота свободной емкости (Capacity Pool)" as Quota {
+class "Пул несериализованной емкости (Bulk Capacity Pool)" as Pool {
     + id: int
     + slot_id: int
     + sector_id: int
     + total_capacity: int
-    + sold_capacity: int
+    + utilized_capacity: int
 }
 
 RootAgg "1" *-- "many" Slot : содержит
 Facility "1" *-- "many" Zone : содержит
 Zone "1" *-- "many" Sector : разбивается на
-Sector "1" *-- "many" Unit : физические позиции
-Slot "1" *-- "many" Item : инвентарь слота
-Slot "1" *-- "many" Quota : неименованные пулы
-Unit "0..1" <-- "1" Item : привязка к позиции
-Sector "1" <-- "1" Quota : привязка к сектору
+Sector "1" *-- "many" Cell : физические ячейки
+Slot "1" *-- "many" Item : номенклатурные единицы
+Slot "1" *-- "many" Pool : агрегированные пулы
+Cell "0..1" <-- "1" Item : привязка к ячейке
+Sector "1" <-- "1" Pool : привязка к сектору
 @enduml
 ```
 
@@ -93,28 +93,28 @@ Sector "1" <-- "1" Quota : привязка к сектору
 
 | Уровень | Сущность | Тип идентификатора | Листовая? | Описание и назначение |
 |---------|----------|-------------------|-----------|------------------------|
-| 1 (Корень) | Каталожная группа (`Catalog Group`) | `int` (`GroupKey`) | Нет | Корневой агрегат описания события/услуги |
-| 2 (Контекст) | Площадка (`Facility`) | `int` (`FacilityKey`) | Нет | Физическое здание или комплекс |
-| 3 (Топология) | Пространственная зона (`Zone`) | `int` (`ZoneKey`) | Нет | Зал или конфигурация площадки с вычислением MD5-хэша схемы |
-| 4 (Топология) | Сектор (`Sector`) | `int` (`SectorKey`) | Нет | Логический сегмент схемы (полигон, признак квоты) |
-| 5 (Лист) | Дискретная позиция (`Discrete Unit`) | `int` (`UnitKey`) | **Да** | Физическое квантованное место (ряд, номер, координаты) |
-| 2 (Операции) | Операционный слот (`Operating Slot`) | `int` (`SlotKey`) | Нет | Конкретный сеанс/дата проведения с привязкой к зоне |
-| 6 (Лист) | Инвентарная позиция (`Inventory Item`) | `int` (`ItemKey`) | **Да** | Единичный билет слота с номиналом цены, баркодом и статусом доступности |
-| 6 (Лист) | Квота емкости (`Capacity Pool`) | `int` (`PoolKey`) | **Да** | Виртуальный пул свободной рассадки (входные билеты без номера места) |
+| 1 (Корень) | Каталожная группа (`Catalog Group`) | `int` (`GroupKey`) | Нет | Корневой агрегат описания номенклатурного потока |
+| 2 (Контекст) | Логистический узел (`Logistics Facility`) | `int` (`FacilityKey`) | Нет | Физический объект размещения |
+| 3 (Топология) | Зона размещения (`Storage Zone`) | `int` (`ZoneKey`) | Нет | Конфигурация зоны с вычислением хэша топологии |
+| 4 (Топология) | Сектор (`Topology Sector`) | `int` (`SectorKey`) | Нет | Логический сегмент зоны (полигон, признак пула) |
+| 5 (Лист) | Дискретная ячейка учета (`Discrete Cell`) | `int` (`CellKey`) | **Да** | Физическая квантованная позиция (уровень, ряд, координаты) |
+| 2 (Операции) | Операционный транш (`Consignment Slot`) | `int` (`SlotKey`) | Нет | Сессия поставки с привязкой к дате и зоне |
+| 6 (Лист) | Сериализованная единица (`Serialized Ledger Item`) | `int` (`ItemKey`) | **Да** | Единичная номенклатурная позиция с атрибутами цены, штрих-кода и статуса |
+| 6 (Лист) | Пул несериализованной емкости (`Bulk Capacity Pool`) | `int` (`PoolKey`) | **Да** | Квотируемый объем ресурсов без индивидуального позиционирования |
 
 ---
 
 ## 3. Реестр механизмов хранения и адаптеров (Persistence Footprint)
 
-| Сущность | Адаптер в кодовой базе | Хранимые процедуры / SQL As-Is | Таблицы сопоставления (`Mapping`) |
-|----------|------------------------|-------------------------------|-----------------------------------|
-| Каталожная группа | `RepertoireImporter.java:366` | `dbo.sp_AddGroup`, `dbo.sp_UpdateGroup` | `sync_db.dbo.mapping (type='GROUP')` |
-| Пространственная зона | `ConstructiveImporter.java:230` | `dbo.sp_CreateZone`, `dbo.sp_UpdateZone` | `sync_db.dbo.mapping (type='ZONE')` |
-| Секторы и полигоны | `SectorImporter.java:115` | `dbo.sp_CreateSector`, `dbo.sp_LinkSector` | `sync_db.dbo.mapping (type='SECTOR')` |
-| Дискретные позиции | `UnitEntityImporter.java:180` | `dbo.sp_AddUnitsBatch`, `dbo.sp_UpdateUnit` | `sync_db.dbo.mapping (type='UNIT')` |
-| Операционные слоты | `SlotRepository.java:85` | `dbo.sp_AddSlotLite`, `dbo.sp_HideSlot` | `sync_db.dbo.mapping (type='SLOT')` |
-| Инвентарь и цены | `InventoryImporter.java:270` | `dbo.sp_MarkUnitFree`, `dbo.sp_MarkUnitSold` | Прямое обновление статуса в `legacy_core_db` |
-| Квоты емкости | `QuotaRepository.java:92` | `dbo.sp_InsertVirtualPoolItems` | `sync_db.dbo.quota_mappings` |
+| Сущность | Адаптер в кодовой базе | Хранимые процедуры / SQL As-Is | Таблицы сопоставления (`Identity Maps`) |
+|----------|------------------------|-------------------------------|-----------------------------------------|
+| Каталожная группа | `CatalogBatchImporter.java:120` | `sp_RegisterCatalogGroup`, `sp_UpdateCatalogGroup` | `ingestion_state_db.sys_crossref (type='GROUP')` |
+| Зона размещения | `TopologySyncService.java:85` | `sp_CreateStorageZone`, `sp_UpdateStorageZone` | `ingestion_state_db.sys_crossref (type='ZONE')` |
+| Секторы топологии | `SectorProcessor.java:64` | `sp_CreateTopologySector`, `sp_BindSector` | `ingestion_state_db.sys_crossref (type='SECTOR')` |
+| Дискретные ячейки | `CellBatchWriter.java:140` | `sp_InsertCellsBatch`, `sp_UpdateCellAttributes` | `ingestion_state_db.sys_crossref (type='CELL')` |
+| Операционные транши | `ConsignmentRepository.java:95` | `sp_CreateConsignmentSlot`, `sp_DeactivateSlot` | `ingestion_state_db.sys_crossref (type='SLOT')` |
+| Номенклатурные единицы | `ItemStateSynchronizer.java:210` | `sp_MarkItemAvailable`, `sp_MarkItemAllocated` | Прямое обновление статусов в `legacy_ledger_db` |
+| Пулы емкости | `PooledQuotaManager.java:78` | `sp_AllocateVirtualQuotaBatch` | `ingestion_state_db.quota_crossref` |
 
 ---
 
@@ -122,63 +122,63 @@ Sector "1" <-- "1" Quota : привязка к сектору
 
 | Сущность / Атрибут | Модель источника (As-Is) | Модель целевой системы (To-Be) | Характер конфликта | Архитектурное решение для спецификации |
 |-------------------|--------------------------|--------------------------------|-------------------|---------------------------------------|
-| Первичные ключи всех сущностей | `Integer` (32-bit int) | `String` (24 hex BSON ObjectId) | Несовместимость типов идентификаторов | Введение реляционной таблицы трансляции `gateway_id_mapping` |
-| Номер позиции (`unit_label`) | `String` (допускает "1А", "VIP-2") | `Integer` (строго число) | Валидационный отказ при сериализации | Хранение сырого значения в черновиках и нормализация при публикации |
-| Время окончания слота | Не передается источником (`null`) | Обязательное поле `end_time` (not null) | Нарушение контракта создания | Расчет синтетического времени окончания (`start_time + 3 hours`) |
-| Дедупликация схемы зоны | Вычисление MD5 от массива мест | Сравнение по внешнему идентификатору площадки | Риск размножения схем-дубликатов | Сохранение хэширования топологий на этапе черновиков |
+| Первичные ключи всех сущностей | `Integer` (32-bit int) | `String` (UUID / BSON ObjectId) | Несовместимость типов идентификаторов | Введение таблицы трансляции идентификаторов `sys_identity_mapping` |
+| Номер позиции (`position_label`) | `String` (буквенно-цифровые индексы) | `Integer` (строго числовое поле) | Валидационный отказ сериализации | Хранение сырого значения в буфере черновиков и нормализация при публикации |
+| Время завершения транша | Отсутствует в источнике (`null`) | Обязательный атрибут `expiry_time` | Нарушение схемы целевого контракта | Синтетический расчет планового времени завершения по бизнес-правилу |
+| Дедупликация топологии зоны | Вычисление контрольной суммы (хэша) ячеек | Сравнение по внешнему коду логистического узла | Риск создания дублирующих топологий | Сохранение алгоритма хэширования в интеграционном слое черновиков |
 
 ---
 
 ## 5. Анализ контуров управления и администрирования (Control Plane)
 
 ### 5.1 Топология взаимодействия
-- **Панель управления (Admin UI):** Оператор настраивает подключение к внешнему шлюзу поставщика, задает процент комиссии и привязывает организатора.
-- **Маршрутизация:** Панель управления обращается к шлюзовому адаптеру как к прокси, исключая прямое вмешательство в целевое ядро.
+- **Панель администрирования (Admin UI):** Оператор регистрирует внешнего поставщика, устанавливает коэффициенты наценки/тарифов и привязывает параметры договора.
+- **Маршрутизация:** Панель администрирования обращается к шлюзовому сервису, не вмешиваясь напрямую в транзакционное ядро.
 
-### 5.2 Коммерческие условия и клиринг
-- В As-Is договоры поставщиков хранятся в модуле финансовых условий (`ContractClauses`).
-- При продажах реализуется трехсторонняя модель клиринга: `Поставщик <-> Агрегатор/МДТЗК <-> B2B-партнер`.
-- В To-Be контур управления обязан материализовать условия сделки (`Deal`) до старта операционной синхронизации инвентаря.
+### 5.2 Бизнес-соглашения и взаиморасчеты
+- В As-Is параметры поставщиков хранятся в модуле договорных условий (`ContractTerms`).
+- При исполнении операций реализуется цепочка взаиморасчетов между участниками процесса.
+- В To-Be контур управления обязан материализовать условия интеграционного соглашения до запуска синхронизации потока единиц учета.
 
 ---
 
 ## 6. Обратная трассировка ключевого сценария (Reverse Lineage)
 
-### 6.1 Сценарий: Клиентский выкуп инвентарной единицы в целевой системе
+### 6.1 Сценарий: Клиентское списание единицы учета в целевой системе
 
 ```plantuml
 @startuml
 skinparam BoxPadding 10
 
 box "Целевая платформа" #GhostWhite
-participant "Витрина / B2B Партнер" as B2B
+participant "Витрина / Потребитель" as Client
 participant "Core Engine" as CORE
 database "Target DB" as TDB
 end box
 
 box "Слой адаптеров и черновиков" #LightCyan
-entity "gateway_id_mapping" as GIM
-participant "Sync Gateway" as GATEWAY
-database "Draft / Mapping DB" as DRAFT
+entity "sys_identity_mapping" as IDMAP
+participant "Ingestion Gateway" as GATEWAY
+database "Draft State DB" as DRAFT
 end box
 
 box "Внешний поставщик" #Lavender
-participant "Провайдер шлюза" as PROV
+participant "Внешняя система источника" as EXT
 end box
 
-B2B -> CORE: Выкуп единицы (target_slot_id, target_unit_id)
-CORE -> TDB: Фиксация брони в Target DB
+Client -> CORE: Списание единицы (target_slot_id, target_item_id)
+CORE -> TDB: Фиксация резервирования в Target DB
 
-CORE -> GIM: Поиск внешних ключей по target_unit_id
-GIM --> CORE: draft_unit_id, external_unit_id
+CORE -> IDMAP: Поиск внешних ключей по target_item_id
+IDMAP --> CORE: draft_item_id, external_item_id
 
-CORE -> GATEWAY: POST /v1/orders/reserve (external_unit_id, external_slot_id)
-GATEWAY -> PROV: Вызов API поставщика на блокировку места
-PROV --> GATEWAY: 200 OK (provider_ticket_code)
+CORE -> GATEWAY: POST /v1/operations/allocate (external_item_id, external_slot_id)
+GATEWAY -> EXT: Вызов API источника на фиксацию операции
+EXT --> GATEWAY: 200 OK (external_operation_code)
 
-GATEWAY -> DRAFT: Фиксация статуса в draft_tickets
+GATEWAY -> DRAFT: Фиксация статуса в буферных таблицах
 GATEWAY --> CORE: 200 OK (Подтверждено)
-CORE --> B2B: Заказ успешно оформлен
+CORE --> Client: Операция успешно подтверждена
 @enduml
 ```
 
@@ -186,6 +186,6 @@ CORE --> B2B: Заказ успешно оформлен
 
 ## 7. Критические архитектурные выводы для последующих этапов
 
-1. **Недопустимость отрыва без листовых таблиц:** Любая архитектура To-Be обязана поддерживать целочисленные идентификаторы для позиций и секций на этапе интеграции с адаптером, иначе внутренний код `UnitEntityImporter` завершится фатальным сбоем.
-2. **Обязательность двухфазной публикации инвентаря:** Из-за несовместимости типов валидации данных сырые слоты и топологии должны поступать в буферную базу черновиков, проходя автоматическую нормализацию и операторскую верификацию.
-3. **Реализация обратного шлюзового моста:** В спецификации требований обязана присутствовать таблица трансляции ключей `gateway_id_mapping`, покрывающая все 7 уровней доменной модели.
+1. **Недопустимость изоляции агрегатов без листовых сущностей:** Любая целевая архитектура обязана поддерживать атомарные идентификаторы позиций и секторов на этапе интеграции, иначе внутренние модули пакетной обработки завершатся фатальным сбоем.
+2. **Обязательность двухфазной публикации данных:** Из-за несовместимости типов валидации данных сырые транши и топологии должны поступать в буферное хранилище черновиков с последующей нормализацией и операторской верификацией.
+3. **Реализация двусторонней трансляции идентификаторов:** В системных требованиях обязана присутствовать таблица сопоставления ключей `sys_identity_mapping`, покрывающая все уровни доменной модели.
