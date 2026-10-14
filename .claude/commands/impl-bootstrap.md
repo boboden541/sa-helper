@@ -11,16 +11,16 @@ description: AI Harness — проверка сборки и тестов сис
 **Параметры:**
 
 - `<система>` — имя системы из `workspaces.yaml` (ключ из `systems:`).
-- `[FNR_N]` — необязательный номер задачи (например, `FNR_8`). С ним отчёт пишется в `sa_documentation/FNR/FNR_N/harness/`, без него — в `sa_documentation/harness_reports/<система>/`.
+- `[FNR_N]` — необязательный номер задачи (например, `FNR_1`). С ним отчёт пишется в `sa_documentation/FNR/FNR_N/harness/`, без него — в `sa_documentation/harness_reports/<система>/`.
 
 ## Примеры
 
 ```
-/impl-bootstrap ticketscloud FNR_8
+/impl-bootstrap my-service FNR_1
 ```
 
 ```
-/impl-bootstrap buildings-integration
+/impl-bootstrap my-legacy-service
 ```
 
 ## Важно
