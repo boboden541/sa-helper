@@ -336,6 +336,16 @@ if [ -d "$TEMP_DIR/indexer" ]; then
     chmod +x "indexer/main.py" 2>/dev/null
 fi
 
+# 5.2 Установка утилит AI Harness (runner, scanner, UI)
+if [ -d "$TEMP_DIR/harness" ]; then
+    echo -e "${YELLOW}⚙️  Настройка утилит AI Harness (runner / scanner / UI)...${NC}"
+
+    mkdir -p "harness/presets" "harness/semgrep_rules"
+    cp -R "$TEMP_DIR/harness/." "harness/"
+    chmod +x "harness/runner.py" 2>/dev/null
+    chmod +x "harness/ui/ui_server.py" 2>/dev/null
+fi
+
 # 6. Надежная очистка временной папки (с поддержкой Windows/Git Bash)
 chmod -R 777 "$TEMP_DIR" 2>/dev/null || true
 rm -rf "$TEMP_DIR" 2>/dev/null || true
