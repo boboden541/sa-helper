@@ -198,7 +198,26 @@ def _match_nodeid(chunk_name: str, text: str) -> str | None:
 
 
 def parse_junit_xml(path: str) -> tuple[dict, list[dict]]:
-    """Parse a JUnit XML report (pytest/surefire/xUnit) into (summary, failures)."""
+    """Parse JUnit XML report(s) (pytest/surefire/xUnit) into (summary, failures).
+
+    ``path`` may be a glob (e.g. ``target/surefire-reports/TEST-*.xml``);
+    results of all matching files are merged.
+    """
+    import glob as _glob
+
+    files = sorted(_glob.glob(path)) or [path]  # glob не совпал — пусть ET ругнётся внятно
+    summary = {"passed": 0, "failed": 0, "errors": 0, "skipped": 0}
+    failures: list[dict] = []
+    for path in files:
+        s, f = _parse_junit_file(path)
+        for k in ("passed", "failed", "errors", "skipped"):
+            summary[k] += s[k]
+        failures.extend(f)
+    summary["total"] = sum(summary[k] for k in ("passed", "failed", "errors", "skipped"))
+    return summary, failures
+
+
+def _parse_junit_file(path: str) -> tuple[dict, list[dict]]:
     tree = ET.parse(path)
     root = tree.getroot()
     suites = [root] if root.tag == "testsuite" else root.findall(".//testsuite")
@@ -234,7 +253,6 @@ def parse_junit_xml(path: str) -> tuple[dict, list[dict]]:
                     "message": message.split("\n")[0],
                 }
             )
-    summary["total"] = sum(summary[k] for k in ("passed", "failed", "errors", "skipped"))
     return summary, failures
 
 
