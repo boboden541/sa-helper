@@ -26,6 +26,7 @@
 - [Обновление](#-обновление)
 - [Процессы и диаграммы](#-процессы-и-диаграммы)
 - [Доступные команды](#-доступные-команды)
+- [AI Harness — контур реализации](#-ai-harness--контур-реализации)
 - [Стандарт Doc-Architect v3.0](#-стандарт-doc-architect-v30)
 - [Структура системы](#-структура-системы)
 - [Структура sa_documentation](#-структура-sa_documentation)
@@ -238,7 +239,7 @@ flowchart TD
 
 ---
 
-## 🛠 Доступные команды (18 команд)
+## 🛠 Доступные команды (23 команды)
 
 ### Реверс‑инжиниринг
 
@@ -273,6 +274,28 @@ flowchart TD
 | `/discovery` | Discovery Analyst | Из размытой задачи — контекст, развилки (Decision Backlog), брифинг для руководства, action points | Досье `FNR/FNR_N/`: `00_context`, `01_decision_backlog`, `03_brief`, `04_action_points`, `02_answers`, `task.md` |
 | `/discovery-answer` | Discovery Analyst | Зафиксировать ответ руководства по развилке, пересчитать досье | Обновлённые `02_answers`, `01_decision_backlog`, `task.md` |
 | `/discovery-brief` | Discovery Analyst | Пересобрать 1‑страничный брифинг из текущего бэклога | Обновлённый `03_brief.md` |
+
+### AI Harness — контур реализации
+
+Второй контур: берёт утверждённые системные требования (`FNR_N/system_requirements.md`) и
+детерминированно превращает их в протестированный код — без галлюцинаций, с трассируемостью
+`FR-ID → AC-ID → тест → коммит` и human-in-the-loop шлюзами. Спецификация: `sa_documentation/harness/`, утилиты: `harness/` (только stdlib + Docker для прогонов сервисов).
+
+| Команда | Роль | Описание | Результат |
+|:--------|:-----|:---------|:----------|
+| `/impl-bootstrap` | Проверка окружения | Сборка и тесты системы **до** правок (baseline); auto-discovery `workspaces.yaml` с human-шлюзом; STOP при недоступном окружении | `bootstrap_report_<system>.md`, `workspaces.yaml` |
+| `/impl-plan` | Планирование | Шлюз пробелов входного СТ (gap-report → STOP), досье (срез кода, Golden Reference), DAG задач с фазами contract/producer/consumer, карточки, `manifest.json` + валидация | `FNR_N/harness/`: `dossier.md`, `execution_plan.md`, `tasks/T*.md`, `manifest.json` |
+| `/impl-run` | Исполнитель | TDD-цикл в git worktree: RED-гейт (фиктивные тесты бракуются), circuit breaker=4, impact-лестница, coverage, enforcement-хуки (коммиты только в `harness/*`, push в main/develop запрещён) | Коммиты `[FNR-N/T<k>]`, манифест `AGENT_REVIEW` |
+| `/impl-review` | Ревьюер | Независимый контекст ревью (не видит диалог кодера), рубрика 6 осей, находки только с `файл:строка` | `reviews/T<k>_review.md`, вердикт APPROVED/CHANGES_REQUESTED/BLOCKED |
+| `/impl-verify` | Верификация | Полные прогоны систем, контрактные проверки, data-only проверки, метрики пилота | `verification_report.md`, `pr_draft.md` (push — вручную) |
+| Dashboard | Витрина | Живой канбан задач из `manifest.json` (SSE), кнопки шлюзов через `.flags/` | `python3 harness/ui/ui_server.py --harness <путь>` |
+
+**Как это выглядит в работе** (пилот FNR_8, воркспейс vitrina): bootstrap нашёл и честно
+задокументировал 3 болячки окружения (Nexus-only зависимости, DNS Docker в VPN, часовой пояс
+контейнеров), план прошёл шлюз пробелов (gap-report на живом документе), первая задача прошла
+полный цикл RED→GREEN→ревью (CHANGES_REQUESTED → доработка → APPROVED) — трассируемость
+`FR-4.3.1 → AC → test_ac_* → [FNR-8/T1]` воспроизводится по артефактам. Схема артефактов —
+`FNR_N/harness/` (dossier, execution_plan, tasks, manifest, logs, reviews, `.flags/`).
 
 
 ---
