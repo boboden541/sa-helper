@@ -64,7 +64,12 @@ description: AI Harness — автономное исполнение задач
 1. В репозитории системы: `git worktree add .worktrees/FNR-<N>-t<k> -b harness/FNR-<N>-<slug>-t<k>`
    (если ветка/worktree уже есть от прошлой попытки — продолжи в нём).
 2. Скрой артефакты: `.worktrees/` в `.git/info/exclude` (если ещё нет).
-3. Включи enforcement: `git config core.hooksPath harness/hooks` — только внутри worktree.
+3. Включи enforcement, скоупинг по worktree (иначе конфиг протечёт в общие настройки репо и
+   заденет основное дерево!):
+   ```bash
+   git config extensions.worktreeConfig true
+   git config --worktree core.hooksPath <абсолютный путь к harness/hooks воркспейса>
+   ```
    Каталога `harness/hooks` нет → скопируй из установки sa-helper (универсальные скрипты
    pre-commit/pre-push) в корень воркспейса один раз.
 4. Все дальнейшие команды — из каталога worktree.
