@@ -256,12 +256,56 @@ def _parse_junit_file(path: str) -> tuple[dict, list[dict]]:
     return summary, failures
 
 
+def parse_coverage_xml(path: str, changed: list[str]) -> dict:
+    """Parse coverage.py or jacoco XML → overall line-rate + per-file for changed files.
+
+    Возвращает {"overall_line_rate": float, "files": {path: line_rate}}; файл сопоставляется
+    changed-списку по подстроке (пути в отчётах бывают относительными).
+    """
+    root = ET.parse(path).getroot()
+    files: dict[str, float] = {}
+
+    if root.tag == "coverage":  # coverage.py: <coverage line-rate=".."><class filename=".." line-rate="..">
+        try:
+            overall = float(root.get("line-rate", 0))
+        except ValueError:
+            overall = 0.0
+        for cls in root.iter("class"):
+            fn = cls.get("filename")
+            if fn:
+                try:
+                    files[fn] = float(cls.get("line-rate", 0))
+                except ValueError:
+                    pass
+    else:  # jacoco: <report><package name="a/b"><sourcefile name="X.py"><counter type="LINE" .../>
+        counters = root.findall(".//counter")
+        top = counters[-1] if counters else None
+        overall = 0.0
+        if top is not None and top.get("type") == "LINE":
+            mi, ci = int(top.get("missed", 0)), int(top.get("covered", 0))
+            overall = ci / (mi + ci) if (mi + ci) else 0.0
+        for sf in root.iter("sourcefile"):
+            name = sf.get("name")
+            if not name:
+                continue
+            line_counters = [c for c in sf.findall("counter") if c.get("type") == "LINE"]
+            if not line_counters:
+                continue
+            mi, ci = int(line_counters[0].get("missed", 0)), int(line_counters[0].get("covered", 0))
+            files[name] = ci / (mi + ci) if (mi + ci) else 0.0
+
+    matched = {fn: rate for fn, rate in files.items() if any(c in fn or fn in c for c in changed)} if changed else files
+    return {"overall_line_rate": round(overall, 3), "files": matched}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Harness runner: run + parse build/test command")
     parser.add_argument("--cwd", required=True, help="рабочая директория команды (репозиторий)")
-    parser.add_argument("--mode", choices=["build", "test"], default="test")
+    parser.add_argument("--mode", choices=["build", "test", "lint"], default="test")
     parser.add_argument("--cmd", help="переопределить команду (иначе берётся из workspaces.yaml вызывающей стороной)")
-    parser.add_argument("--junit", help="путь к JUnit XML (pytest/surefire) — парсить его, а не stdout")
+    parser.add_argument("--junit", help="путь/glob к JUnit XML (pytest/surefire) — парсить его, а не stdout")
+    parser.add_argument("--coverage", help="coverage XML (coverage.py или jacoco) — добавить сводку покрытия")
+    parser.add_argument("--changed", help="изменённые файлы через запятую (для фильтрации покрытия)")
     parser.add_argument("--timeout", type=int, default=600)
     parser.add_argument("--log", help="куда записать сырой вывод (иначе дублируется в stderr)")
     args = parser.parse_args()
@@ -301,6 +345,12 @@ def main() -> int:
         "summary": summary if args.mode == "test" else None,
         "failures": failures,
     }
+    if args.coverage:
+        try:
+            changed = [c for c in (args.changed or "").split(",") if c]
+            doc["coverage"] = parse_coverage_xml(args.coverage, changed)
+        except (ET.ParseError, OSError) as exc:
+            doc["coverage"] = {"error": f"не удалось распарсить coverage: {exc}"}
     if result["error"]:
         doc["error"] = result["error"]
     print(json.dumps(doc, ensure_ascii=False, indent=2))

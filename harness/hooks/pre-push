@@ -1,0 +1,11 @@
+#!/bin/sh
+# AI Harness enforcement: pre-push — push в main/develop запрещён из контура (v2 §9).
+# Портируемый sh; в пилоте дополнительно deny git push в permissions агента.
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$remote_ref" in
+    refs/heads/main|refs/heads/develop|refs/heads/master)
+      echo "[harness] ОТКАЗ: push в $remote_ref из контура harness запрещён" >&2
+      exit 1 ;;
+  esac
+done
+exit 0
