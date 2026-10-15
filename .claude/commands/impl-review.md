@@ -63,13 +63,15 @@ description: AI Harness — независимое ревью задачи аг�
 ### Этап 3: Фиксация вердикта
 
 1. Сохрани `harness/reviews/T<k>_review.md` (отчёт ревьюера дословно + вердикт).
-2. Манифест атомарно: `review_verdict`, задача:
+2. **Комментарий от ревьюера** в `comments/T<k>.md`: `- [<дата> | reviewer] <вердикт>: <суть
+   в 1-2 строках, ссылка на отчёт>`.
+3. Манифест атомарно: `review_verdict`, задача:
    - `APPROVED` → `status: "DONE"`; удали worktree задачи
      (`git worktree remove .worktrees/FNR-<N>-t<k>`; ветку с коммитами оставить);
    - `CHANGES_REQUESTED` → `status: "PLANNED"` (дельта замечаний — в карточку задачи разделом
      «Доработка по ревью»; следующая итерация `/impl-run` начнёт с неё);
    - `BLOCKED` → `ESCALATED_BLOCKED` + отчёт человеку.
-3. Проверка манифеста: `python3 harness/manifest_check.py --file <manifest>`.
+4. Проверка манифеста: `python3 harness/manifest_check.py --file <manifest>`.
 
 Завершение: выведи вердикт, число находок по существенности, путь отчёта и подсказку:
 - APPROVED → «Задача T<k> принята. Следующий шаг: /impl-run <путь к harness> (следующая задача
