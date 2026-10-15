@@ -32,9 +32,12 @@
 
 - `workspaces.yaml` (корень воркспейса) — реестр систем: пути, стеки, docker-команды.
 - `FNR_N/harness/` — `dossier.md`, `execution_plan.md`, `manifest.json`,
-  `tasks/T*.md`, `logs/`, `reviews/`, `.flags/`.
+  `tasks/T*.md`, `comments/T<k>.md` (журналы задач), `logs/`, `reviews/`, `.flags/`.
 - `manifest.json` — единственный источник правды для агента и UI; запись
   атомарная (tmp + переименование), один writer.
+- **Комментарии** (`comments/T<k>.md`, append-only) — живой журнал задачи: агент пишет
+  на ключевых событиях (старт, RED, итерации, эскалация, завершение), ревьюер — вердикт,
+  человек — из витрины. Формат: `- [YYYY-MM-DD HH:MM | author] текст`.
 
 ## Применение
 
