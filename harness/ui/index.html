@@ -111,6 +111,10 @@
   .card .live.warn{ color: var(--warn); } .card .live.warn .dot{ background: var(--warn); }
   .card .live .act { color: var(--dim); overflow: hidden; text-overflow: ellipsis;
     white-space: nowrap; max-width: 170px; }
+  #p-banner { border: 1px solid var(--warn); background: rgba(232,182,76,.08);
+    border-radius: 10px; padding: 10px 14px; margin-bottom: 10px; font-size: 13px; }
+  #p-banner .btitle { color: var(--warn); font-weight: 600; }
+  #p-banner button { margin-top: 8px; }
   /* --- компонент «Чек-лист» --- */
   .clk-total { margin: 4px 0 14px; }
   .clk-total .bar { height: 8px; border-radius: 4px; background: var(--chip);
@@ -177,6 +181,7 @@
   </div>
   <div id="p-actions"></div>
   <div class="pbody">
+    <div id="p-banner" style="display:none"></div>
     <div class="meta" id="p-meta" style="margin-bottom:8px"></div>
     <div class="md" id="p-card"></div>
     <div class="md" id="p-comments" style="display:none"></div>
@@ -193,6 +198,7 @@
     </div>
   </div>
   <div class="pfoot" id="p-commentbox" style="display:none">
+    <button id="c-act" data-flag="" style="display:none"></button>
     <div id="p-askrow" style="flex-basis:100%">
       <input id="a-input" placeholder="Спросить агента задачи (по сессии стадии)… (Enter — отправить)">
       <button id="a-send">Спросить</button>
@@ -357,7 +363,7 @@ function render(state) {
 function parseComments(mdText) {
   const out = [];
   for (const line of (mdText || "").split("\n")) {
-    const m = line.match(/^-\s+\[([^\]]+)\]\s+\|\s+([^\]]+?)\s*\]\s*(.*)$/);
+    const m = line.match(/^\s*-\s+\[([^\]]+?)\s*\|\s*([^\]]+?)\s*\]\s*(.*)$/);
     if (m) out.push({ ts: m[1], author: m[2], text: m[3] });
     else if (out.length && line.trim()) out[out.length - 1].text += "\n" + line;
   }
@@ -380,6 +386,31 @@ function fillDetail(t) {
   document.getElementById("c-count").textContent = comments.length;
   renderActions(t);
   document.getElementById("p-askrow").style.display = t.can_ask ? "flex" : "none";
+  // баннер и кнопка «ответить и вернуть в работу» для состояний, требующих человека
+  const banner = document.getElementById("p-banner");
+  const act = document.getElementById("c-act");
+  const pipeline = t.pipeline || "";
+  if (pipeline === "NEEDS_HUMAN" || pipeline === "BLOCKED") {
+    const wip = (t.checklist && t.checklist.in_progress) || 0;
+    banner.style.display = "";
+    banner.innerHTML =
+      `<span class="btitle">${pipeline === "BLOCKED" ? "⛔ Задача заблокирована" : "⏸ Требуется ваше участие"}</span>` +
+      ` — подробный отчёт и ход работы: во вкладке «Комментарии» ниже.` +
+      ` Можно просто написать ответ — и вернуть задачу в работу.`;
+    act.style.display = "";
+    act.textContent = "Ответить и вернуть в работу";
+    act.dataset.flag = `TASK_${t.id}_RETRY`;
+  } else if (pipeline === "DONE") {
+    banner.style.display = "none";
+    act.style.display = "";
+    act.textContent = "Ответить и вернуть на доработку";
+    act.dataset.flag = `TASK_${t.id}_REQUEST_CHANGES`;
+  } else {
+    banner.style.display = "none";
+    act.style.display = "none";
+    act.dataset.flag = "";
+  }
+  document.getElementById("c-act").onclick = () => sendComment(act.dataset.flag);
   if (!t.can_ask) document.getElementById("a-input").placeholder =
     "Вопрос агенту будет доступен после первой стадии (нужна сессия)";
 }
@@ -521,20 +552,18 @@ document.getElementById("a-input").addEventListener("keydown", e => { if (e.key 
 document.getElementById("c-send").onclick = sendComment;
 document.getElementById("c-input").addEventListener("keydown", e => { if (e.key === "Enter") sendComment(); });
 
-function sendComment() {
+function sendComment(andAction) {
   const input = document.getElementById("c-input");
   const text = input.value.trim();
   if (!text || !CURRENT) return;
+  const flag = andAction || document.getElementById("c-act").dataset.flag || "";
   fetch(`/api/comment/${CURRENT}`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
   }).then(() => {
     input.value = "";
-    return fetch(`/api/task/${CURRENT}`);
-  }).then(r => r.json()).then(doc => {
-    document.getElementById("p-comments").dataset.raw = doc.comments_md || "";
-    renderComments(doc.comments_md || "");
-  }).catch(() => {});
+    return flag ? fetch(`/api/flag/${flag}`, { method: "POST" }) : null;
+  }).then(() => openTask(CURRENT)).catch(() => {});
 }
 
 function flag(name, method) {
