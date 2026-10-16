@@ -99,6 +99,48 @@ def parse_checklist_sections(card_md: str) -> list[dict]:
     return sections
 
 
+def _readable_tail(path: Path, max_events: int = 60) -> str:
+    """Stream-json сессии -> человекочитаемая хроника (то, что видно в UI).
+
+    Сырой JSONL остаётся в файле; в витрину отдаётся расшифровка: тексты
+    агента, его инструменты, финал сессии. Длительность и итог — из события
+    result. Только последние max_events событий.
+    """
+    try:
+        tail = path.read_bytes()[-524288:].decode("utf-8", errors="replace")
+    except OSError:
+        return "(лог недоступен)"
+    lines: list[str] = []
+    duration_min = None
+    result_text = None
+    for raw in tail.splitlines():
+        try:
+            d = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if d.get("type") == "assistant":
+            for b in d.get("message", {}).get("content", []):
+                if b.get("type") == "text" and b.get("text", "").strip():
+                    txt = " ".join(b["text"].split())
+                    lines.append("🤖 " + (txt[:220] + ("…" if len(txt) > 220 else "")))
+                elif b.get("type") == "tool_use":
+                    name = b.get("name", "?")
+                    inp = b.get("input") or {}
+                    detail = (inp.get("description") or inp.get("file_path")
+                              or inp.get("pattern")
+                              or str(inp.get("command") or ""))[:90]
+                    lines.append(f"🔧 {name}: {detail}" if detail else f"🔧 {name}")
+        elif d.get("type") == "result":
+            duration_min = round(d.get("duration_ms", 0) / 60000, 1)
+            result_text = " ".join(str(d.get("result") or "").split())
+    if duration_min is not None:
+        lines.append(f"🏁 Сессия завершена ({duration_min} мин).")
+        if result_text:
+            lines.append("Итог сессии: " + result_text[:400] +
+                         ("…" if len(result_text) > 400 else ""))
+    return "\n".join(lines[-max_events:]) or "(событий не найдено)"
+
+
 def pid_alive(pid: int) -> bool:
     try:
         if os.name == "nt":
@@ -278,8 +320,7 @@ class Handler(BaseHTTPRequestHandler):
             logs = sorted(_run_dir().glob(f"{task_id}_*_*.log")) if _run_dir().is_dir() else []
             body = {"log": "", "file": None}
             if logs:
-                data = logs[-1].read_bytes()[-8192:]
-                body = {"log": data.decode("utf-8", errors="replace"),
+                body = {"log": _readable_tail(logs[-1]),
                         "file": logs[-1].name,
                         "mtime": logs[-1].stat().st_mtime}
             self._send(200, json.dumps(body, ensure_ascii=False).encode("utf-8"),
