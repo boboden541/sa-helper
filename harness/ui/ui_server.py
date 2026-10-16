@@ -57,14 +57,53 @@ def _run_dir() -> Path:
     return STATE["harness"] / ".run"
 
 
-CHECKBOX_RE = re.compile(r"^\s*-\s+\[( |~|x)\]", re.MULTILINE)
+CHECKBOX_RE = re.compile(r"^\s*-\s+\[( |~|x)\]\s*(.*)$", re.MULTILINE)
+SECTION_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
+STATE_NAMES = {" ": "todo", "~": "wip", "x": "done"}
+
+
+def parse_checklist_sections(card_md: str) -> list[dict]:
+    """Чек-лист карточки как UI-компонент: секции с элементами и прогрессом.
+
+    Секция = «## Заголовок», после которого встречается ≥1 чекбокс. Строка-
+    продолжение (с отступом, до следующего элемента) приклеивается к тексту
+    элемента; обычный абзац после списка — нет.
+    """
+    sections: list[dict] = []
+    current: dict | None = None
+    pending_title = "Чек-лист"
+    last_item: dict | None = None
+    for line in (card_md or "").splitlines():
+        head = re.match(r"^##\s+(.+?)\s*$", line.strip())
+        if head:
+            current = None
+            last_item = None
+            pending_title = head.group(1)
+            continue
+        box = re.match(r"^\s*-\s+\[( |~|x)\]\s*(.*)$", line)
+        if box:
+            if current is None:
+                current = {"title": pending_title, "items": []}
+                sections.append(current)
+            last_item = {"state": STATE_NAMES.get(box.group(1), "todo"),
+                         "text": box.group(2).strip()}
+            current["items"].append(last_item)
+            continue
+        if last_item is not None and line[:1] in (" ", "\t") and line.strip():
+            last_item["text"] += " " + line.strip()
+    for s in sections:
+        s["done"] = sum(1 for i in s["items"] if i["state"] == "done")
+        s["wip"] = sum(1 for i in s["items"] if i["state"] == "wip")
+        s["total"] = len(s["items"])
+    return sections
 
 
 def checklist_progress(card_md: str) -> dict:
-    """Прогресс чек-листа карточки: [x] — done, [~] — in progress, [ ] — to do."""
-    boxes = CHECKBOX_RE.findall(card_md or "")
-    return {"total": len(boxes), "done": boxes.count("x"),
-            "in_progress": boxes.count("~")}
+    """Суммарный прогресс чек-листов карточки (для канбан-карточки)."""
+    sections = parse_checklist_sections(card_md)
+    return {"total": sum(s["total"] for s in sections),
+            "done": sum(s["done"] for s in sections),
+            "in_progress": sum(s["wip"] for s in sections)}
 
 
 def task_actions(task: dict) -> list[str]:
@@ -153,11 +192,14 @@ class Handler(BaseHTTPRequestHandler):
                 return
             card_path, comments_path = find_task_files(task_id)
             task = next((t for t in read_state()["manifest"].get("tasks", []) if t.get("id") == task_id), {})
+            card_md = card_path.read_text(encoding="utf-8", errors="replace") \
+                if card_path and card_path.exists() else ""
             doc = {
                 "task": task,
-                "card_md": card_path.read_text(encoding="utf-8", errors="replace") if card_path and card_path.exists() else "",
+                "card_md": card_md,
                 "comments_md": comments_path.read_text(encoding="utf-8", errors="replace") if comments_path.exists() else "",
                 "ask_pending": (_run_dir() / f"{task_id}_ask.pending").exists(),
+                "checklist_sections": parse_checklist_sections(card_md),
             }
             self._send(200, json.dumps(doc, ensure_ascii=False).encode("utf-8"), "application/json")
         elif self.path.startswith("/api/log/"):

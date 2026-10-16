@@ -118,3 +118,30 @@ class TestChecklistProgress(unittest.TestCase):
     def test_empty_card(self):
         self.assertEqual(ui_server.checklist_progress(""),
                          {"total": 0, "done": 0, "in_progress": 0})
+
+
+class TestChecklistSections(unittest.TestCase):
+    def test_sections_items_and_continuations(self):
+        card = ("## План работ (чек-лист)\n"
+                "- [x]RED-тесты: test_ac_4_1_2_1_*\n"
+                "- [~]Миграция V2__create_id_mapping.sql\n"
+                "  (DDL из СТ 4.1.2, дословно)\n"
+                "- [ ]Репозиторий\n"
+                "\n"
+                "nit: unused import.\n"
+                "\n"
+                "## Доработка по ревью (чек-лист)\n"
+                "- [ ]src/A.java:42 — тело 403\n"
+                "  глобальный обработчик → вернуть payload\n")
+        secs = ui_server.parse_checklist_sections(card)
+        self.assertEqual([s["title"] for s in secs],
+                         ["План работ (чек-лист)", "Доработка по ревью (чек-лист)"])
+        plan = secs[0]
+        self.assertEqual(plan["total"], 3)
+        self.assertEqual([i["state"] for i in plan["items"]], ["done", "wip", "todo"])
+        self.assertIn("(DDL из СТ 4.1.2, дословно)", plan["items"][1]["text"])
+        review = secs[1]
+        self.assertIn("глобальный обработчик", review["items"][0]["text"])
+
+    def test_no_checkboxes_no_sections(self):
+        self.assertEqual(ui_server.parse_checklist_sections("# Задача\n- простой пункт\n"), [])
