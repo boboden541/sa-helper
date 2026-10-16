@@ -98,6 +98,51 @@ def parse_checklist_sections(card_md: str) -> list[dict]:
     return sections
 
 
+def _live_status(harness: Path, tid: str) -> dict | None:
+    """Живость стадии: возраст heartbeat и последнее действие агента из stream-лога.
+
+    None — свежих heartbeat нет (стадия не запускалась/давно). last_action —
+    последний tool-вызов или фраза агента (хвост 64 КБ, парсинг без LLM).
+    """
+    run_dir = harness / ".run"
+    if not run_dir.is_dir():
+        return None
+    hbs = sorted(run_dir.glob(f"{tid}_*.hb"), key=lambda p: p.stat().st_mtime)
+    if not hbs:
+        return None
+    newest = hbs[-1]
+    age = int(time.time() - newest.stat().st_mtime)
+    if age > 7200:  # стадия закончилась больше 2ч назад — не «живость», а история
+        return None
+    out: dict = {"hb_age_s": age}
+    stage = newest.stem.split("_", 1)[1]
+    logs = sorted(run_dir.glob(f"{tid}_{stage}_*.log"),
+                  key=lambda p: p.stat().st_mtime)
+    if logs:
+        try:
+            tail = logs[-1].read_bytes()[-65536:].decode("utf-8", errors="replace")
+        except OSError:
+            tail = ""
+        last_tool = last_text = None
+        for line in tail.splitlines():
+            try:
+                d = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if d.get("type") == "assistant":
+                for b in d.get("message", {}).get("content", []):
+                    if b.get("type") == "tool_use":
+                        name = b.get("name", "")
+                        inp = b.get("input") or {}
+                        detail = inp.get("description") or inp.get("file_path") or \
+                            str(inp.get("command") or inp.get("pattern") or "")[:60]
+                        last_tool = f"{name}: {str(detail)[:80]}" if detail else name
+                    elif b.get("type") == "text" and b.get("text", "").strip():
+                        last_text = " ".join(b["text"].split())[:100]
+        out["last_action"] = last_tool or last_text
+    return out
+
+
 def checklist_progress(card_md: str) -> dict:
     """Суммарный прогресс чек-листов карточки (для канбан-карточки)."""
     sections = parse_checklist_sections(card_md)
@@ -146,6 +191,7 @@ def read_state() -> dict:
             card_cache[tid] = card_path.read_text(encoding="utf-8", errors="replace") \
                 if card_path and card_path.exists() else ""
         t["checklist"] = checklist_progress(card_cache[tid])
+        t["live"] = _live_status(STATE["harness"], tid)
     return {"manifest": manifest, "flags": flags, "comments_fp": comments_fp}
 
 

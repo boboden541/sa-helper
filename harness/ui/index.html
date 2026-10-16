@@ -104,6 +104,13 @@
   .chk.wip .box { color: var(--warn); border-color: var(--warn); }
   .chk.wip { color: var(--text); }
   .card .chkline { font-size: 11.5px; color: var(--acc); margin-top: 4px; }
+  .card .live { font-size: 11.5px; margin-top: 4px; display: flex; align-items: center; gap: 5px; }
+  .card .live .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .card .live.on  { color: var(--ok); }   .card .live.on .dot  { background: var(--ok); }
+  .card .live.dim { color: var(--dim); }  .card .live.dim .dot { background: var(--dim); }
+  .card .live.warn{ color: var(--warn); } .card .live.warn .dot{ background: var(--warn); }
+  .card .live .act { color: var(--dim); overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; max-width: 170px; }
   /* --- компонент «Чек-лист» --- */
   .clk-total { margin: 4px 0 14px; }
   .clk-total .bar { height: 8px; border-radius: 4px; background: var(--chip);
@@ -214,7 +221,7 @@ function pipelineOf(t) {
 }
 const COLUMNS = [
   { key: "backlog", title: "Backlog",       match: p => p === "BACKLOG" },
-  { key: "ready",   title: "Ready",         match: p => p === "READY" },
+  { key: "ready",   title: "Ready (следующие)", match: p => p === "READY" },
   { key: "impl",    title: "Implementing",  match: p => p === "IMPLEMENTING" },
   { key: "review",  title: "Review",        match: p => p === "REVIEW" },
   { key: "done",    title: "Done",          match: p => p === "DONE" },
@@ -277,6 +284,17 @@ function md(src) {
   return html;
 }
 
+function liveLine(t) {
+  const lv = t.live;
+  if (!lv) return "";
+  const cls = lv.hb_age_s < 120 ? "on" : lv.hb_age_s < 600 ? "warn" : "dim";
+  const age = lv.hb_age_s < 60 ? lv.hb_age_s + "с" : Math.round(lv.hb_age_s / 60) + "мин";
+  const label = cls === "on" ? `сессия активна (${age} назад)` :
+                cls === "warn" ? `тишина ${age}` : `нет активности ${age}`;
+  return `<div class="live ${cls}"><span class="dot"></span>${label}` +
+         (lv.last_action ? `<span class="act">· ${esc(lv.last_action)}</span>` : "") + `</div>`;
+}
+
 function card(t) {
   const acs = (t.acceptance_criteria || []);
   const passed = acs.filter(a => a.status === "PASSED").length;
@@ -296,7 +314,9 @@ function card(t) {
     (t.review_iterations ? `<div class="iter">ревью: ${t.review_iterations}/3</div>` : "") +
     ((t.checklist && t.checklist.total) ? `<div class="chkline">☑ план ${t.checklist.done}/${t.checklist.total}` +
       (t.checklist.in_progress ? ` · в работе: ${t.checklist.in_progress}` : "") + `</div>` : "") +
-    (acs.length ? `<div class="acs">AC ${passed}/${acs.length}</div>` : "");
+    (acs.length ? `<div class="acs">AC ${passed}/${acs.length}</div>` : "") +
+    liveLine(t) +
+    (pipelineOf(t) === "BACKLOG" && (t.depends_on || []).length ? `<div class="live dim">ждёт: ${t.depends_on.join(", ")}</div>` : "");
   return div;
 }
 
