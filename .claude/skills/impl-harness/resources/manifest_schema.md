@@ -49,3 +49,22 @@
    комментарий на ключевых событиях: старт задачи, RED-гейт, каждая эскалация, завершение,
    вердикт ревью. Человек — из UI (кнопка отправки) или редактированием файла. Комментарии
    НЕ дублируют карточку — это живой журнал задачи.
+
+## Поля конвейера v3 (опциональные; документ валиден и без них)
+
+| Поле | Где | Канон |
+|---|---|---|
+| `auto_mode` | верхний уровень | булево, по умолчанию true: конвейер сам проходит стадии между шлюзами |
+| `created_by` | верхний уровень | `impl-plan` \| `impl-handoff` |
+| `pipeline` | задача | `BACKLOG → READY → IMPLEMENTING → REVIEW → DONE → VERIFIED`; особые: `BLOCKED` (авто-retry), `NEEDS_HUMAN` (петля не сошлась), `ABORTED` — канон `harness/state_machine.py` |
+| `blocked_from` | задача | статус для возврата после BLOCKED/NEEDS_HUMAN (`READY\|IMPLEMENTING\|REVIEW`) |
+| `retries` / `review_iterations` | задача | счётчики демона и ревью-петли (int ≥ 0) |
+| `paused` / `skip_review` | задача | булевы флаги задачи; пауза вступает на границе итерации |
+| `session_id` | задача | последняя headless-сессия стадии (для `--resume` и чата) |
+| `owner` | задача | `ai` \| `human` — кто исполнитель сейчас |
+| `findings` | задача | `[{id, text, file?, resolution}]`; resolution: `open\|resolved\|still_blocking` — вход ревью-петли (closure_first) |
+
+Владение полями: `pipeline`/`blocked_from`/`retries`/`review_iterations`/`session_id`/`owner`/`findings` —
+пишет **демон**; `status`/`phase`/`iteration_count`/`acceptance_criteria[].status`/`gates` —
+пишет **сессия исполнителя** (как в v2). Проверка согласованности — `manifest_check.py`
+(принимает и v2-, и v3-документы).
