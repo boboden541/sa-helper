@@ -28,8 +28,17 @@ def build_harness(tmp: Path) -> Path:
         {"id": "T2", "title": "B", "pipeline": "READY", "status": "APPROVED"},
     ]}
     (harness / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-    (harness / ".run" / "T1_implementing_42.log").write_text(
-        '{"session_id":"sess-123"}\nline2\n' * 400, encoding="utf-8")
+    stream = "".join([
+        json.dumps({"session_id": "sess-123"}) + "\n",
+        json.dumps({"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": "Bash",
+             "input": {"command": "pytest -q", "description": "Run tests"}}]}}) + "\n",
+        json.dumps({"type": "assistant", "message": {"content": [
+            {"type": "text", "text": "GREEN: 24/24"}]}}) + "\n",
+        json.dumps({"type": "result", "duration_ms": 1800000,
+                    "result": "Задача готова к ревью"}) + "\n",
+    ] * 100)
+    (harness / ".run" / "T1_implementing_42.log").write_text(stream, encoding="utf-8")
     return harness
 
 
@@ -73,8 +82,10 @@ class ServerFixture(unittest.TestCase):
     def test_log_tail(self):
         doc = self.get("/api/log/T1")
         self.assertEqual(doc["file"], "T1_implementing_42.log")
-        self.assertIn("line2", doc["log"])
-        self.assertLessEqual(len(doc["log"]), 8192 + 8)
+        self.assertIn("🔧 Bash: Run tests", doc["log"])
+        self.assertIn("🤖 GREEN: 24/24", doc["log"])
+        self.assertIn("🏁 Сессия завершена (30.0 мин)", doc["log"])
+        self.assertIn("Итог сессии: Задача готова к ревью", doc["log"])
         self.assertEqual(self.get("/api/log/T9")["file"], None)
 
     def test_ask_requires_session(self):
