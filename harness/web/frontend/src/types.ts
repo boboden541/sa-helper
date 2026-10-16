@@ -123,3 +123,11 @@ export interface JournalEntry {
   author: string;
   text: string;
 }
+
+export interface Project {
+  name: string;
+  path: string;
+  task_count: number;
+  usage: Usage;
+  stories: Story[];
+}

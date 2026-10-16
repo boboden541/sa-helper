@@ -34,7 +34,44 @@ if sys_path not in __import__("sys").path:
     __import__("sys").path.insert(0, sys_path)
 import state_machine as sm  # noqa: E402  (та же политика кнопок, что у демона)
 
-STATE: dict = {"harness": None, "workspace": None, "claude_bin": "claude"}
+STATE: dict = {"harness": None, "workspace": None, "claude_bin": "claude",
+               "projects": {}}   # name -> path (порция J: реестр проектов)
+
+REGISTRY_PATH = Path.home() / ".sa-helper" / "workspaces.json"
+
+
+def load_registry() -> dict:
+    """Реестр проектов: ~/.sa-helper/workspaces.json — [{"name", "path"}]."""
+    try:
+        data = json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
+        items = data.get("workspaces", data) if isinstance(data, dict) else data
+        return {i["name"]: str(i["path"]) for i in items
+                if isinstance(i, dict) and i.get("name") and i.get("path")}
+    except (OSError, json.JSONDecodeError, KeyError, TypeError):
+        return {}
+
+
+def add_project(name: str, path: str) -> tuple[bool, str]:
+    safe = name.strip()
+    target = Path(path).expanduser()
+    if not safe or not target.is_dir():
+        return False, "нужны имя и существующий каталог"
+    registry = load_registry()
+    registry[safe] = str(target.resolve())
+    REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    REGISTRY_PATH.write_text(json.dumps(
+        {"workspaces": [{"name": k, "path": v} for k, v in sorted(registry.items())]},
+        ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    STATE["projects"][safe] = str(target.resolve())
+    return True, safe
+
+
+def resolve_workspace(project: str | None) -> Path | None:
+    """Каталог воркспейса по имени проекта (или одиночный --workspace)."""
+    if STATE.get("projects"):
+        path = STATE["projects"].get(project or "")
+        return Path(path) if path else None
+    return STATE.get("workspace")
 WEB_DIR = Path(__file__).resolve().parent
 DIST_DIR = WEB_DIR / "frontend" / "dist"
 CLASSIC_HTML = WEB_DIR / "classic" / "index.html"
@@ -107,18 +144,24 @@ def _run_dir(harness: Path | None = None) -> Path:
     return (harness or STATE["harness"]) / ".run"
 
 
-def _harness_of(fnr: str | None) -> Path | None:
-    """Каталог harness по имени FNR (режим воркспейса) или активный (--harness)."""
-    if STATE.get("workspace"):
-        return STATE["workspace"] / "sa_documentation" / "FNR" / (fnr or "") / "harness"
+def resolve_workspace(project: str | None) -> Path | None:
+    if STATE.get("projects"):
+        path = STATE["projects"].get(project or "")
+        return Path(path) if path else None
+    return STATE.get("workspace")
+
+
+def _harness_of(project: str | None, fnr: str | None) -> Path | None:
+    """Каталог harness по (проект, FNR) или активный (--harness, одиночный режим)."""
+    ws = resolve_workspace(project)
+    if ws:
+        return ws / "sa_documentation" / "FNR" / (fnr or "") / "harness"
     return STATE["harness"]
 
 
-def list_stories() -> list[dict]:
-    """Портфель воркспейса: Stories (FNR) с прогрессом конвейера."""
-    ws = STATE.get("workspace")
-    if not ws:
-        return []
+def list_stories(workspace: Path) -> list[dict]:
+    """Stories воркспейса: прогресс конвейера, расход, разрез по системам."""
+    ws = workspace
     stories = []
     for harness in sorted(ws.glob("sa_documentation/FNR/FNR_*/harness")):
         fnr = harness.parent.name
@@ -419,7 +462,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         path, params = self._route()
-        harness = _harness_of(params.get("fnr"))
+        project = params.get("project")
+        harness = _harness_of(project, params.get("fnr"))
         if path in ("/", "/index.html"):
             index = DIST_DIR / "index.html"
             if index.is_file():
@@ -442,7 +486,8 @@ class Handler(BaseHTTPRequestHandler):
             if STATE.get("workspace") is None:
                 self._send(400, b'{"error":"need workspace"}', "application/json")
                 return
-            chat = _steward_dir(STATE["workspace"]) / "chat.md"
+            ws = resolve_workspace(project)
+            chat = _steward_dir(ws) / "chat.md"
             raw = chat.read_text(encoding="utf-8", errors="replace") if chat.exists() else ""
             messages = []
             for line in raw.split("\n"):
@@ -451,11 +496,27 @@ class Handler(BaseHTTPRequestHandler):
                     messages.append({"ts": m.group(1), "author": m.group(2), "text": m.group(3)})
                 elif messages and line.strip():
                     messages[-1]["text"] += "\n" + line
-            pending = (_steward_dir(STATE["workspace"]) / ".pending").exists()
+            pending = (_steward_dir(ws) / ".pending").exists()
             self._send(200, json.dumps({"messages": messages, "pending": pending},
                                        ensure_ascii=False).encode("utf-8"), "application/json")
         elif path == "/api/stories":
-            self._send(200, json.dumps({"stories": list_stories()},
+            ws = resolve_workspace(project)
+            self._send(200, json.dumps({"stories": list_stories(ws) if ws else []},
+                                       ensure_ascii=False).encode("utf-8"), "application/json")
+        elif path == "/api/projects":
+            projects = []
+            for name in STATE["projects"]:
+                ws = resolve_workspace(name)
+                s_list = list_stories(ws) if ws else []
+                usage = {"tokens_in": 0, "tokens_out": 0, "tokens_total": 0, "cost_usd": 0.0}
+                task_count = 0
+                for s in s_list:
+                    task_count += s["tasks"]
+                    for k in usage:
+                        usage[k] = round(usage[k] + float((s.get("usage") or {}).get(k) or 0), 4)
+                projects.append({"name": name, "path": STATE["projects"][name],
+                                 "stories": s_list, "task_count": task_count, "usage": usage})
+            self._send(200, json.dumps({"projects": projects},
                                        ensure_ascii=False).encode("utf-8"), "application/json")
         elif path == "/api/state":
             if harness is None or not harness.is_dir():
@@ -544,7 +605,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path, params = self._route()
-        harness = _harness_of(params.get("fnr"))
+        project = params.get("project")
+        harness = _harness_of(project, params.get("fnr"))
         if path.startswith("/api/attachment/") and harness is not None:
             # POST /api/attachment/<T<k>>/<имя>?fnr= — сохранить файл (raw body)
             rest = [unquote(x) for x in path.split("/")[3:]]
@@ -564,17 +626,23 @@ class Handler(BaseHTTPRequestHandler):
             if STATE.get("workspace") is None or not msg:
                 self._send(400, b'{"error":"need workspace and text"}', "application/json")
                 return
-            sdir = _steward_dir(STATE["workspace"])
+            ws = resolve_workspace(project)
+            sdir = _steward_dir(ws)
             if (sdir / ".pending").exists():
                 self._send(429, b'{"error":"steward is thinking"}', "application/json")
                 return
-            _steward_chat_append(STATE["workspace"], "human", msg)
+            _steward_chat_append(ws, "human", msg)
             threading.Thread(target=_steward_turn,
-                             args=(STATE["workspace"], msg), daemon=True).start()
+                             args=(ws, msg), daemon=True).start()
             self._send(200, b'{"ok":true,"pending":true}', "application/json")
         elif path == "/api/story":
             body = self._json_body()
-            ok, info = create_story(str(body.get("title") or "").strip(),
+            ws = resolve_workspace(project)
+            ok, info = ("", "") if ws is None else (None, None)
+            if ws is None:
+                self._send(400, b'{"error":"need project"}', "application/json")
+                return
+            ok, info = create_story(ws, str(body.get("title") or "").strip(),
                                     str(body.get("source") or "").strip())
             self._send(200 if ok else 400,
                        json.dumps({"ok": ok, "info": info}, ensure_ascii=False).encode("utf-8"),
@@ -762,15 +830,14 @@ def _steward_turn(workspace: Path, message: str) -> None:
         pending.unlink(missing_ok=True)
 
 
-def create_story(title: str, source: str) -> tuple[bool, str]:
+def create_story(ws: Path, title: str, source: str) -> tuple[bool, str]:
     """Новая Story из витрины (порция F): каркас FNR_N + СТ + handoff-флаг.
 
     План строит демон, запуская /impl-handoff; файлы — единственный интерфейс
     между витриной и конвейером (UI не пишет манифесты).
     """
-    ws = STATE.get("workspace")
     if not ws:
-        return False, "сервер запущен без --workspace"
+        return False, "не указан проект"
     if not title or not source:
         return False, "нужны title и source (текст или путь к СТ)"
     existing = [int(d.name[4:]) for d in ws.glob("sa_documentation/FNR/FNR_*")
@@ -805,7 +872,12 @@ def main() -> None:
                         help="бинарь claude для чата задачи (тесты: заглушка)")
     args = parser.parse_args()
     if args.workspace:
-        STATE["workspace"] = Path(args.workspace).resolve()
+        wsp = Path(args.workspace).resolve()
+        STATE["workspace"] = wsp
+        STATE["projects"][wsp.name] = str(wsp)
+    else:
+        for name, path in load_registry().items():
+            STATE["projects"][name] = path
     if args.harness:
         STATE["harness"] = Path(args.harness).resolve()
     STATE["claude_bin"] = args.claude_bin

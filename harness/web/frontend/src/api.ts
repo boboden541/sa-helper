@@ -1,14 +1,18 @@
-import type { BoardState, Story, TaskDoc } from "./types";
+import type { BoardState, Project, Story, TaskDoc } from "./types";
 
 let currentFnr: string | null = null;
+let currentProject: string | null = null;
 
-/** Активная Story (для параметра ?fnr=); null — портфель. */
+/** Активные проект и Story (параметры ?project=&fnr=). */
 export function setFnr(fnr: string | null) { currentFnr = fnr; }
-export function getFnr() { return currentFnr; }
+export function setProject(project: string | null) { currentProject = project; }
+export function getProject() { return currentProject; }
 
 function withFnr(path: string): string {
-  if (!currentFnr) return path;
-  return path + (path.includes("?") ? "&" : "?") + "fnr=" + currentFnr;
+  let full = path;
+  if (currentProject) full += (full.includes("?") ? "&" : "?") + "project=" + currentProject;
+  if (currentFnr) full += (full.includes("?") ? "&" : "?") + "fnr=" + currentFnr;
+  return full;
 }
 
 async function json<T>(res: Response): Promise<T> {
@@ -17,8 +21,12 @@ async function json<T>(res: Response): Promise<T> {
 }
 
 export const api = {
-  stories: () =>
-    fetch("/api/stories").then((r) => json<{ stories: Story[] }>(r)),
+  projects: () =>
+    fetch("/api/projects").then((r) => json<{ projects: Project[] }>(r)),
+
+  stories: (project?: string) =>
+    fetch(withFnr(`/api/stories${project ? `?project=${project}` : ""}`))
+      .then((r) => json<{ stories: Story[] }>(r)),
 
   state: (fnr?: string) =>
     fetch(withFnr(fnr ? `/api/state?fnr=${fnr}` : "/api/state")).then((r) =>
@@ -53,17 +61,28 @@ export const api = {
     }),
 
   createStory: (title: string, source: string) =>
-    fetch("/api/story", {
+    fetch(withFnr("/api/story"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title, source }),
     }).then((r) => json<{ ok: boolean; info: string }>(r)),
 
   createTask: (fnr: string, payload: Record<string, unknown>) =>
-    fetch(`/api/story/${fnr}/task`, {
+    fetch(withFnr(`/api/story/${fnr}/task`), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+    }).then((r) => json<{ ok: boolean }>(r)),
+
+  stewardChat: () =>
+    fetch(withFnr("/api/steward/chat")).then((r) =>
+      json<{ messages: Array<{ ts: string; author: string; text: string }>; pending: boolean }>(r)),
+
+  stewardMessage: (text: string) =>
+    fetch(withFnr("/api/steward/message"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
     }).then((r) => json<{ ok: boolean }>(r)),
 
   attachments: (id: string) =>

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { BoardState, Story } from "../types";
-import { fmtTokens, fmtUsd, sumUsage } from "./common/ui";
+import type { BoardState, Project, Story } from "../types";
+import { fmtTokens, fmtUsd } from "./common/ui";
 
 function timeAgo(iso?: string): string {
   if (!iso) return "";
@@ -12,13 +12,17 @@ function timeAgo(iso?: string): string {
 }
 
 /** Шапка-пульт: лого, селектор Story (обзор внутри), вид, метрики, действия. */
-export function Header({ fnr, stories, state, conn = "…", onOpenStory, onAllStories,
+export function Header({ fnr, stories, projects, activeProject, state, conn = "…",
+  onOpenStory, onOpenProject, onAllStories,
   onCreate, onMetrics, view, setView, onFlag }: {
   fnr: string | null;
   stories: Story[];
+  projects: Project[];
+  activeProject: string | null;
   state: BoardState | null;
   conn?: string;
   onOpenStory: (fnr: string) => void;
+  onOpenProject: (name: string) => void;
   onAllStories: () => void;
   onCreate: () => void;
   onMetrics: () => void;
@@ -51,27 +55,35 @@ export function Header({ fnr, stories, state, conn = "…", onOpenStory, onAllSt
         </button>
         {menuOpen && (
           <div className="story-menu">
-            <div className="s-head meta">Stories воркспейса</div>
-            {stories.length === 0 && <div className="s-item empty">пока нет Stories</div>}
-            {stories.map((s) => {
-              const done = (s.counts.DONE || 0) + (s.counts.VERIFIED || 0);
-              const pct = s.tasks ? Math.round((100 * done) / s.tasks) : 0;
-              const u = sumUsage(s.task_list);
-              return (
-                <div className="s-item" key={s.fnr}
-                  onClick={() => { onOpenStory(s.fnr); setMenuOpen(false); }}>
-                  <span className="fnr">{s.fnr}</span>
-                  <span style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ display: "block", overflow: "hidden",
-                      textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.title}</span>
-                    <span className="meta">{done}/{s.tasks} · 🪙 {fmtTokens(u.tokens_total)} · {fmtUsd(u.cost_usd)}</span>
-                  </span>
-                  <span className="bar"><i style={{ width: `${pct}%` }} /></span>
+            <div className="s-head meta">Проекты (multi-repo)</div>
+            {projects.map((prj) => (
+              <div className="s-item" key={prj.name}
+                onClick={() => { onOpenProject(prj.name); setMenuOpen(false); }}>
+                <span className="fnr">{prj.name}</span>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span className="meta">{prj.task_count} задач · 🪙 {fmtTokens(prj.usage.tokens_total)} · {fmtUsd(prj.usage.cost_usd)}</span>
+                </span>
+                <span className="bar"><i style={{
+                  width: `${prj.task_count ? Math.round(100 * (prj.stories.reduce((a, s) => a + (s.counts.DONE || 0) + (s.counts.VERIFIED || 0), 0) / prj.task_count)) : 0}%` }} /></span>
+              </div>
+            ))}
+            {activeProject && stories.length > 0 && (
+              <>
+                <div className="s-head meta" style={{ borderTop: "1px solid var(--line)" }}>
+                  Stories · {activeProject}
                 </div>
-              );
-            })}
+                {stories.map((s) => (
+                  <div className="s-item" key={s.fnr}
+                    onClick={() => { onOpenStory(s.fnr); setMenuOpen(false); }}>
+                    <span className="fnr">{s.fnr}</span>
+                    <span style={{ flex: 1, minWidth: 0, overflow: "hidden",
+                      textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.title}</span>
+                  </div>
+                ))}
+              </>
+            )}
             <div className="s-item" onClick={() => { onAllStories(); setMenuOpen(false); }}>
-              <span className="meta">📊 Обзор всех Story (метрики)</span>
+              <span className="meta">📊 Обзор всех проектов и Story</span>
             </div>
             <div className="s-item" onClick={() => { onCreate(); setMenuOpen(false); }}>
               <span className="meta">＋ Новая Story…</span>
