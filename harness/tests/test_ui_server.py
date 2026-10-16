@@ -102,3 +102,19 @@ class ServerFixture(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestChecklistProgress(unittest.TestCase):
+    def test_counts_jira_style_checkboxes(self):
+        card = """## План работ (чек-лист)
+- [x]RED-тесты
+- [~]Миграция V2
+- [ ]Репозиторий
+- обычный пункт списка — не чекбокс
+"""
+        self.assertEqual(ui_server.checklist_progress(card),
+                         {"total": 3, "done": 1, "in_progress": 1})
+
+    def test_empty_card(self):
+        self.assertEqual(ui_server.checklist_progress(""),
+                         {"total": 0, "done": 0, "in_progress": 0})

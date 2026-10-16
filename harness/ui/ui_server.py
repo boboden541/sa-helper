@@ -57,6 +57,16 @@ def _run_dir() -> Path:
     return STATE["harness"] / ".run"
 
 
+CHECKBOX_RE = re.compile(r"^\s*-\s+\[( |~|x)\]", re.MULTILINE)
+
+
+def checklist_progress(card_md: str) -> dict:
+    """Прогресс чек-листа карточки: [x] — done, [~] — in progress, [ ] — to do."""
+    boxes = CHECKBOX_RE.findall(card_md or "")
+    return {"total": len(boxes), "done": boxes.count("x"),
+            "in_progress": boxes.count("~")}
+
+
 def task_actions(task: dict) -> list[str]:
     """Доступные человеку действия задачи (имена флагов), по машине состояний."""
     actions: list[str] = []
@@ -87,9 +97,16 @@ def read_state() -> dict:
                 comments_fp += p.stat().st_mtime_ns % 1_000_003
             except OSError:
                 pass
+    card_cache: dict[str, str] = {}
     for t in manifest.get("tasks", []):
         t["actions"] = task_actions(t)
         t["can_ask"] = bool(t.get("session_id"))
+        tid = t.get("id", "")
+        if tid not in card_cache:
+            card_path, _ = find_task_files(tid)
+            card_cache[tid] = card_path.read_text(encoding="utf-8", errors="replace") \
+                if card_path and card_path.exists() else ""
+        t["checklist"] = checklist_progress(card_cache[tid])
     return {"manifest": manifest, "flags": flags, "comments_fp": comments_fp}
 
 
