@@ -30,11 +30,42 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-STATE: dict = {"harness": None}
+sys_path = str(Path(__file__).resolve().parents[1])
+if sys_path not in __import__("sys").path:
+    __import__("sys").path.insert(0, sys_path)
+import state_machine as sm  # noqa: E402  (та же политика кнопок, что у демона)
+
+STATE: dict = {"harness": None, "claude_bin": "claude"}
+
+# события машины состояний → флаги задач (демон забирает .flags/TASK_...)
+ACTION_FLAGS = {
+    sm.EV_REQUEST_CHANGES: "REQUEST_CHANGES",
+    sm.EV_FORCE_APPROVE: "FORCE_APPROVE",
+    sm.EV_RETRY: "RETRY",
+    sm.EV_RESUME_WORK: "RESUME_WORK",
+    sm.EV_ABORT: "ABORT",
+}
+
+
+def _run_dir() -> Path:
+    return STATE["harness"] / ".run"
+
+
+def task_actions(task: dict) -> list[str]:
+    """Доступные человеку действия задачи (имена флагов), по машине состояний."""
+    actions: list[str] = []
+    for event in sm.allowed_events({"pipeline": task.get("pipeline")}):
+        flag = ACTION_FLAGS.get(event)
+        if flag:
+            actions.append(f"TASK_{task.get('id')}_{flag}")
+    actions.append(f"TASK_{task.get('id')}_" + ("RESUME_WORK" if task.get("paused") else "PAUSE"))
+    return actions
 
 
 def read_state() -> dict:
@@ -56,6 +87,9 @@ def read_state() -> dict:
                 comments_fp += p.stat().st_mtime_ns % 1_000_003
             except OSError:
                 pass
+    for t in manifest.get("tasks", []):
+        t["actions"] = task_actions(t)
+        t["can_ask"] = bool(t.get("session_id"))
     return {"manifest": manifest, "flags": flags, "comments_fp": comments_fp}
 
 
@@ -106,8 +140,23 @@ class Handler(BaseHTTPRequestHandler):
                 "task": task,
                 "card_md": card_path.read_text(encoding="utf-8", errors="replace") if card_path and card_path.exists() else "",
                 "comments_md": comments_path.read_text(encoding="utf-8", errors="replace") if comments_path.exists() else "",
+                "ask_pending": (_run_dir() / f"{task_id}_ask.pending").exists(),
             }
             self._send(200, json.dumps(doc, ensure_ascii=False).encode("utf-8"), "application/json")
+        elif self.path.startswith("/api/log/"):
+            task_id = self.path.rsplit("/", 1)[1]
+            if not re.fullmatch(r"T\d+", task_id):
+                self._send(400, b'{"error":"bad task id"}', "application/json")
+                return
+            logs = sorted(_run_dir().glob(f"{task_id}_*_*.log")) if _run_dir().is_dir() else []
+            body = {"log": "", "file": None}
+            if logs:
+                data = logs[-1].read_bytes()[-8192:]
+                body = {"log": data.decode("utf-8", errors="replace"),
+                        "file": logs[-1].name,
+                        "mtime": logs[-1].stat().st_mtime}
+            self._send(200, json.dumps(body, ensure_ascii=False).encode("utf-8"),
+                       "application/json")
         elif self.path == "/events":
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
@@ -149,6 +198,24 @@ class Handler(BaseHTTPRequestHandler):
             with comments_path.open("a", encoding="utf-8") as fh:
                 fh.write(f"- [{ts} | human] {text}\n")
             self._send(200, b'{"ok":true}', "application/json")
+        elif self.path.startswith("/api/ask/"):
+            task_id = self.path.rsplit("/", 1)[1]
+            question = (self._json_body().get("text") or "").strip()
+            if not re.fullmatch(r"T\d+", task_id) or not question:
+                self._send(400, b'{"error":"need task id and text"}', "application/json")
+                return
+            task = next((t for t in read_state()["manifest"].get("tasks", [])
+                         if t.get("id") == task_id), {})
+            session_id = task.get("session_id")
+            if not session_id:
+                self._send(409, b'{"error":"task has no session yet"}', "application/json")
+                return
+            if (_run_dir() / f"{task_id}_ask.pending").exists():
+                self._send(429, b'{"error":"question already running"}', "application/json")
+                return
+            threading.Thread(target=_ask_agent,
+                             args=(task_id, session_id, question), daemon=True).start()
+            self._send(200, b'{"ok":true,"pending":true}', "application/json")
         else:
             self._send(404, b'{"error":"not found"}', "application/json")
 
@@ -164,12 +231,47 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, b'{"error":"not found"}', "application/json")
 
 
+def _ask_agent(task_id: str, session_id: str, question: str) -> None:
+    """Вопрос агенту задачи: claude --resume <sid>; ответ — в журнал задачи."""
+    harness: Path = STATE["harness"]
+    run_dir = _run_dir()
+    run_dir.mkdir(exist_ok=True)
+    pending = run_dir / f"{task_id}_ask.pending"
+    pending.write_text(question, encoding="utf-8")
+    ts = time.strftime("%Y-%m-%d %H:%M")
+    comments = harness / "comments" / f"{task_id}.md"
+    comments.parent.mkdir(exist_ok=True)
+    with comments.open("a", encoding="utf-8") as fh:
+        fh.write(f"- [{ts} | human] {question}\n")
+    try:
+        # канон компоновки: <workspace>/sa_documentation/FNR_N/harness →
+        # корень воркспейса (там .claude/commands); при другом раскладе — рядом
+        fnr_root = harness.parents[3] if len(harness.parents) > 3 else harness.parent
+        if not (fnr_root / ".claude").is_dir():
+            fnr_root = harness.parent
+        result = subprocess.run(
+            [STATE["claude_bin"], "--resume", session_id, "-p", question],
+            cwd=str(fnr_root), capture_output=True, text=True, timeout=600,
+            stdin=subprocess.DEVNULL)
+        answer = (result.stdout or "").strip() or "(агент не вернул ответ)"
+    except (OSError, subprocess.SubprocessError) as exc:
+        answer = f"(ошибка чата: {exc})"
+    finally:
+        pending.unlink(missing_ok=True)
+    ts = time.strftime("%Y-%m-%d %H:%M")
+    with comments.open("a", encoding="utf-8") as fh:
+        fh.write(f"- [{ts} | agent] {answer}\n")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="AI Harness Live Dashboard (stdlib only)")
     parser.add_argument("--harness", required=True, help="путь к каталогу FNR_N/harness")
     parser.add_argument("--port", type=int, default=4040)
+    parser.add_argument("--claude-bin", default="claude",
+                        help="бинарь claude для чата задачи (тесты: заглушка)")
     args = parser.parse_args()
     STATE["harness"] = Path(args.harness).resolve()
+    STATE["claude_bin"] = args.claude_bin
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     print(f"AI Harness dashboard: http://127.0.0.1:{args.port}  ({STATE['harness']})")
     try:

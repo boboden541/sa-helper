@@ -23,6 +23,8 @@ PROMPT = sys.argv[sys.argv.index("-p") + 1] if "-p" in sys.argv else ""
 CWD = Path.cwd()
 
 # stream-json-подобные строки — живость для heartbeat-нити демона
+print(json.dumps({"type": "system", "subtype": "init",
+                  "session_id": "aa11bb22cc33dd44ee55ff66"}), flush=True)
 print(json.dumps({"type": "system", "subtype": "stub_start", "prompt": PROMPT[:60]}), flush=True)
 print(json.dumps({"type": "result", "subtype": "stub_done"}), flush=True)
 

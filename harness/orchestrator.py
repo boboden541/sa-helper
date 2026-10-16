@@ -395,12 +395,14 @@ def spawn_stage(workspace: Path, harness: Path, task_id: str | None, stage: str,
     return proc
 
 
-def _stream_watch(log_path: Path, hb_path: Path, proc: subprocess.Popen) -> None:
-    """Живость стадии: stream-лог растёт → обновить heartbeat-файл.
+SESSION_ID_RE = re.compile('"session_id":\\s*"([a-f0-9-]+)"')
 
-    Отдельная нать вместо чтения stdout: дескриптор открыт на запись (ребёнок
-    пишет в него напрямую), читать его нельзя. По завершении процесса закрывает
-    дескриптор stdout, который держит Popen.
+
+def _stream_watch(log_path: Path, hb_path: Path, proc: subprocess.Popen) -> None:
+    """Живость стадии: stream-лог растёт -> обновить heartbeat-файл.
+
+    session_id не парсится здесь (сессия может завершиться раньше первого
+    тика нити) — reconcile детерминированно ищет его в логе стадии.
     """
     size = -1
     while proc.poll() is None:
@@ -414,6 +416,42 @@ def _stream_watch(log_path: Path, hb_path: Path, proc: subprocess.Popen) -> None
                 hb_path.write_text(str(int(time.time())), encoding="utf-8")
             except OSError:
                 return
+        time.sleep(1.0)
+    try:
+        if proc.stdout:
+            proc.stdout.close()
+    except OSError:
+        pass
+
+
+def _stream_watch(log_path: Path, hb_path: Path, proc: subprocess.Popen) -> None:
+    """Живость стадии: stream-лог растёт -> обновить heartbeat-файл.
+
+    Заодно инкрементально вычитывает новые байты и вытаскивает session_id
+    (stream-json отдаёт его в каждой строке) -> .run/<pid-файл-стадии>.session:
+    его заберёт reconcile при завершении стадии (чат задачи через --resume).
+    """
+    size = pos = 0
+    stem_parts = log_path.stem.split("_")[:-1]  # <tid>_<stage>_<ts>.log -> без <ts>
+    session_file = log_path.parent / ("_".join(stem_parts) + ".session")
+    session_written = False
+    while proc.poll() is None:
+        try:
+            current = log_path.stat().st_size
+            if current != size:
+                size = current
+                hb_path.write_text(str(int(time.time())), encoding="utf-8")
+                if not session_written and session_file is not None:
+                    with log_path.open("rb") as fh:
+                        fh.seek(pos)
+                        chunk = fh.read().decode("utf-8", errors="replace")
+                    pos = size
+                    found = SESSION_ID_RE.search(chunk)
+                    if found:
+                        session_file.write_text(found.group(1), encoding="utf-8")
+                        session_written = True
+        except OSError:
+            return
         time.sleep(1.0)
     try:
         if proc.stdout:
@@ -463,6 +501,20 @@ class WorkspaceLane:
         self.started_at = 0.0
 
 
+def _pick_session_id(harness: Path, task_id: str | None, stage: str) -> str | None:
+    """session_id стадии: из лога (stream-json) — детерминированно, без гонок."""
+    suffix = task_id or "fnr"
+    for log_path in sorted((harness / ".run").glob(f"{suffix}_{stage}_*.log"))[-1:]:
+        try:
+            content = log_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        found = SESSION_ID_RE.search(content)
+        if found:
+            return found.group(1)
+    return None
+
+
 def find_harnesses(workspace: Path) -> list[Path]:
     return sorted(p for p in workspace.glob("sa_documentation/FNR/FNR_*/harness")
                   if (p / "manifest.json").is_file())
@@ -507,6 +559,8 @@ def process_workspace(lane: WorkspaceLane, opts: argparse.Namespace) -> None:
             doc = load_manifest(harness)
             task = next((t for t in doc.get("tasks", []) if t.get("id") == task_id), None)
             if task:
+                task["session_id"] = _pick_session_id(harness, task_id, stage) \
+                    or task.get("session_id")
                 summary = reconcile_after_stage(harness, doc, task, code,
                                                 max_retries=opts.max_retries)
                 print(f"  [stage] {summary}")
@@ -540,6 +594,11 @@ def process_workspace(lane: WorkspaceLane, opts: argparse.Namespace) -> None:
                         break
                 except (OSError, ValueError):
                     continue
+
+        # жадная миграция v2-документа: поля конвейера персистятся сразу,
+        # чтобы витрина видела статусы/действия до первого события
+        if not opts.dry_run and any(migrate_task_pipeline(t) for t in doc.get("tasks", [])):
+            save_manifest(harness, doc)
 
         state = {
             "lane_free": True,

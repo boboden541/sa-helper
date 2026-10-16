@@ -101,6 +101,15 @@
   .comment.human { border-color: var(--ok); background: rgba(89,201,139,.05); }
   .tabbtn { font-size: 12.5px; padding: 4px 10px; }
   .tabbtn.active { border-color: var(--acc); color: var(--acc); }
+  #p-actions { display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 18px 0; }
+  #p-actions button { font-size: 12px; padding: 4px 10px; }
+  #p-actions button.warn:hover:not(:disabled) { background: rgba(232,182,76,.18); border-color: var(--warn); }
+  #p-actions button.danger:hover:not(:disabled) { background: rgba(224,112,95,.2); border-color: var(--bad); }
+  .plog { background: var(--chip); border-radius: 8px; padding: 10px; overflow-x: auto;
+    font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; }
+  #p-askrow { display: flex; gap: 8px; margin-top: 8px; }
+  #p-askrow input { flex: 1; background: var(--chip); border: 1px solid var(--line);
+    color: var(--text); border-radius: 8px; padding: 8px 12px; font: inherit; }
 </style>
 </head>
 <body>
@@ -125,14 +134,23 @@
     <span class="spacer"></span>
     <button class="tabbtn active" id="tab-card">Карточка</button>
     <button class="tabbtn" id="tab-comments">Комментарии (<span id="c-count">0</span>)</button>
+    <button class="tabbtn" id="tab-log">Лог стадии</button>
     <button id="p-close">✕</button>
   </div>
   <div class="pbody">
     <div class="meta" id="p-meta" style="margin-bottom:8px"></div>
     <div class="md" id="p-card"></div>
     <div class="md" id="p-comments" style="display:none"></div>
+    <div id="p-logwrap" style="display:none">
+      <div class="meta" id="p-logmeta" style="margin-bottom:6px"></div>
+      <pre class="plog" id="p-log">—</pre>
+    </div>
   </div>
   <div class="pfoot" id="p-commentbox" style="display:none">
+    <div id="p-askrow" style="flex-basis:100%">
+      <input id="a-input" placeholder="Спросить агента задачи (по сессии стадии)… (Enter — отправить)">
+      <button id="a-send">Спросить</button>
+    </div>
     <input id="c-input" placeholder="Комментарий к задаче… (Enter — отправить)">
     <button id="c-send">Отправить</button>
   </div>
@@ -265,6 +283,10 @@ function fillDetail(t) {
     (Object.keys(gates).length ? ` · гейты: ${Object.entries(gates).map(([k, v]) => `${k}=${v}`).join(", ")}` : "");
   const comments = parseComments(document.getElementById("p-comments").dataset.raw || "");
   document.getElementById("c-count").textContent = comments.length;
+  renderActions(t);
+  document.getElementById("p-askrow").style.display = t.can_ask ? "flex" : "none";
+  if (!t.can_ask) document.getElementById("a-input").placeholder =
+    "Вопрос агенту будет доступен после первой стадии (нужна сессия)";
 }
 
 async function openTask(id) {
@@ -296,9 +318,18 @@ function showTab(which) {
   const bc = document.getElementById("tab-card"), bcom = document.getElementById("tab-comments");
   cardEl.style.display = which === "card" ? "" : "none";
   comEl.style.display = which === "comments" ? "" : "none";
+  const logWrap = document.getElementById("p-logwrap");
+  logWrap.style.display = which === "log" ? "" : "none";
   bc.classList.toggle("active", which === "card");
   bcom.classList.toggle("active", which === "comments");
+  document.getElementById("tab-log").classList.toggle("active", which === "log");
   document.getElementById("p-commentbox").style.display = which === "comments" ? "flex" : "none";
+  if (which === "log" && CURRENT) {
+    loadLog(CURRENT);
+    if (!logTimer) logTimer = setInterval(() => CURRENT && loadLog(CURRENT), 3000);
+  } else if (logTimer) {
+    clearInterval(logTimer); logTimer = null;
+  }
 }
 
 async function refreshComments() {
@@ -317,8 +348,55 @@ function closePanel() {
 document.getElementById("p-close").onclick = closePanel;
 document.getElementById("backdrop").onclick = closePanel;
 document.addEventListener("keydown", e => { if (e.key === "Escape") closePanel(); });
+const ACTION_LABELS = {
+  REQUEST_CHANGES: "Вернуть на доработку", FORCE_APPROVE: "Принять (force)",
+  RETRY: "Повторить", RESUME_WORK: "Возобновить", PAUSE: "Пауза",
+  RESUME: "Продолжить", ABORT: "Остановить",
+};
+
+function renderActions(t) {
+  const box = document.getElementById("p-actions");
+  box.innerHTML = "";
+  for (const flag of (t.actions || [])) {
+    const key = flag.split("_").slice(2).join("_");
+    const label = ACTION_LABELS[key];
+    if (!label) continue;
+    const b = document.createElement("button");
+    b.textContent = label;
+    if (key === "ABORT") b.className = "danger";
+    if (key === "FORCE_APPROVE") b.className = "warn";
+    b.onclick = () => fetch(`/api/flag/${flag}`, { method: "POST" }).then(() => openTask(t.id));
+    box.appendChild(b);
+  }
+}
+
+let logTimer = null;
+async function loadLog(taskId) {
+  const res = await fetch(`/api/log/${taskId}`);
+  const doc = await res.json();
+  document.getElementById("p-log").textContent = doc.log || "лог стадии пока пуст";
+  document.getElementById("p-logmeta").textContent =
+    doc.file ? `${doc.file} (хвост 8 КБ)` : "стадия ещё не запускалась";
+}
+
+function askAgent() {
+  const input = document.getElementById("a-input");
+  const q = input.value.trim();
+  if (!q || !CURRENT) return;
+  fetch(`/api/ask/${CURRENT}`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: q }),
+  }).then(r => r.json()).then(() => {
+    input.value = "";
+    refreshComments();
+  }).catch(() => {});
+}
+
 document.getElementById("tab-card").onclick = () => showTab("card");
 document.getElementById("tab-comments").onclick = () => showTab("comments");
+document.getElementById("tab-log").onclick = () => showTab("log");
+document.getElementById("a-send").onclick = askAgent;
+document.getElementById("a-input").addEventListener("keydown", e => { if (e.key === "Enter") askAgent(); });
 document.getElementById("c-send").onclick = sendComment;
 document.getElementById("c-input").addEventListener("keydown", e => { if (e.key === "Enter") sendComment(); });
 

@@ -84,6 +84,9 @@ class TestConveyorSmoke(unittest.TestCase):
             pipelines = {t["id"]: t["pipeline"] for t in doc["tasks"]}
             self.assertEqual(pipelines, {"T1": sm.VERIFIED, "T2": sm.VERIFIED})
             self.assertTrue((harness / "verification_report.md").exists())
+            # session_id последней стадии задачи попал в манифест (чат через --resume)
+            self.assertEqual(doc["tasks"][0].get("session_id"),
+                             "aa11bb22cc33dd44ee55ff66")
             events_log = (harness / "logs" / "events.log").read_text(encoding="utf-8")
             for marker in ("queue_ready", "start", "review_approved",
                            "verify_passed", "verify: FNR"):
