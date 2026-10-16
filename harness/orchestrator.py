@@ -63,6 +63,51 @@ _V2_TO_PIPELINE = {
 }
 
 
+V3_FIELDS = ("pipeline", "blocked_from", "retries", "review_iterations",
+             "findings", "session_id", "paused", "skip_review", "owner",
+             "retry_after_ts", "pipeline_since")
+
+
+def _shadow_path(harness: Path) -> Path:
+    return harness / ".run" / "pipeline_shadow.json"
+
+
+def shadow_load(harness: Path) -> dict:
+    try:
+        return json.loads(_shadow_path(harness).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def shadow_save(harness: Path, doc: dict) -> None:
+    """Проекция v3-полей вне манифеста: v2-сессии перезаписывают manifest.json,
+    не зная о них; демон восстанавливает свою проекцию оттуда (ворота A/B)."""
+    try:
+        data = {t["id"]: {k: t[k] for k in V3_FIELDS if k in t}
+                for t in doc.get("tasks", [])}
+        _shadow_path(harness).parent.mkdir(parents=True, exist_ok=True)
+        tmp = _shadow_path(harness).with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, _shadow_path(harness))
+    except (OSError, KeyError, TypeError):
+        pass
+
+
+def shadow_restore(harness: Path, doc: dict) -> bool:
+    """Вернуть задачам потерянные v3-поля. True — манифест менялся."""
+    shadow = shadow_load(harness)
+    changed = False
+    for t in doc.get("tasks", []):
+        saved = shadow.get(t.get("id"))
+        if not saved:
+            continue
+        if t.get("pipeline") not in sm.PIPELINE_STATUSES and saved.get("pipeline"):
+            for k, v in saved.items():
+                t[k] = v
+            changed = True
+    return changed
+
+
 def now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()) + "Z"
 
@@ -93,6 +138,43 @@ def save_manifest(harness: Path, doc: dict) -> None:
     os.replace(tmp, target)
 
 
+def comment(harness: Path, tid: str, text: str) -> None:
+    """Дописать запись демона в журнал задачи (многострочный текст допустим:
+    строки после первой — продолжение записи для витрины)."""
+    path = harness / "comments" / f"{tid}.md"
+    path.parent.mkdir(exist_ok=True)
+    ts = time.strftime("%Y-%m-%d %H:%M")
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(f"- [{ts} | daemon] {text}\n")
+
+
+def _escalation_report(task: dict, reason: str) -> str:
+    """Подробный отчёт «нужен человек»: что случилось и что делать."""
+    tid = task["id"]
+    findings = [f for f in (task.get("findings") or [])
+                if f.get("resolution") != "resolved"]
+    lines = [
+        f"⏸ **Требуется вмешательство человека** — задача остановлена в статусе NEEDS_HUMAN.",
+        f"Причина: {reason}",
+        f"Где остановилась: {task.get('blocked_from') or '—'} · "
+        f"итераций ревью: {task.get('review_iterations') or 0}/3 · "
+        f"перезапусков: {task.get('retries') or 0}",
+    ]
+    if findings:
+        lines.append("Открытые замечания ревью:")
+        for f in findings[:10]:
+            where = f" ({f['file']})" if f.get("file") else ""
+            lines.append(f"· [{f.get('id')}] {f.get('text')}{where} — {f.get('resolution', 'open')}")
+    lines += [
+        "Что можно сделать (кнопки в карточке или touch .flags/):",
+        f"· «Повторить» (TASK_{tid}_RETRY) — вернуть задачу в работу с того места, где она остановилась",
+        f"· «Принять (force)» — если считаете задачу готовой (только из Review)",
+        f"· «Остановить» (TASK_{tid}_ABORT) — снять задачу с конвейера",
+        "Комментарий в этом журнале увидит агент при следующем запуске задачи.",
+    ]
+    return "\n".join(lines)
+
+
 def apply_transition(harness: Path, doc: dict, task: dict, event: str,
                      reason: str) -> bool:
     """Применить событие машины состояний и записать манифест. False при отказе."""
@@ -104,7 +186,19 @@ def apply_transition(harness: Path, doc: dict, task: dict, event: str,
     task["pipeline_since"] = now_iso()
     doc["updated_at"] = now_iso()
     save_manifest(harness, doc)
-    log_event(harness, f"{task.get('id')}: {event} → {task['pipeline']} ({reason})")
+    shadow_save(harness, doc)
+    label = f"{task.get('id')}: {event} → {task['pipeline']} ({reason})"
+    log_event(harness, label)
+    # мини-отчёт в журнал задачи на каждом переходе; эскалации — подробнее
+    if task["pipeline"] == sm.NEEDS_HUMAN:
+        comment(harness, task["id"], _escalation_report(task, reason))
+    elif task["pipeline"] == sm.BLOCKED:
+        wait_min = max(1, round(float(task.get("retry_after_ts") or time.time()) - time.time()) // 60)
+        comment(harness, task["id"],
+                f"⛔ Стадия прервана — задача в BLOCKED, авто-перезапуск ~через {wait_min} мин "
+                f"(попытка {task.get('retries') or 0}). Причина: {reason}")
+    else:
+        comment(harness, task["id"], f"{event} → {task['pipeline']} — {reason}")
     return True
 
 
@@ -169,6 +263,11 @@ def reconcile_review(harness: Path, doc: dict, task: dict,
                               review_iterations_max=review_iterations_max)
         task["review_verdict"] = parsed["status"]
         task["findings"] = gate["findings"]
+        if gate["event"] == sm.EV_REVIEW_CHANGES:
+            # доработка начинается с чистым v2-статусом — иначе completion по
+            # AGENT_REVIEW ложно вернёт задачу в REVIEW без новой сессии
+            task["status"] = "APPROVED"
+            task["review_verdict"] = None
         apply_transition(harness, doc, task, gate["event"], gate["reason"])
         return gate["reason"]
     # фолбэк: старый формат (только v2-поля) — без findings
@@ -315,6 +414,9 @@ def reconcile_after_stage(harness: Path, doc: dict, task: dict,
     уже нет — манифест принадлежит демону, гонки нет.
     """
     tid = task["id"]
+    if task.get("pipeline") not in (sm.IMPLEMENTING, sm.REVIEW):
+        # факт стадии уже отработан другим путём (decide/orphan) — не дублируем
+        return f"{tid}: стадия уже учтена (pipeline={task.get('pipeline')})"
     if task.get("pipeline") == sm.REVIEW:
         reason = reconcile_review(harness, doc, task,
                                   review_iterations_max=review_iterations_max)
@@ -595,10 +697,14 @@ def process_workspace(lane: WorkspaceLane, opts: argparse.Namespace) -> None:
                 except (OSError, ValueError):
                     continue
 
-        # жадная миграция v2-документа: поля конвейера персистятся сразу,
-        # чтобы витрина видела статусы/действия до первого события
-        if not opts.dry_run and any(migrate_task_pipeline(t) for t in doc.get("tasks", [])):
-            save_manifest(harness, doc)
+        # восстановление v3-полей из тени (v2-сессии перезаписывают манифест,
+        # не зная о них) + жадная миграция v2-документа
+        if not opts.dry_run:
+            changed = shadow_restore(harness, doc)
+            changed = any(migrate_task_pipeline(t) for t in doc.get("tasks", [])) or changed
+            if changed:
+                save_manifest(harness, doc)
+                shadow_save(harness, doc)
 
         state = {
             "lane_free": True,
