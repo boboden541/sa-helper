@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import threading
@@ -98,6 +99,18 @@ def parse_checklist_sections(card_md: str) -> list[dict]:
     return sections
 
 
+def pid_alive(pid: int) -> bool:
+    try:
+        if os.name == "nt":
+            out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}"],
+                                 capture_output=True, text=True, check=False)
+            return str(pid) in out.stdout
+        os.kill(pid, 0)
+        return True
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def _live_status(harness: Path, tid: str) -> dict | None:
     """Живость стадии: возраст heartbeat и последнее действие агента из stream-лога.
 
@@ -114,8 +127,17 @@ def _live_status(harness: Path, tid: str) -> dict | None:
     age = int(time.time() - newest.stat().st_mtime)
     if age > 7200:  # стадия закончилась больше 2ч назад — не «живость», а история
         return None
-    out: dict = {"hb_age_s": age}
+    # честность: живость определяет ПРОЦЕСС (pid-файл), а не свежесть hb —
+    # hb замирает в момент смерти процесса и ещё ~2 мин выглядит «свежим»
+    running = False
     stage = newest.stem.split("_", 1)[1]
+    pid_file = run_dir / f"{newest.stem.split('_')[0]}_{stage}.pid"
+    if pid_file.exists():
+        try:
+            running = pid_alive(int(pid_file.read_text(encoding="utf-8").strip()))
+        except (OSError, ValueError):
+            running = False
+    out: dict = {"hb_age_s": age, "running": running}
     logs = sorted(run_dir.glob(f"{tid}_{stage}_*.log"),
                   key=lambda p: p.stat().st_mtime)
     if logs:
