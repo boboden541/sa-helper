@@ -83,12 +83,31 @@ def list_stories() -> list[dict]:
         counts: dict[str, int] = {}
         for t in tasks:
             counts[t.get("pipeline") or "—"] = counts.get(t.get("pipeline") or "—", 0) + 1
+        card_cache: dict[str, str] = {}
+        task_rows = []
+        for t in tasks:
+            tid = t.get("id", "")
+            if tid not in card_cache:
+                cp, _ = find_task_files(harness, tid)
+                card_cache[tid] = cp.read_text(encoding="utf-8", errors="replace") \
+                    if cp and cp.exists() else ""
+            chk = checklist_progress(card_cache[tid])
+            task_rows.append({
+                "id": tid, "title": t.get("title", ""),
+                "pipeline": t.get("pipeline") or "",
+                "status": t.get("status", ""), "system": t.get("system", ""),
+                "origin": t.get("origin", "plan"),
+                "plan_done": chk["done"], "plan_total": chk["total"],
+                "live": (_live_status(harness, tid) or {}).get("running")
+                        if t.get("pipeline") in ("IMPLEMENTING", "REVIEW") else None,
+            })
         stories.append({
             "fnr": fnr,
             "title": manifest.get("story_title") or manifest.get("source_document") or fnr,
             "status": manifest.get("status", "—"),
             "tasks": len(tasks),
             "counts": counts,
+            "task_list": task_rows,
             "handoff_pending": (harness / ".flags" / "HANDOFF").exists(),
             "handoff_failed": (harness / ".run" / "handoff_failed").exists(),
             "manifest_ok": bool(manifest),
@@ -410,6 +429,23 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200 if ok else 400,
                        json.dumps({"ok": ok, "info": info}, ensure_ascii=False).encode("utf-8"),
                        "application/json")
+        elif path.startswith("/api/story/") and path.endswith("/task"):
+            fnr = path.split("/")[3]
+            target = _harness_of(fnr)
+            if target is None or not target.is_dir():
+                self._send(404, b'{"error":"no such story"}', "application/json")
+                return
+            body = self._json_body()
+            if not str(body.get("title") or "").strip():
+                self._send(400, b'{"error":"need title"}', "application/json")
+                return
+            flags_dir = target / ".flags"
+            flags_dir.mkdir(exist_ok=True)
+            payload = {k: body[k] for k in ("title", "description", "system",
+                                            "depends_on", "acceptance") if body.get(k)}
+            (flags_dir / f"TASK_NEW_{int(time.time() * 1000)}.json").write_text(
+                json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            self._send(200, b'{"ok":true}', "application/json")
         elif path.startswith("/api/flag/"):
             name = path.rsplit("/", 1)[1]
             if harness is None:
