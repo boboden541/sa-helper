@@ -137,6 +137,7 @@
     <button class="tabbtn" id="tab-log">Лог стадии</button>
     <button id="p-close">✕</button>
   </div>
+  <div id="p-actions"></div>
   <div class="pbody">
     <div class="meta" id="p-meta" style="margin-bottom:8px"></div>
     <div class="md" id="p-card"></div>
@@ -356,6 +357,7 @@ const ACTION_LABELS = {
 
 function renderActions(t) {
   const box = document.getElementById("p-actions");
+  if (!box) return;
   box.innerHTML = "";
   for (const flag of (t.actions || [])) {
     const key = flag.split("_").slice(2).join("_");
