@@ -62,6 +62,7 @@ EV_FORCE_APPROVE = "force_approve"              # A: принять despite find
 EV_REQUEST_CHANGES = "request_changes"          # A: вернуть с DONE (комментарий = задание)
 EV_VERIFY_PASSED = "verify_passed"              # D: /impl-verify зелёный
 EV_RETRY = "retry"                              # D: backoff истёк (или A: retry)
+EV_BLOCKED_ESCALATED = "blocked_escalated"      # D: retries исчерпаны в BLOCKED
 EV_RESUME_WORK = "resume_work"                  # A: разбор окончен — продолжить
 EV_ABORT = "abort"                              # A: остановить задачу
 
@@ -80,6 +81,7 @@ _TRANSITIONS: dict[str, dict] = {
     EV_REQUEST_CHANGES: {"from": {DONE}, "to": IMPLEMENTING},
     EV_VERIFY_PASSED: {"from": {DONE}, "to": VERIFIED},
     EV_RETRY: {"from": {BLOCKED}, "to": None},        # to = blocked_from
+    EV_BLOCKED_ESCALATED: {"from": {BLOCKED}, "to": NEEDS_HUMAN},
     EV_RESUME_WORK: {"from": {NEEDS_HUMAN}, "to": None},  # to = blocked_from
     EV_ABORT: {"from": ACTIVE, "to": ABORTED},
 }
