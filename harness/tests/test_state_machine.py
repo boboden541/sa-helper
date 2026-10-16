@@ -191,3 +191,26 @@ class TestV2Consistency(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestProposed(unittest.TestCase):
+    """Порция F: агентские задачи-предложения."""
+
+    def test_accept_moves_to_backlog(self):
+        res = sm.transition({"pipeline": sm.PROPOSED}, sm.EV_PROPOSE_ACCEPT)
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["patch"]["pipeline"], sm.BACKLOG)
+
+    def test_reject_aborts(self):
+        res = sm.transition({"pipeline": sm.PROPOSED}, sm.EV_PROPOSE_REJECT)
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["patch"]["pipeline"], sm.ABORTED)
+
+    def test_proposed_not_startable_and_not_aborted(self):
+        self.assertFalse(sm.transition({"pipeline": sm.PROPOSED}, sm.EV_START)["ok"])
+        self.assertFalse(sm.transition({"pipeline": sm.PROPOSED}, sm.EV_ABORT)["ok"])
+
+    def test_proposed_only_accept_or_reject(self):
+        # из PROPOSED две двери: принять в бэклог или отклонить (abort там не нужен)
+        legal = sm.allowed_events({"pipeline": sm.PROPOSED})
+        self.assertEqual(sorted(legal), [sm.EV_PROPOSE_ACCEPT, sm.EV_PROPOSE_REJECT])

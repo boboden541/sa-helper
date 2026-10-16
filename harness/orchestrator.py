@@ -49,10 +49,11 @@ STAGE_COMMANDS = {
     "implementing": "/impl-run {harness} {task}",
     "review": "/impl-review {harness} {task}",
     "verify": "/impl-verify {harness}",
+    "handoff": "/impl-handoff {source}",
 }
 # Флаги задач витрины (порция C): TASK_<ID>_<ДЕЙСТВИЕ> в .flags/
 TASK_FLAG_RE = re.compile(
-    r"^TASK_(T\d+)_(REQUEST_CHANGES|FORCE_APPROVE|RETRY|RESUME_WORK|PAUSE|ABORT|SKIP_REVIEW)$")
+    r"^TASK_(T\d+)_(REQUEST_CHANGES|FORCE_APPROVE|RETRY|RESUME_WORK|PAUSE|ABORT|SKIP_REVIEW|ACCEPT|REJECT)$")
 
 # v2-статус → pipeline при миграции документа без поля pipeline
 _V2_TO_PIPELINE = {
@@ -203,10 +204,14 @@ def apply_transition(harness: Path, doc: dict, task: dict, event: str,
 
 
 def migrate_task_pipeline(task: dict) -> bool:
-    """v2-документ → v3: вывести pipeline из status (идемпотентно)."""
+    """v2-документ → v3: вывести pipeline из status (идемпотентно).
+    Агентские задачи (origin=agent) без pipeline — предложения: PROPOSED."""
     if task.get("pipeline") in sm.PIPELINE_STATUSES:
         return False
-    task["pipeline"] = _V2_TO_PIPELINE.get(task.get("status"), sm.BACKLOG)
+    if task.get("origin") == "agent":
+        task["pipeline"] = sm.PROPOSED
+    else:
+        task["pipeline"] = _V2_TO_PIPELINE.get(task.get("status"), sm.BACKLOG)
     task.setdefault("retries", 0)
     task.setdefault("review_iterations", 0)
     task.setdefault("skip_review", False)
@@ -307,6 +312,10 @@ def task_flags_decisions(manifest: dict, flags: set[str]) -> list[tuple]:
             pipeline = task.get("pipeline")
             event = sm.EV_RETRY if pipeline == sm.BLOCKED else sm.EV_RESUME_WORK
             decisions.append(("event", tid, event, f"флаг {name}"))
+        elif action == "ACCEPT":
+            decisions.append(("event", tid, sm.EV_PROPOSE_ACCEPT, f"флаг {name}"))
+        elif action == "REJECT":
+            decisions.append(("event", tid, sm.EV_PROPOSE_REJECT, f"флаг {name}"))
         else:
             event = {"REQUEST_CHANGES": sm.EV_REQUEST_CHANGES,
                      "FORCE_APPROVE": sm.EV_FORCE_APPROVE,
@@ -466,8 +475,13 @@ def spawn_stage(workspace: Path, harness: Path, task_id: str | None, stage: str,
     """Запуск headless-сессии стадии; стрим → .run/, heartbeat → .run/*.hb."""
     rel = Path(os.path.relpath(harness, workspace)).as_posix()
     template = STAGE_COMMANDS[stage]
-    prompt = template.format(harness=rel, task=task_id) if task_id \
-        else template.format(harness=rel)
+    if stage == "handoff":
+        source = rel.rsplit("/harness", 1)[0] + "/system_requirements.md"
+        prompt = template.format(source=source)
+    elif task_id:
+        prompt = template.format(harness=rel, task=task_id)
+    else:
+        prompt = template.format(harness=rel)
     run_dir = harness / ".run"
     run_dir.mkdir(exist_ok=True)
     suffix = task_id or "fnr"
@@ -622,6 +636,77 @@ def find_harnesses(workspace: Path) -> list[Path]:
                   if (p / "manifest.json").is_file())
 
 
+def find_pending_handoffs(workspace: Path) -> list[Path]:
+    """Каталоги FNR с флагом HANDOFF (Story создана из UI, план ещё не построен)."""
+    return sorted(p for p in workspace.glob("sa_documentation/FNR/FNR_*/harness")
+                  if (p / ".flags" / "HANDOFF").exists() and not (p / "manifest.json").is_file())
+
+
+def _next_task_id(doc: dict) -> str:
+    numbers = [int(t["id"][1:]) for t in doc.get("tasks", [])
+               if re.fullmatch(r"T\d+", str(t.get("id", "")))]
+    return f"T{max(numbers, default=0) + 1}"
+
+
+def create_manual_task(harness: Path, payload: dict) -> tuple[bool, str]:
+    """Ручная задача Story (порция F): карточка + запись в манифест.
+
+    Пишет только демон (UI кладёт payload-флаг) — гонок с сессиями нет.
+    """
+    doc = load_manifest(harness)
+    if doc is None:
+        return False, "манифест не найден"
+    title = str(payload.get("title") or "").strip()
+    if not title:
+        return False, "нужен title"
+    systems = [s.get("name") for s in doc.get("systems", [])]
+    system = payload.get("system") or (systems[0] if systems else None)
+    if system not in systems:
+        return False, f"система '{system}' не объявлена в манифесте"
+    deps = [str(d) for d in (payload.get("depends_on") or [])]
+    known = {t.get("id") for t in doc.get("tasks", [])}
+    unknown = [d for d in deps if d not in known]
+    if unknown:
+        return False, f"неизвестные зависимости: {unknown}"
+    tid = _next_task_id(doc)
+    slug = doc.get("epic_branch", "").rsplit("-", 1)[0] or "task"
+    task = {
+        "id": tid, "title": title,
+        "description": str(payload.get("description") or "").strip()[:300],
+        "system": system, "phase": "regular",
+        "branch": f"{slug}-{tid.lower()}",
+        "status": "PLANNED", "pipeline": sm.BACKLOG,
+        "depends_on": deps, "fr_ids": payload.get("fr_ids") or [],
+        "acceptance_criteria": [
+            {"id": f"AC-{tid[1:]}.{i}", "desc": str(a).strip()[:200], "status": "PENDING"}
+            for i, a in enumerate(payload.get("acceptance") or [], 1)] or
+            [{"id": f"AC-{tid[1:]}.1", "desc": title, "status": "PENDING"}],
+        "origin": "manual",
+    }
+    doc["tasks"].append(task)
+    doc["updated_at"] = now_iso()
+    save_manifest(harness, doc)
+    shadow_save(harness, doc)
+    # карточка (минимальный контракт) + стартовая запись журнала
+    tasks_dir = harness / "tasks"
+    tasks_dir.mkdir(exist_ok=True)
+    ac_rows = "\n".join(f"| AC-{tid[1:]}.{i} | {a} | — |"
+                         for i, a in enumerate(payload.get("acceptance") or [title], 1))
+    (tasks_dir / f"{tid}.md").write_text(
+        f"# {tid}: {title}\n\n| Поле | Значение |\n|------|----------|\n"
+        f"| Система | {system} |\n| Фаза | regular |\n| Происхождение | вручную (Story UI) |\n"
+        f"| Зависимости | {', '.join(deps) or '—'} |\n\n## Что сделать\n\n"
+        f"{payload.get('description') or title}\n\n## Критерии приёмки\n\n"
+        f"| AC | Условие | Тест |\n|----|---------|------|\n{ac_rows}\n",
+        encoding="utf-8")
+    comments_dir = harness / "comments"
+    comments_dir.mkdir(exist_ok=True)
+    comment(harness, tid, f"**Задача добавлена вручную** через витрину Story — "
+                          f"взята в бэклог конвейера (origin: manual).")
+    log_event(harness, f"{tid}: создана вручную (TASK_NEW): {title}")
+    return True, tid
+
+
 def process_workspace(lane: WorkspaceLane, opts: argparse.Namespace) -> None:
     """Один тик по воркспейсу: reconcile → решения → стадии."""
     ws = lane.root
@@ -645,7 +730,18 @@ def process_workspace(lane: WorkspaceLane, opts: argparse.Namespace) -> None:
                 return  # стадия ещё работает, манифест не трогаем (один писатель)
         # стадия завершилась — reconcile и освободить слот
         harness, task_id, stage = lane.harness, lane.task_id, lane.stage
-        if stage == "verify":
+        if stage == "handoff":
+            (harness / ".flags" / "HANDOFF").unlink(missing_ok=True)
+            if (harness / "manifest.json").is_file():
+                log_event(harness, "Story готова: план построен, ждёт утверждения "
+                                   "(.flags/APPROVE_PLAN)")
+                print(f"  [handoff] {harness.parent.name}: план готов — ждёт утверждения")
+            else:
+                (harness / ".run" / "handoff_failed").write_text(now_iso(), encoding="utf-8")
+                log_event(harness, "handoff завершился без манифеста — gap-report в "
+                                   "handoff_report.md, требуется доработка СТ")
+                print(f"  [handoff] {harness.parent.name}: STOP — см. handoff_report.md")
+        elif stage == "verify":
             report = harness / "verification_report.md"
             if report.exists():
                 doc = load_manifest(harness)
@@ -674,7 +770,21 @@ def process_workspace(lane: WorkspaceLane, opts: argparse.Namespace) -> None:
         lane.proc = lane.harness = lane.task_id = lane.stage = None
         return
 
-    # 2. перебор FNR: свободный слот — ищем работу
+    # 2. Stories в ожидании handoff (созданы из витрины) — прежде задач
+    for harness in find_pending_handoffs(ws):
+        if not claim_lock(harness):
+            continue
+        print(f"  [{harness.parent.name}] стадия handoff: построение плана из СТ")
+        log_event(harness, "запуск стадии handoff: /impl-handoff")
+        proc = spawn_stage(ws, harness, None, "handoff", opts)
+        if proc is not None:
+            lane.proc, lane.harness = proc, harness
+            lane.task_id, lane.stage = None, "handoff"
+            lane.started_at = time.time()
+            return
+        break  # dry-run: показать и не зацикливаться
+
+    # 3. перебор FNR: свободный слот — ищем работу
     for harness in find_harnesses(ws):
         if not claim_lock(harness):
             continue
@@ -684,6 +794,24 @@ def process_workspace(lane: WorkspaceLane, opts: argparse.Namespace) -> None:
         flags_dir = harness / ".flags"
         flags = {p.name for p in flags_dir.glob("*")} if flags_dir.is_dir() else set()
         run_dir = harness / ".run"
+
+        # ручные задачи Story (payload-флаги; пишет демон — гонок нет)
+        for payload_path in sorted(flags_dir.glob("TASK_NEW_*.json")):
+            try:
+                payload = json.loads(payload_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                payload_path.unlink(missing_ok=True)
+                log_event(harness, f"битый TASK_NEW-флаг удалён: {exc}")
+                continue
+            ok, info = create_manual_task(harness, payload)
+            payload_path.unlink(missing_ok=True)
+            print(f"  [{harness.parent.name}] TASK_NEW: {'создана ' + info if ok else 'ОТКАЗ — ' + info}")
+            if not ok:
+                log_event(harness, f"TASK_NEW отклонён: {info}")
+            else:
+                doc = load_manifest(harness)  # create_manual_task перечитал и сохранил —
+                # наш doc устарел; без перезагрузки поздний save затрёт новую задачу
+                flags = {p.name for p in flags_dir.glob("*")}
 
         # fencing: живые pid-файлы осиротевших сессий (после kill -9 демона) —
         # чужая сессия ещё пишет манифест, демону входить нельзя

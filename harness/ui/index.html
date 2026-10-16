@@ -115,6 +115,25 @@
     border-radius: 10px; padding: 10px 14px; margin-bottom: 10px; font-size: 13px; }
   #p-banner .btitle { color: var(--warn); font-weight: 600; }
   #p-banner button { margin-top: 8px; }
+  /* --- портфель Stories --- */
+  .stories { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px; padding: 16px 20px; }
+  .story { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 16px; cursor: pointer; transition: border-color .15s; }
+  .story:hover { border-color: var(--acc); }
+  .story .sfnr { font-weight: 700; color: var(--acc); }
+  .story .stitle { margin: 4px 0 8px; }
+  .story .smeta { font-size: 12px; color: var(--dim); }
+  .story .sbar { height: 6px; border-radius: 3px; background: var(--chip); margin-top: 10px; overflow: hidden; }
+  .story .sbar > i { display: block; height: 100%; background: var(--ok); }
+  .story.pending { border-style: dashed; }
+  .story.pending .sfnr::after { content: " · строится план…"; color: var(--warn); font-weight: 400; }
+  .story.failed { border-color: var(--bad); }
+  .story.failed .sfnr::after { content: " · нужен человек (gap-report)"; color: var(--bad); font-weight: 400; }
+  #story-form { max-width: 720px; margin: 0 auto; padding: 16px 20px; }
+  #story-form input, #story-form textarea { width: 100%; background: var(--chip); color: var(--text);
+    border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; font: inherit; margin-bottom: 10px; }
+  #story-form textarea { min-height: 180px; font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; }
   /* --- компонент «Чек-лист» --- */
   .clk-total { margin: 4px 0 14px; }
   .clk-total .bar { height: 8px; border-radius: 4px; background: var(--chip);
@@ -148,13 +167,14 @@
   #p-actions button.danger:hover:not(:disabled) { background: rgba(224,112,95,.2); border-color: var(--bad); }
   .plog { background: var(--chip); border-radius: 8px; padding: 10px; overflow-x: auto;
     font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; }
-  #p-askrow { display: flex; gap: 8px; margin-top: 8px; }
-  #p-askrow input { flex: 1; background: var(--chip); border: 1px solid var(--line);
-    color: var(--text); border-radius: 8px; padding: 8px 12px; font: inherit; }
+  button.quiet { border: 0; background: none; color: var(--dim); padding: 7px 4px; font-size: 12.5px; }
+  button.quiet:hover { color: var(--acc); background: none; border: 0; }
+  #c-input.primary-hint { border-color: var(--warn); }
 </style>
 </head>
 <body>
 <header>
+  <button id="back-btn" style="display:none">← Stories</button>
   <h1>AI Harness</h1>
   <span class="meta" id="fnr">—</span>
   <span class="meta" id="status"></span>
@@ -165,7 +185,19 @@
   <span class="conn" id="conn">connecting…</span>
 </header>
 
+<div id="stories-view" style="display:none">
+  <div id="story-form">
+    <h2 style="margin:6px 0 12px; font-size:15px; color:var(--acc)">Новая Story</h2>
+    <input id="ns-title" placeholder="Название Story (например: Перевод импорта на draft_db)">
+    <textarea id="ns-source" placeholder="Текст СТ (markdown)… или абсолютный путь к файлу СТ"></textarea>
+    <button id="ns-create">Создать Story и построить план</button>
+    <span class="meta" id="ns-msg" style="margin-left:10px"></span>
+  </div>
+  <div class="stories" id="stories-grid"></div>
+</div>
+<div id="board-view" style="display:none">
 <div class="board" id="board"></div>
+</div>
 
 <div class="backdrop" id="backdrop"></div>
 <div class="panel" id="panel">
@@ -198,13 +230,9 @@
     </div>
   </div>
   <div class="pfoot" id="p-commentbox" style="display:none">
-    <button id="c-act" data-flag="" style="display:none"></button>
-    <div id="p-askrow" style="flex-basis:100%">
-      <input id="a-input" placeholder="Спросить агента задачи (по сессии стадии)… (Enter — отправить)">
-      <button id="a-send">Спросить</button>
-    </div>
-    <input id="c-input" placeholder="Комментарий к задаче… (Enter — отправить)">
+    <input id="c-input" placeholder="Ваш комментарий к задаче…">
     <button id="c-send">Отправить</button>
+    <button id="a-send" class="quiet" style="display:none" title="Уходят в сессию задачи; ответ появится в журнале">спросить агента</button>
   </div>
 </div>
 
@@ -293,10 +321,11 @@ function md(src) {
 function liveLine(t) {
   const lv = t.live;
   if (!lv) return "";
-  const cls = lv.hb_age_s < 120 ? "on" : lv.hb_age_s < 600 ? "warn" : "dim";
   const age = lv.hb_age_s < 60 ? lv.hb_age_s + "с" : Math.round(lv.hb_age_s / 60) + "мин";
-  const label = cls === "on" ? `сессия активна (${age} назад)` :
-                cls === "warn" ? `тишина ${age}` : `нет активности ${age}`;
+  let cls, label;
+  if (lv.running && lv.hb_age_s < 180) { cls = "on";  label = `агент работает (шаг ${age} назад)`; }
+  else if (lv.running)                 { cls = "warn"; label = `агент занят давно (${age} без вывода)`; }
+  else                                 { cls = "dim"; label = `стадия завершена ${age} назад — ждёт перехода`; }
   return `<div class="live ${cls}"><span class="dot"></span>${label}` +
          (lv.last_action ? `<span class="act">· ${esc(lv.last_action)}</span>` : "") + `</div>`;
 }
@@ -385,34 +414,35 @@ function fillDetail(t) {
   const comments = parseComments(document.getElementById("p-comments").dataset.raw || "");
   document.getElementById("c-count").textContent = comments.length;
   renderActions(t);
-  document.getElementById("p-askrow").style.display = t.can_ask ? "flex" : "none";
   // баннер и кнопка «ответить и вернуть в работу» для состояний, требующих человека
   const banner = document.getElementById("p-banner");
-  const act = document.getElementById("c-act");
+  const send = document.getElementById("c-send");
+  const quiet = document.getElementById("a-send");
+  const input = document.getElementById("c-input");
   const pipeline = t.pipeline || "";
   if (pipeline === "NEEDS_HUMAN" || pipeline === "BLOCKED") {
-    const wip = (t.checklist && t.checklist.in_progress) || 0;
     banner.style.display = "";
     banner.innerHTML =
       `<span class="btitle">${pipeline === "BLOCKED" ? "⛔ Задача заблокирована" : "⏸ Требуется ваше участие"}</span>` +
-      ` — подробный отчёт и ход работы: во вкладке «Комментарии» ниже.` +
-      ` Можно просто написать ответ — и вернуть задачу в работу.`;
-    act.style.display = "";
-    act.textContent = "Ответить и вернуть в работу";
-    act.dataset.flag = `TASK_${t.id}_RETRY`;
+      ` — отчёт и ход работы: в комментариях ниже. Напишите ответ и нажмите жёлтую кнопку — задача вернётся в работу.`;
+    send.textContent = "Ответить и вернуть в работу";
+    send.dataset.flag = `TASK_${t.id}_RETRY`;
+    send.style.borderColor = "var(--warn)";
+    input.placeholder = "Ваш ответ задаче… (ушдёт в журнал и вернёт задачу в работу)";
   } else if (pipeline === "DONE") {
     banner.style.display = "none";
-    act.style.display = "";
-    act.textContent = "Ответить и вернуть на доработку";
-    act.dataset.flag = `TASK_${t.id}_REQUEST_CHANGES`;
+    send.textContent = "Вернуть на доработку";
+    send.dataset.flag = `TASK_${t.id}_REQUEST_CHANGES`;
+    send.style.borderColor = "var(--warn)";
+    input.placeholder = "Что переделать… (станет заданием доработки)";
   } else {
     banner.style.display = "none";
-    act.style.display = "none";
-    act.dataset.flag = "";
+    send.textContent = "Отправить";
+    send.dataset.flag = "";
+    send.style.borderColor = "";
+    input.placeholder = "Ваш комментарий к задаче…";
   }
-  document.getElementById("c-act").onclick = () => sendComment(act.dataset.flag);
-  if (!t.can_ask) document.getElementById("a-input").placeholder =
-    "Вопрос агенту будет доступен после первой стадии (нужна сессия)";
+  quiet.style.display = t.can_ask ? "" : "none";
 }
 
 async function openTask(id) {
@@ -420,7 +450,7 @@ async function openTask(id) {
   document.getElementById("backdrop").classList.add("open");
   document.getElementById("panel").classList.add("open");
   showTab("card");
-  const res = await fetch(`/api/task/${id}`);
+  const res = await fetch(api(`/api/task/${id}`));
   const doc = await res.json();
   fillDetail(doc.task || {});
   document.getElementById("p-card").innerHTML = md(doc.card_md) || "<p class='empty'>карточка не найдена</p>";
@@ -455,6 +485,7 @@ function showTab(which) {
   bcom.classList.toggle("active", which === "comments");
   document.getElementById("tab-log").classList.toggle("active", which === "log");
   document.getElementById("p-commentbox").style.display = which === "comments" ? "flex" : "none";
+  document.getElementById("p-actions").style.display = which === "card" ? "" : "none";
   if (which === "log" && CURRENT) {
     loadLog(CURRENT);
     if (!logTimer) logTimer = setInterval(() => CURRENT && loadLog(CURRENT), 3000);
@@ -465,7 +496,7 @@ function showTab(which) {
 
 async function refreshComments() {
   if (!CURRENT) return;
-  const res = await fetch(`/api/task/${CURRENT}`);
+  const res = await fetch(api(`/api/task/${CURRENT}`));
   const doc = await res.json();
   document.getElementById("p-comments").dataset.raw = doc.comments_md || "";
   renderComments(doc.comments_md || "");
@@ -497,7 +528,7 @@ function renderActions(t) {
     b.textContent = label;
     if (key === "ABORT") b.className = "danger";
     if (key === "FORCE_APPROVE") b.className = "warn";
-    b.onclick = () => fetch(`/api/flag/${flag}`, { method: "POST" }).then(() => openTask(t.id));
+    b.onclick = () => fetch(api(`/api/flag/${flag}`), { method: "POST" }).then(() => openTask(t.id));
     box.appendChild(b);
   }
 }
@@ -524,31 +555,17 @@ function renderChecklist() {
 
 let logTimer = null;
 async function loadLog(taskId) {
-  const res = await fetch(`/api/log/${taskId}`);
+  const res = await fetch(api(`/api/log/${taskId}`));
   const doc = await res.json();
   document.getElementById("p-log").textContent = doc.log || "лог стадии пока пуст";
   document.getElementById("p-logmeta").textContent =
     doc.file ? `${doc.file} (хвост 8 КБ)` : "стадия ещё не запускалась";
 }
 
-function askAgent() {
-  const input = document.getElementById("a-input");
-  const q = input.value.trim();
-  if (!q || !CURRENT) return;
-  fetch(`/api/ask/${CURRENT}`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text: q }),
-  }).then(r => r.json()).then(() => {
-    input.value = "";
-    refreshComments();
-  }).catch(() => {});
-}
-
 document.getElementById("tab-card").onclick = () => showTab("card");
 document.getElementById("tab-comments").onclick = () => showTab("comments");
 document.getElementById("tab-log").onclick = () => showTab("log");
 document.getElementById("a-send").onclick = askAgent;
-document.getElementById("a-input").addEventListener("keydown", e => { if (e.key === "Enter") askAgent(); });
 document.getElementById("c-send").onclick = sendComment;
 document.getElementById("c-input").addEventListener("keydown", e => { if (e.key === "Enter") sendComment(); });
 
@@ -556,18 +573,31 @@ function sendComment(andAction) {
   const input = document.getElementById("c-input");
   const text = input.value.trim();
   if (!text || !CURRENT) return;
-  const flag = andAction || document.getElementById("c-act").dataset.flag || "";
-  fetch(`/api/comment/${CURRENT}`, {
+  const flag = andAction || document.getElementById("c-send").dataset.flag || "";
+  fetch(api(`/api/comment/${CURRENT}`), {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
   }).then(() => {
     input.value = "";
-    return flag ? fetch(`/api/flag/${flag}`, { method: "POST" }) : null;
+    return flag ? fetch(api(`/api/flag/${flag}`), { method: "POST" }) : null;
   }).then(() => openTask(CURRENT)).catch(() => {});
 }
 
+function askAgent() {
+  const input = document.getElementById("c-input");
+  const q = input.value.trim();
+  if (!q || !CURRENT) return;
+  fetch(api(`/api/ask/${CURRENT}`), {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: q }),
+  }).then(() => {
+    input.value = "";
+    refreshComments();
+  }).catch(() => {});
+}
+
 function flag(name, method) {
-  fetch(`/api/flag/${name}`, { method: method || "POST" }).catch(() => {});
+  fetch(api(`/api/flag/${name}`), { method: method || "POST" }).catch(() => {});
 }
 
 document.getElementById("approve").onclick = () => flag("APPROVE_PLAN");
@@ -576,10 +606,94 @@ document.getElementById("pause").onclick = () => {
   flag("PAUSE", hasPause ? "DELETE" : "POST");
 };
 
+/* --- портфель Stories (порция F) --- */
+let CURRENT_FNR = null;
+
+function api(p) {
+  return p + (CURRENT_FNR ? (p.includes("?") ? "&" : "?") + "fnr=" + CURRENT_FNR : "");
+}
+
+function showView(which) {
+  document.getElementById("stories-view").style.display = which === "stories" ? "" : "none";
+  document.getElementById("board-view").style.display = which === "board" ? "" : "none";
+  document.getElementById("back-btn").style.display = which === "board" ? "" : "none";
+}
+
+function renderStories(stories) {
+  const grid = document.getElementById("stories-grid");
+  if (!stories.length) {
+    grid.innerHTML = "<p class='empty' style='padding:20px'>Stories пока нет — создайте первую выше.</p>";
+    return;
+  }
+  grid.innerHTML = stories.map(s => {
+    const done = (s.counts.DONE || 0) + (s.counts.VERIFIED || 0);
+    const pct = s.tasks ? Math.round(100 * done / s.tasks) : 0;
+    const cls = s.handoff_failed ? "failed" : s.handoff_pending ? "pending" : "";
+    const counts = Object.entries(s.counts).map(([k, v]) => `${k}:${v}`).join(" · ") || "нет задач";
+    return `<div class="story ${cls}" onclick="openStory('${s.fnr}')">` +
+      `<div class="sfnr">${s.fnr}</div><div class="stitle">${esc(s.title)}</div>` +
+      `<div class="smeta">${s.status} · задач: ${s.tasks}<br>${counts}</div>` +
+      `<div class="sbar"><i style="width:${pct}%"></i></div></div>`;
+  }).join("");
+}
+
+function openStory(fnr) {
+  CURRENT_FNR = fnr;
+  showView("board");
+  loadBoard();
+}
+
+async function loadBoard() {
+  const res = await fetch(api("/api/state"));
+  if (!res.ok) { document.getElementById("fnr").textContent = "Story не найдена"; return; }
+  render(await res.json());
+}
+
+async function boot() {
+  try {
+    const res = await fetch("/api/stories");
+    const data = await res.json();
+    if (data.stories && data.stories.length) { showView("stories"); renderStories(data.stories); return; }
+  } catch (e) { /* single-harness mode */ }
+  showView("board");
+  loadBoard();
+}
+
+document.getElementById("back-btn").onclick = () => {
+  CURRENT_FNR = null;
+  closePanel();
+  showView("stories");
+  fetch("/api/stories").then(r => r.json()).then(d => renderStories(d.stories || []));
+};
+
+document.getElementById("ns-create").onclick = () => {
+  const title = document.getElementById("ns-title").value.trim();
+  const source = document.getElementById("ns-source").value.trim();
+  const msg = document.getElementById("ns-msg");
+  if (!title || !source) { msg.textContent = "нужны название и СТ"; return; }
+  msg.textContent = "создаю…";
+  fetch("/api/story", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title, source }) })
+    .then(r => r.json()).then(d => {
+      msg.textContent = d.ok ? `Story ${d.info} создана — демон строит план` : d.info;
+      if (d.ok) {
+        document.getElementById("ns-title").value = "";
+        document.getElementById("ns-source").value = "";
+        fetch("/api/stories").then(r => r.json()).then(x => renderStories(x.stories || []));
+      }
+    }).catch(() => { msg.textContent = "ошибка сети"; });
+};
+
 const es = new EventSource("/events");
 es.onopen  = () => document.getElementById("conn").textContent = "live ✓";
 es.onerror = () => document.getElementById("conn").textContent = "переподключение…";
-es.onmessage = e => render(JSON.parse(e.data));
+es.onmessage = e => {
+  const data = JSON.parse(e.data);
+  if (data.stories) { if (CURRENT_FNR === null) renderStories(data.stories); return; }
+  render(data);
+};
+
+boot();
 </script>
 </body>
 </html>

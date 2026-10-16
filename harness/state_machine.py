@@ -26,6 +26,7 @@
 
 from __future__ import annotations
 
+PROPOSED = "PROPOSED"   # предложена агентом во время прогона; ждёт решения человека
 BACKLOG = "BACKLOG"
 READY = "READY"
 IMPLEMENTING = "IMPLEMENTING"
@@ -37,7 +38,7 @@ NEEDS_HUMAN = "NEEDS_HUMAN"
 ABORTED = "ABORTED"
 
 PIPELINE_STATUSES = {
-    BACKLOG, READY, IMPLEMENTING, REVIEW, DONE, VERIFIED,
+    PROPOSED, BACKLOG, READY, IMPLEMENTING, REVIEW, DONE, VERIFIED,
     BLOCKED, NEEDS_HUMAN, ABORTED,
 }
 TERMINAL = {VERIFIED, ABORTED}
@@ -45,6 +46,7 @@ TERMINAL = {VERIFIED, ABORTED}
 ACTIVE = PIPELINE_STATUSES - TERMINAL
 # Статусы, из которых возможен возврат после BLOCKED / NEEDS_HUMAN
 RESUMABLE = {READY, IMPLEMENTING, REVIEW}
+ACTIVE.discard(PROPOSED)  # предложенную задачу не «останавливают» — её принимают/отклоняют
 
 # --- события ------------------------------------------------------------
 # Префиксы: D: демон (автомат), X: сессия агента (результат стадии),
@@ -64,6 +66,8 @@ EV_VERIFY_PASSED = "verify_passed"              # D: /impl-verify зелёный
 EV_RETRY = "retry"                              # D: backoff истёк (или A: retry)
 EV_BLOCKED_ESCALATED = "blocked_escalated"      # D: retries исчерпаны в BLOCKED
 EV_RESUME_WORK = "resume_work"                  # A: разбор окончен — продолжить
+EV_PROPOSE_ACCEPT = "propose_accept"            # A: принять предложенную задачу в бэклог
+EV_PROPOSE_REJECT = "propose_reject"            # A: отклонить предложенную задачу
 EV_ABORT = "abort"                              # A: остановить задачу
 
 # Таблица переходов. "to" — строка или callable(task_view, ctx) для редких
@@ -83,6 +87,8 @@ _TRANSITIONS: dict[str, dict] = {
     EV_RETRY: {"from": {BLOCKED}, "to": None},        # to = blocked_from
     EV_BLOCKED_ESCALATED: {"from": {BLOCKED}, "to": NEEDS_HUMAN},
     EV_RESUME_WORK: {"from": {NEEDS_HUMAN}, "to": None},  # to = blocked_from
+    EV_PROPOSE_ACCEPT: {"from": {PROPOSED}, "to": BACKLOG},
+    EV_PROPOSE_REJECT: {"from": {PROPOSED}, "to": ABORTED},
     EV_ABORT: {"from": ACTIVE, "to": ABORTED},
 }
 
@@ -182,6 +188,7 @@ V2_FOR_PIPELINE: dict[str, str | None] = {
     ABORTED: "ABORTED",
 }
 V2_SET_FOR_PIPELINE: dict[str, set[str]] = {
+    PROPOSED: {"PLANNED"},
     BACKLOG: {"PLANNED"},
     READY: {"APPROVED"},
     IMPLEMENTING: {"APPROVED", "TDD_RED", "TDD_GREEN", "GATES"},

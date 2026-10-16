@@ -72,6 +72,10 @@ def _validate_pipeline_fields(tid: str, t: dict) -> list[str]:
             errors.append(f"{tid}: {field} должен быть булевым")
     if "owner" in t and t["owner"] not in ("ai", "human"):
         errors.append(f"{tid}: owner='{t['owner']}' вне канона (ai|human)")
+    if "origin" in t and t["origin"] not in ("plan", "manual", "agent"):
+        errors.append(f"{tid}: origin='{t['origin']}' вне канона (plan|manual|agent)")
+    if t.get("origin") == "agent" and "pipeline" not in t:
+        errors.append(f"{tid}: агентская задача требует pipeline (PROPOSED до решения человека)")
     if "session_id" in t and not isinstance(t["session_id"], str):
         errors.append(f"{tid}: session_id должен быть строкой")
     findings = t.get("findings")
@@ -100,6 +104,8 @@ def validate(doc: dict) -> tuple[list[str], list[str]]:
 
     if doc.get("status") not in TOP_STATUSES:
         errors.append(f"status='{doc.get('status')}' вне канона {sorted(TOP_STATUSES)}")
+    if "story_title" in doc and not str(doc.get("story_title") or "").strip():
+        errors.append("story_title должен быть непустой строкой (канон v3)")
     if "auto_mode" in doc and not isinstance(doc["auto_mode"], bool):
         errors.append("auto_mode должен быть булевым (конвейер v3)")
     if "created_by" in doc and doc["created_by"] not in ("impl-plan", "impl-handoff"):
