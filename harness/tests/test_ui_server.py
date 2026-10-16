@@ -156,3 +156,31 @@ class TestChecklistSections(unittest.TestCase):
 
     def test_no_checkboxes_no_sections(self):
         self.assertEqual(ui_server.parse_checklist_sections("# Задача\n- простой пункт\n"), [])
+
+
+class TestTaskCreationEndpoint(ServerFixture):
+    """POST /api/story/<fnr>/task — payload-флаг для демона (порция F, v2 UI)."""
+
+    def test_creates_task_new_flag(self):
+        res = self.post("/api/story/FNR_1/task",
+                        {"title": "Реестр отчётов", "description": "Добавить таблицу"})
+        self.assertTrue(res["queued"])
+        flags = list((ui_server.STATE["harness"] / ".flags").glob("TASK_NEW_*.json"))
+        self.assertEqual(len(flags), 1)
+        payload = json.loads(flags[0].read_text(encoding="utf-8"))
+        self.assertEqual(payload["title"], "Реестр отчётов")
+        self.assertEqual(payload["description"], "Добавить таблицу")
+
+    def test_requires_title(self):
+        try:
+            self.post("/api/story/FNR_1/task", {"description": "без названия"})
+            self.fail("ожидали 400")
+        except urllib.error.HTTPError as exc:
+            self.assertEqual(exc.code, 400)
+
+    def test_harness_mode_binds_to_single_story(self):
+        # режим --harness привязан к одной Story: имя fnr в запросе игнорируется
+        res = self.post("/api/story/FNR_99/task", {"title": "x"})
+        self.assertTrue(res["queued"])
+        flags = list((ui_server.STATE["harness"] / ".flags").glob("TASK_NEW_*.json"))
+        self.assertEqual(len(flags), 1)

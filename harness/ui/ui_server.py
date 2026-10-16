@@ -430,6 +430,28 @@ class Handler(BaseHTTPRequestHandler):
                        json.dumps({"ok": ok, "info": info}, ensure_ascii=False).encode("utf-8"),
                        "application/json")
         elif path.startswith("/api/story/") and path.endswith("/task"):
+            # ручная Task в Story: UI не пишет манифест — кладёт payload-флаг,
+            # демон создаёт карточку и запись (один писатель)
+            fnr = path[len("/api/story/"):-len("/task")]
+            harness = _harness_of(fnr)
+            if harness is None or not harness.is_dir():
+                self._send(404, '{"ok":false,"error":"нет такой Story"}'.encode("utf-8"), "application/json")
+                return
+            body = self._json_body()
+            title = str(body.get("title") or "").strip()
+            if not title:
+                self._send(400, '{"ok":false,"error":"нужен title"}'.encode("utf-8"), "application/json")
+                return
+            flags_dir = harness / ".flags"
+            flags_dir.mkdir(exist_ok=True)
+            payload = {"title": title,
+                       "description": str(body.get("description") or "").strip()}
+            if body.get("system"):
+                payload["system"] = str(body["system"]).strip()
+            (flags_dir / f"TASK_NEW_{int(time.time() * 1000)}.json").write_text(
+                json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            self._send(200, b'{"ok":true,"queued":true}', "application/json")
+        elif path.startswith("/api/story/") and path.endswith("/task"):
             fnr = path.split("/")[3]
             target = _harness_of(fnr)
             if target is None or not target.is_dir():

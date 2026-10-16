@@ -31,6 +31,12 @@
   button.ghost { background: none; border-color: transparent; color: var(--dim); }
   button.ghost:hover { color: var(--text); border-color: var(--line2); }
   button:disabled { opacity: .4; cursor: default; }
+  button:focus-visible, input:focus-visible, textarea:focus-visible {
+    outline: 2px solid var(--acc); outline-offset: 1px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .live-dot { animation: none; }
+  }
   .meta { color: var(--dim); font-size: 12px; }
   .spacer { flex: 1; }
 
@@ -890,7 +896,7 @@ es.onmessage = e => {
     const res = await fetch("/api/stories");
     const data = await res.json();
     STORIES = data.stories || [];
-    if (STORIES.length) { showView("stories"); renderStories(); return; }
+    if (STORIES.length) { openStory(STORIES[0].fnr); return; }  // доска сразу — процесс важнее списка
   } catch (e) { /* single-harness */ }
   showView("board");
   loadBoard();
