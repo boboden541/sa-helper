@@ -55,6 +55,7 @@
 | Поле | Где | Канон |
 |---|---|---|
 | `auto_mode` | верхний уровень | булево, по умолчанию true: конвейер сам проходит стадии между шлюзами |
+| `auto_review_strategy` | верхний уровень | `closure_first` (по умолчанию) \| `full_re_review` — стратегия ревью-петли |
 | `created_by` | верхний уровень | `impl-plan` \| `impl-handoff` |
 | `pipeline` | задача | `BACKLOG → READY → IMPLEMENTING → REVIEW → DONE → VERIFIED`; особые: `BLOCKED` (авто-retry), `NEEDS_HUMAN` (петля не сошлась), `ABORTED` — канон `harness/state_machine.py` |
 | `blocked_from` | задача | статус для возврата после BLOCKED/NEEDS_HUMAN (`READY\|IMPLEMENTING\|REVIEW`) |

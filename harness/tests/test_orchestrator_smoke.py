@@ -138,3 +138,96 @@ class TestKillRecovery(unittest.TestCase):
                 self.assertEqual(doc["tasks"][0]["pipeline"], sm.REVIEW)
         finally:
             os.environ.pop("STUB_DELAY", None)
+
+
+class TestReviewLoopSmoke(unittest.TestCase):
+    """Ревью-петля v3: closure_first останавливается честно; лимит работает."""
+
+    def _conveyor(self, td: Path, strategy: str):
+        ws = make_workspace(td)
+        harness = ws / "sa_documentation" / "FNR" / "FNR_99" / "harness"
+        doc = json.loads((harness / "manifest.json").read_text(encoding="utf-8"))
+        doc["status"] = "APPROVED"
+        doc["auto_review_strategy"] = strategy
+        (harness / "manifest.json").write_text(json.dumps(doc), encoding="utf-8")
+
+        class Opts:
+            poll_interval = 0
+            stage_timeout = 60
+            heartbeat_timeout = 60
+            max_retries = 3
+            max_turns = 10
+            skip_permissions = True
+            claude_bin = str(ROOT / "tests" / "fixtures" / "stub_claude.py")
+            dry_run = False
+            verbose = False
+
+        lane = orch.WorkspaceLane(ws)
+        for _ in range(80):
+            orch.process_workspace(lane, Opts)
+            time.sleep(0.02)
+        doc = json.loads((harness / "manifest.json").read_text(encoding="utf-8"))
+        log = (harness / "logs" / "events.log").read_text(encoding="utf-8")
+        return harness, doc, log
+
+    def test_closure_first_stalls_on_new_blockers(self):
+        import os
+        import tempfile
+        os.environ["STUB_REVIEW"] = "changes"
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                harness, doc, log = self._conveyor(Path(td), "closure_first")
+                t1 = doc["tasks"][0]
+                self.assertEqual(t1["pipeline"], sm.NEEDS_HUMAN)
+                self.assertEqual(t1["blocked_from"], sm.REVIEW)
+                self.assertTrue(t1["findings"])  # находки попали в манифест
+                self.assertIn("closure_first", log)
+        finally:
+            os.environ.pop("STUB_REVIEW", None)
+
+    def test_full_re_review_stalls_by_iteration_limit(self):
+        import os
+        import tempfile
+        os.environ["STUB_REVIEW"] = "loop"  # один и тот же блокер каждый раунд
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                harness, doc, log = self._conveyor(Path(td), "full_re_review")
+                self.assertEqual(doc["tasks"][0]["pipeline"], sm.NEEDS_HUMAN)
+                self.assertIn("лимит итераций", log)
+        finally:
+            os.environ.pop("STUB_REVIEW", None)
+
+    def test_request_changes_flag_reworks_done_task(self):
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            ws = make_workspace(Path(td))
+            harness = ws / "sa_documentation" / "FNR" / "FNR_99" / "harness"
+            doc = json.loads((harness / "manifest.json").read_text(encoding="utf-8"))
+            doc["status"] = "APPROVED"
+            doc["tasks"][0].update({"status": "DONE", "pipeline": "DONE",
+                                    "review_verdict": "APPROVED"})
+            (harness / "manifest.json").write_text(json.dumps(doc), encoding="utf-8")
+            (harness / ".flags" / "TASK_T1_REQUEST_CHANGES").touch()
+
+            class Opts:
+                poll_interval = 0
+                stage_timeout = 60
+                heartbeat_timeout = 60
+                max_retries = 3
+                max_turns = 10
+                skip_permissions = True
+                claude_bin = str(ROOT / "tests" / "fixtures" / "stub_claude.py")
+                dry_run = False
+                verbose = False
+
+            lane = orch.WorkspaceLane(ws)
+            for _ in range(40):
+                orch.process_workspace(lane, Opts)
+                time.sleep(0.02)
+            doc = json.loads((harness / "manifest.json").read_text(encoding="utf-8"))
+            # доработали, приняли; единственная DONE-задача уходит в verify
+            self.assertIn(doc["tasks"][0]["pipeline"], ("DONE", "VERIFIED"))
+            log = (harness / "logs" / "events.log").read_text(encoding="utf-8")
+            self.assertIn("request_changes", log)
+            self.assertFalse((harness / ".flags" / "TASK_T1_REQUEST_CHANGES").exists())

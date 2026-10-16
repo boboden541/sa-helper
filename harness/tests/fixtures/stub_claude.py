@@ -39,14 +39,33 @@ if len(parts) >= 2 and parts[0] == "/impl-run":
     mp.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 elif len(parts) >= 2 and parts[0] == "/impl-review":
+    import os
     harness = CWD / parts[1]
     task_id = parts[2] if len(parts) > 2 else None
     mp = harness / "manifest.json"
     doc = json.loads(mp.read_text(encoding="utf-8"))
+    mode = os.environ.get("STUB_REVIEW", "approve")
     for t in doc["tasks"]:
-        if t["id"] == task_id:
+        if t["id"] != task_id:
+            continue
+        if mode == "approve":
             t["status"] = "DONE"
             t["review_verdict"] = "APPROVED"
+        else:
+            # CHANGES_REQUESTED: structured verdict, каждый раунд — НОВЫЙ текст
+            # (loop: один и тот же) — id различаются, closure_first видит новые
+            it = int(t.get("review_iterations") or 0)
+            name = f"same" if mode == "loop" else f"iter{it}"
+            t["review_verdict"] = "CHANGES_REQUESTED"
+            reviews = harness / "reviews"
+            reviews.mkdir(exist_ok=True)
+            (reviews / f"{task_id}_review.md").write_text(
+                "# Ревью " + str(task_id) + "\n\n"
+                "## Verdict (machine-readable)\n"
+                "status: CHANGES_REQUESTED\n"
+                "blocking:\n"
+                f"- | file: src/X.java:1 | text: замечание {name}\n",
+                encoding="utf-8")
     doc["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     mp.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 

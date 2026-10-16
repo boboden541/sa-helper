@@ -142,6 +142,9 @@ def transition(task_view: dict, event: str, ctx: dict | None = None) -> dict:
         patch["review_iterations"] = int(task_view.get("review_iterations") or 0) + 1
     else:
         patch["pipeline"] = spec["to"]
+        if spec["to"] == NEEDS_HUMAN:
+            # происхождение — для последующего resume_work (A: разбор окончен)
+            patch["blocked_from"] = pipeline
 
     if event not in (EV_RETRY, EV_RESUME_WORK) and pipeline in (BLOCKED, NEEDS_HUMAN):
         # уход из BLOCKED/NEEDS_HUMAN мимо retry/resume (например, abort) —

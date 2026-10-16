@@ -195,3 +195,70 @@ class TestStateMachineBlockedEscalation(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTaskFlags(unittest.TestCase):
+    """Адресные флаги задач: TASK_<ID>_<ДЕЙСТВИЕ> (порция C)."""
+
+    def flags_tick(self, tasks, flags):
+        return orch.decide(manifest(tasks), flags, state(orphan_running=True))
+
+    def test_request_changes_from_done(self):
+        t = task("T1", pipeline=sm.DONE, status="DONE")
+        decisions = self.flags_tick([t], {"TASK_T1_REQUEST_CHANGES"})
+        self.assertIn(("flag", "TASK_T1_REQUEST_CHANGES"), decisions)
+        self.assertIn(("event", "T1", sm.EV_REQUEST_CHANGES, "флаг TASK_T1_REQUEST_CHANGES"),
+                      decisions)
+        self.assertEqual(stages(decisions), [])  # тик флагов не запускает стадий
+
+    def test_pause_resume_setters(self):
+        tasks = [task("T1", pipeline=sm.READY), task("T2", pipeline=sm.READY)]
+        decisions = self.flags_tick(tasks, {"TASK_T1_PAUSE", "TASK_T2_RESUME_WORK"})
+        self.assertIn(("set", "T1", "paused", True), decisions)
+        self.assertIn(("set", "T2", "paused", False), decisions)
+
+    def test_retry_maps_by_pipeline(self):
+        blocked = task("T1", pipeline=sm.BLOCKED, status="TDD_GREEN",
+                       blocked_from="IMPLEMENTING", retry_after_ts=9999)
+        decisions = self.flags_tick([blocked], {"TASK_T1_RETRY"})
+        self.assertIn(("event", "T1", sm.EV_RETRY, "флаг TASK_T1_RETRY"), decisions)
+        stalled = task("T2", pipeline=sm.NEEDS_HUMAN, status="ESCALATED_BLOCKED",
+                       blocked_from="REVIEW")
+        decisions = self.flags_tick([stalled], {"TASK_T2_RETRY"})
+        self.assertIn(("event", "T2", sm.EV_RESUME_WORK, "флаг TASK_T2_RETRY"), decisions)
+
+    def test_force_approve_from_review(self):
+        t = task("T1", pipeline=sm.REVIEW, status="AGENT_REVIEW")
+        decisions = self.flags_tick([t], {"TASK_T1_FORCE_APPROVE"})
+        self.assertIn(("event", "T1", sm.EV_FORCE_APPROVE, "флаг TASK_T1_FORCE_APPROVE"),
+                      decisions)
+
+    def test_unknown_task_flag_ignored(self):
+        decisions = self.flags_tick([task("T1", pipeline=sm.READY)],
+                                    {"TASK_T9_ABORT", "TASK_T1_BANANA"})
+        kinds = {d[0] for d in decisions}
+        self.assertNotIn("flag", kinds)
+        self.assertNotIn("set", kinds)  # мусорные флаги не дают решений
+
+    def test_flag_tick_is_exclusive(self):
+        # тик флагов не смешивается со стадийными решениями
+        t = task("T1", pipeline=sm.READY)
+        decisions = orch.decide(manifest([t]), {"TASK_T1_ABORT"}, state())
+        self.assertTrue(all(d[0] in ("flag", "event", "wait") for d in decisions))
+        self.assertEqual(stages(decisions), [])
+
+
+class TestStateMachineBlockedFrom(unittest.TestCase):
+    def test_escalation_records_origin(self):
+        res = sm.transition({"pipeline": sm.IMPLEMENTING}, sm.EV_IMPL_ESCALATED)
+        self.assertEqual(res["patch"]["blocked_from"], sm.IMPLEMENTING)
+
+    def test_stall_records_origin(self):
+        res = sm.transition({"pipeline": sm.REVIEW}, sm.EV_REVIEW_STALLED)
+        self.assertEqual(res["patch"]["blocked_from"], sm.REVIEW)
+        res = sm.transition({"pipeline": sm.BLOCKED}, sm.EV_BLOCKED_ESCALATED)
+        self.assertEqual(res["patch"]["blocked_from"], sm.BLOCKED)
+
+
+if __name__ == "__main__":
+    unittest.main()

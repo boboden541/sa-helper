@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -37,6 +38,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import state_machine as sm  # noqa: E402
+import review_gate as rg  # noqa: E402
 from runner import _kill_tree  # noqa: E402  (кроссплатформенный kill дерева)
 
 IS_WINDOWS = os.name == "nt"
@@ -48,6 +50,10 @@ STAGE_COMMANDS = {
     "review": "/impl-review {harness} {task}",
     "verify": "/impl-verify {harness}",
 }
+# Флаги задач витрины (порция C): TASK_<ID>_<ДЕЙСТВИЕ> в .flags/
+TASK_FLAG_RE = re.compile(
+    r"^TASK_(T\d+)_(REQUEST_CHANGES|FORCE_APPROVE|RETRY|RESUME_WORK|PAUSE|ABORT|SKIP_REVIEW)$")
+
 # v2-статус → pipeline при миграции документа без поля pipeline
 _V2_TO_PIPELINE = {
     "PLANNED": sm.BACKLOG, "APPROVED": sm.BACKLOG,
@@ -148,6 +154,68 @@ def completion_events(task: dict, review_iterations_max: int = 3) -> list[tuple[
     return []
 
 
+def reconcile_review(harness: Path, doc: dict, task: dict,
+                     review_iterations_max: int = 3) -> str | None:
+    """Ревью-петля: приоритет — машиночитаемый вердикт (review_gate), затем
+    v2-поля манифеста. None — вердикта ещё нет (сессия не добралась)."""
+    tid = task["id"]
+    verdict_md = None
+    for candidate in sorted((harness / "reviews").glob(f"{tid}_*.md")):
+        verdict_md = candidate.read_text(encoding="utf-8", errors="replace")
+    parsed = rg.parse_review_verdict(verdict_md)
+    if parsed is not None:
+        strategy = doc.get("auto_review_strategy", "closure_first")
+        gate = rg.review_gate(task, parsed, strategy=strategy,
+                              review_iterations_max=review_iterations_max)
+        task["review_verdict"] = parsed["status"]
+        task["findings"] = gate["findings"]
+        apply_transition(harness, doc, task, gate["event"], gate["reason"])
+        return gate["reason"]
+    # фолбэк: старый формат (только v2-поля) — без findings
+    events = completion_events(task, review_iterations_max)
+    if events:
+        event, reason = events[0]
+        apply_transition(harness, doc, task, event, reason)
+        return reason
+    return None
+
+
+def task_flags_decisions(manifest: dict, flags: set[str]) -> list[tuple]:
+    """Адресные события задач из .flags/TASK_<ID>_<ДЕЙСТВИЕ>.
+
+    Возвращает решения (флаг съедается всегда; нелегальный переход откажет
+    машина состояний с журналированием). PAUSE/RESUME_WORK/SKIP_REVIEW —
+    setters полей задачи, не переходы.
+    """
+    decisions: list[tuple] = []
+    by_id = {t.get("id"): t for t in manifest.get("tasks", [])}
+    for name in sorted(flags):
+        match = TASK_FLAG_RE.match(name)
+        if not match:
+            continue
+        tid, action = match.groups()
+        task = by_id.get(tid)
+        if task is None:
+            continue  # флаг на несуществующую задачу — игнорируем содержимое
+        decisions.append(("flag", name))
+        if action == "PAUSE":
+            decisions.append(("set", tid, "paused", True))
+        elif action == "RESUME_WORK":
+            decisions.append(("set", tid, "paused", False))
+        elif action == "SKIP_REVIEW":
+            decisions.append(("set", tid, "skip_review", True))
+        elif action == "RETRY":
+            pipeline = task.get("pipeline")
+            event = sm.EV_RETRY if pipeline == sm.BLOCKED else sm.EV_RESUME_WORK
+            decisions.append(("event", tid, event, f"флаг {name}"))
+        else:
+            event = {"REQUEST_CHANGES": sm.EV_REQUEST_CHANGES,
+                     "FORCE_APPROVE": sm.EV_FORCE_APPROVE,
+                     "ABORT": sm.EV_ABORT}[action]
+            decisions.append(("event", tid, event, f"флаг {name}"))
+    return decisions
+
+
 # --- чистое ядро решений (тестируется без спавна claude) ----------------
 
 def decide(manifest: dict, flags: set[str], state: dict) -> list[tuple]:
@@ -175,6 +243,11 @@ def decide(manifest: dict, flags: set[str], state: dict) -> list[tuple]:
         decisions.append(("approve_plan",))
         decisions.append(("wait", "план утверждён — конвейер стартует со следующего тика"))
         return decisions
+
+    # адресные события задач (порция C): отдельный тик — решения по свежему манифесту
+    task_flag_decisions = task_flags_decisions(manifest, flags)
+    if task_flag_decisions:
+        return task_flag_decisions + [("wait", "флаги задач применены")]
 
     for task in tasks:
         migrate_task_pipeline(task)
@@ -242,6 +315,18 @@ def reconcile_after_stage(harness: Path, doc: dict, task: dict,
     уже нет — манифест принадлежит демону, гонки нет.
     """
     tid = task["id"]
+    if task.get("pipeline") == sm.REVIEW:
+        reason = reconcile_review(harness, doc, task,
+                                  review_iterations_max=review_iterations_max)
+        if reason:
+            return f"{tid}: {reason} → {task['pipeline']}"
+        # вердикта ещё нет — сессия прервана до вердикта
+        apply_transition(harness, doc, task, sm.EV_IMPL_BLOCKED,
+                         f"сессия ревью прервана без вердикта (exit={exit_code})")
+        task["retry_after_ts"] = time.time() + min(300 * (2 ** (task.get("retries") or 0)), 3600)
+        save_manifest(harness, doc)
+        return f"{tid}: сессия ревью прервана → BLOCKED"
+
     events = completion_events(task, review_iterations_max)
     if events:
         event, reason = events[0]
@@ -249,9 +334,6 @@ def reconcile_after_stage(harness: Path, doc: dict, task: dict,
         label = {
             sm.EV_IMPL_PASSED: "реализация завершена",
             sm.EV_IMPL_ESCALATED: "эскалация circuit breaker",
-            sm.EV_REVIEW_APPROVED: "ревью APPROVED",
-            sm.EV_REVIEW_CHANGES: "доработка по ревью",
-            sm.EV_REVIEW_STALLED: "ревью не сошлось",
         }.get(event, event)
         return f"{tid}: {label} → {task['pipeline']}"
 
@@ -486,6 +568,14 @@ def process_workspace(lane: WorkspaceLane, opts: argparse.Namespace) -> None:
                     (flags_dir / d[1]).unlink()
                 except OSError:
                     pass
+            elif kind == "set":
+                _, tid, field, value = d
+                task = next(t for t in doc["tasks"] if t["id"] == tid)
+                task[field] = value
+                doc["updated_at"] = now_iso()
+                save_manifest(harness, doc)
+                log_event(harness, f"{tid}: {field}={value} (флаг задачи)")
+                print(f"  [{harness.parent.name}] {tid}: {field}={value}")
             elif kind == "approve_plan":
                 if doc.get("status") == "AWAITING_APPROVAL":
                     doc["status"] = "APPROVED"
@@ -500,6 +590,11 @@ def process_workspace(lane: WorkspaceLane, opts: argparse.Namespace) -> None:
                 if event == sm.EV_IMPL_BLOCKED:
                     backoff = min(300 * (2 ** (task.get("retries") or 0)), 3600)
                     task["retry_after_ts"] = time.time() + backoff
+                if event in (sm.EV_REVIEW_CHANGES, sm.EV_REQUEST_CHANGES):
+                    # доработка начинается с чистым v2-статусом — иначе completion
+                    # по DONE/AGENT_REVIEW ложно закроет задачу до старта сессии
+                    task["status"] = "APPROVED"
+                    task["review_verdict"] = None
                 apply_transition(harness, doc, task, event, reason)
             elif kind == "stage":
                 _, tid, stage = d
