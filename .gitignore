@@ -9,4 +9,5 @@
 sa_documentation
 __pycache__/
 future-features.md
-.venv
+.venv/
+node_modules/

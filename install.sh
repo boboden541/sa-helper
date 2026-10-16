@@ -344,6 +344,8 @@ if [ -d "$TEMP_DIR/harness" ]; then
     cp -R "$TEMP_DIR/harness/." "harness/"
     chmod +x "harness/runner.py" 2>/dev/null
     chmod +x "harness/ui/ui_server.py" 2>/dev/null
+    chmod +x "harness/web/server.py" 2>/dev/null
+    echo -e "${YELLOW}   Витрина: python3 harness/web/server.py --workspace <воркспейс>${NC}"
 fi
 
 # 6. Надежная очистка временной папки (с поддержкой Windows/Git Bash)
