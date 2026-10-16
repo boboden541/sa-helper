@@ -438,6 +438,22 @@ class Handler(BaseHTTPRequestHandler):
             return
         elif path == "/favicon.ico" and self._serve_static("favicon.ico"):
             return
+        elif path == "/api/steward/chat":
+            if STATE.get("workspace") is None:
+                self._send(400, b'{"error":"need workspace"}', "application/json")
+                return
+            chat = _steward_dir(STATE["workspace"]) / "chat.md"
+            raw = chat.read_text(encoding="utf-8", errors="replace") if chat.exists() else ""
+            messages = []
+            for line in raw.split("\n"):
+                m = re.match(r"^\s*-\s+\[([^\]]+?)\s*\|\s*([^\]]+?)\s*\]\s*(.*)$", line)
+                if m:
+                    messages.append({"ts": m.group(1), "author": m.group(2), "text": m.group(3)})
+                elif messages and line.strip():
+                    messages[-1]["text"] += "\n" + line
+            pending = (_steward_dir(STATE["workspace"]) / ".pending").exists()
+            self._send(200, json.dumps({"messages": messages, "pending": pending},
+                                       ensure_ascii=False).encode("utf-8"), "application/json")
         elif path == "/api/stories":
             self._send(200, json.dumps({"stories": list_stories()},
                                        ensure_ascii=False).encode("utf-8"), "application/json")
@@ -542,6 +558,20 @@ class Handler(BaseHTTPRequestHandler):
             (adir / safe).write_bytes(self.rfile.read(length))
             log_event(harness, f"{rest[0]}: вложение добавлено человеком: {safe}")
             self._send(200, b'{"ok":true}', "application/json")
+        elif path == "/api/steward/message":
+            body = self._json_body()
+            msg = str(body.get("text") or "").strip()
+            if STATE.get("workspace") is None or not msg:
+                self._send(400, b'{"error":"need workspace and text"}', "application/json")
+                return
+            sdir = _steward_dir(STATE["workspace"])
+            if (sdir / ".pending").exists():
+                self._send(429, b'{"error":"steward is thinking"}', "application/json")
+                return
+            _steward_chat_append(STATE["workspace"], "human", msg)
+            threading.Thread(target=_steward_turn,
+                             args=(STATE["workspace"], msg), daemon=True).start()
+            self._send(200, b'{"ok":true,"pending":true}', "application/json")
         elif path == "/api/story":
             body = self._json_body()
             ok, info = create_story(str(body.get("title") or "").strip(),
@@ -683,6 +713,53 @@ def _ask_agent(harness: Path, task_id: str, session_id: str, question: str) -> N
     ts = time.strftime("%Y-%m-%d %H:%M")
     with comments.open("a", encoding="utf-8") as fh:
         fh.write(f"- [{ts} | agent] {answer}\n")
+
+
+def _steward_dir(workspace: Path) -> Path:
+    d = workspace / "sa_documentation" / "harness" / "steward"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _steward_chat_append(workspace: Path, author: str, text: str) -> None:
+    chat = _steward_dir(workspace) / "chat.md"
+    ts = time.strftime("%Y-%m-%d %H:%M")
+    with chat.open("a", encoding="utf-8") as fh:
+        fh.write(f"- [{ts} | {author}] {text}\n")
+
+
+def _steward_turn(workspace: Path, message: str) -> None:
+    """Один ход Steward: /steward <сообщение> (первый ход) или --resume."""
+    sdir = _steward_dir(workspace)
+    pending = sdir / ".pending"
+    pending.write_text(message, encoding="utf-8")
+    session_file = sdir / "session"
+    try:
+        if session_file.exists():
+            args = [STATE["claude_bin"], "--resume",
+                    session_file.read_text(encoding="utf-8").strip(),
+                    "--output-format", "json", "-p", message]
+        else:
+            args = [STATE["claude_bin"], "--output-format", "json",
+                    "-p", f"/steward {message}"]
+        result = subprocess.run(args, cwd=str(workspace), capture_output=True,
+                                text=True, timeout=900, stdin=subprocess.DEVNULL)
+        answer = ""
+        try:
+            doc = json.loads(result.stdout or "{}")
+            answer = str(doc.get("result") or "").strip()
+            if doc.get("session_id") and not session_file.exists():
+                session_file.write_text(doc["session_id"], encoding="utf-8")
+        except json.JSONDecodeError:
+            answer = (result.stdout or "").strip()
+        if result.returncode != 0 and not answer:
+            answer = f"(ошибка Steward: {result.stderr[:300]})"
+        _steward_chat_append(workspace, "steward",
+                             answer or "(пустой ответ — сессия вернулась без текста)")
+    except (OSError, subprocess.SubprocessError) as exc:
+        _steward_chat_append(workspace, "steward", f"(ошибка запуска: {exc})")
+    finally:
+        pending.unlink(missing_ok=True)
 
 
 def create_story(title: str, source: str) -> tuple[bool, str]:

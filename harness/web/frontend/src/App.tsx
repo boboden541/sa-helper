@@ -6,6 +6,7 @@ import { Board } from "./components/board/Board";
 import { TaskPanel } from "./components/task/TaskPanel";
 import { CreateModal } from "./components/create/CreateModal";
 import { CommandPalette, Toasts, type Command, type Toast } from "./components/common/CommandPalette";
+import { StewardChat } from "./components/common/StewardChat";
 
 export function App() {
   const [fnr, setFnr] = useState<string | null>(null);   // null = портфель
@@ -179,6 +180,7 @@ export function App() {
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)}
         state={state} stories={stories} actions={paletteCommands} />
       <Toasts toasts={toasts} onDismiss={(id) => setToasts((l) => l.filter((x) => x.id !== id))} />
+      <StewardChat />
     </>
   );
 }

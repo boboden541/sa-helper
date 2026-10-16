@@ -1,0 +1,93 @@
+import { useEffect, useRef, useState } from "react";
+
+interface Msg { ts: string; author: string; text: string; }
+
+/** Чат со Steward — диспетчером конвейера (порция H1). */
+export function StewardChat() {
+  const [open, setOpen] = useState(false);
+  const [messages, setMessages] = useState<Msg[]>([]);
+  const [pending, setPending] = useState(false);
+  const [draft, setDraft] = useState("");
+  const bodyRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const load = () =>
+      fetch("/api/steward/chat")
+        .then((r) => r.json())
+        .then((d) => { setMessages(d.messages || []); setPending(!!d.pending); })
+        .catch(() => {});
+    load();
+    const timer = setInterval(load, 2000);
+    return () => clearInterval(timer);
+  }, [open]);
+
+  useEffect(() => {
+    if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
+  }, [messages, pending]);
+
+  const send = () => {
+    const text = draft.trim();
+    if (!text || pending) return;
+    setDraft("");
+    fetch("/api/steward/message", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    }).then(() => {
+      setMessages((m) => [...m, { ts: new Date().toLocaleString("ru-RU", {
+        day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }),
+        author: "human", text }]);
+      setPending(true);
+    }).catch(() => {});
+  };
+
+  return (
+    <>
+      {!open && (
+        <button className="primary" style={{ position: "fixed", bottom: 20, right: 20,
+          borderRadius: "999px", padding: "11px 18px", zIndex: 40, boxShadow: "0 4px 14px rgba(0,0,0,.4)" }}
+          onClick={() => setOpen(true)}>💬 Steward</button>
+      )}
+      {open && (
+        <div style={{ position: "fixed", bottom: 20, right: 20, width: "min(430px, 94vw)",
+          height: "min(560px, 76vh)", background: "var(--surface)",
+          border: "1px solid var(--line2)", borderRadius: 14, zIndex: 40,
+          display: "flex", flexDirection: "column", boxShadow: "0 8px 28px rgba(0,0,0,.5)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8,
+            padding: "10px 14px", borderBottom: "1px solid var(--line)" }}>
+            <b style={{ fontSize: 13 }}>💬 Steward — диспетчер</b>
+            <span className="meta">управляет конвейером словами</span>
+            <span className="spacer" />
+            <button className="ghost" onClick={() => setOpen(false)}>✕</button>
+          </div>
+          <div ref={bodyRef} style={{ flex: 1, overflowY: "auto", padding: "10px 14px" }}>
+            {messages.length === 0 && (
+              <p className="empty">
+                Попросите словами: «что сейчас блокирует проект?», «создай задачу: …»,
+                «верни T8 в работу», «почему стоит T4?» — Steward посмотрит данные,
+                выполнит действие и отчитается.
+              </p>
+            )}
+            {messages.map((m, i) => (
+              <div key={i} className={`comment ${m.author === "human" ? "human" : "daemon"}`}
+                style={{ margin: "6px 0" }}>
+                <div className="cmeta">{m.ts} · {m.author}</div>
+                <div dangerouslySetInnerHTML={{ __html:
+                  m.text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/\n/g, "<br>") }} />
+              </div>
+            ))}
+            {pending && <div className="meta" style={{ padding: "4px 0" }}>Steward думает…</div>}
+          </div>
+          <div style={{ borderTop: "1px solid var(--line)", padding: 10, display: "flex", gap: 8 }}>
+            <input style={{ flex: 1, background: "var(--chip)", color: "var(--text)",
+              border: "1px solid var(--line2)", borderRadius: 8, padding: "8px 12px", font: "inherit" }}
+              value={draft} onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") send(); }}
+              placeholder="Поручение или вопрос…" />
+            <button className="primary" disabled={pending} onClick={send}>→</button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
