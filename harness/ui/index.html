@@ -158,14 +158,31 @@
 </div>
 
 <script>
+/* Канбан живёт по статусам конвейера v3 (task.pipeline); для документов v2
+   без pipeline — маппинг из внутреннего статуса исполнителя. */
+const V2_TO_PIPELINE = {
+  PLANNED: "BACKLOG", APPROVED: "READY",
+  TDD_RED: "IMPLEMENTING", TDD_GREEN: "IMPLEMENTING", GATES: "IMPLEMENTING",
+  AGENT_REVIEW: "REVIEW", DONE: "DONE",
+  ESCALATED_BLOCKED: "NEEDS_HUMAN", ABORTED: "ABORTED",
+};
+const PIPELINE_LABELS = {
+  BACKLOG: "Backlog", READY: "Ready", IMPLEMENTING: "Implementing",
+  REVIEW: "Review", DONE: "Done", VERIFIED: "Verified",
+  BLOCKED: "Blocked", NEEDS_HUMAN: "Needs human", ABORTED: "Aborted",
+};
+function pipelineOf(t) {
+  return t.pipeline || V2_TO_PIPELINE[t.status] || "BACKLOG";
+}
 const COLUMNS = [
-  { key: "planned",  title: "Planned",              match: s => s === "PLANNED" },
-  { key: "approved", title: "Approved",             match: s => s === "APPROVED" },
-  { key: "tdd",      title: "TDD Loop RED/GREEN",   match: s => s === "TDD_RED" || s === "TDD_GREEN" },
-  { key: "gates",    title: "Quality Gates",        match: s => s === "GATES" },
-  { key: "review",   title: "Agent Review",         match: s => s === "AGENT_REVIEW" },
-  { key: "done",     title: "Done",                 match: s => s === "DONE" },
-  { key: "esc",      title: "Escalated (Blocked)",  match: s => s === "ESCALATED_BLOCKED" || s === "ABORTED" },
+  { key: "backlog", title: "Backlog",       match: p => p === "BACKLOG" },
+  { key: "ready",   title: "Ready",         match: p => p === "READY" },
+  { key: "impl",    title: "Implementing",  match: p => p === "IMPLEMENTING" },
+  { key: "review",  title: "Review",        match: p => p === "REVIEW" },
+  { key: "done",    title: "Done",          match: p => p === "DONE" },
+  { key: "verif",   title: "Verified",      match: p => p === "VERIFIED" },
+  { key: "blocked", title: "Blocked / Needs human",
+    match: p => p === "BLOCKED" || p === "NEEDS_HUMAN" || p === "ABORTED" },
 ];
 
 /* --- мини-markdown: заголовки, списки, таблицы, код, жирный, инлайн-код --- */
@@ -220,12 +237,17 @@ function card(t) {
   const div = document.createElement("div");
   div.className = "card" + (t.status === "ESCALATED_BLOCKED" ? " escalated" : "");
   div.onclick = () => openTask(t.id);
+  const inner = t.status && t.status !== "PLANNED" && t.status !== "APPROVED" ? t.status : "";
   div.innerHTML =
     `<div><span class="tid">${t.id}</span><span class="sys">${t.system || ""}</span>` +
-    `<span class="phase">${t.phase || ""}</span></div>` +
+    `<span class="phase">${PIPELINE_LABELS[pipelineOf(t)] || pipelineOf(t)}</span>` +
+    (inner ? `<span class="phase">${inner}</span>` : "") +
+    (t.paused ? `<span class="phase" style="color:var(--warn)">⏸ пауза</span>` : "") +
+    `</div>` +
     `<div>${t.title || ""}</div>` +
     (t.description ? `<div class="desc">${esc(t.description)}</div>` : "") +
-    (t.status && t.status.startsWith("TDD") ? `<div class="iter">итерация ${t.iteration_count || 0}/${(t.circuit_max || 4)}</div>` : "") +
+    ((inner && inner.startsWith("TDD")) ? `<div class="iter">итерация ${t.iteration_count || 0}/4</div>` : "") +
+    (t.review_iterations ? `<div class="iter">ревью: ${t.review_iterations}/3</div>` : "") +
     (acs.length ? `<div class="acs">AC ${passed}/${acs.length}</div>` : "");
   return div;
 }
@@ -255,7 +277,7 @@ function render(state) {
   for (const col of COLUMNS) {
     const el = document.createElement("div");
     el.className = "col";
-    const list = tasks.filter(t => col.match(t.status));
+    const list = tasks.filter(t => col.match(pipelineOf(t)));
     el.innerHTML = `<h2>${col.title}<span class="count">${list.length}</span></h2>`;
     if (!list.length) el.insertAdjacentHTML("beforeend", `<div class="empty">—</div>`);
     for (const t of list) el.appendChild(card(t));
@@ -277,7 +299,8 @@ function fillDetail(t) {
   const acs = (t.acceptance_criteria || []);
   const gates = t.gates || {};
   document.getElementById("p-meta").innerHTML =
-    `${t.system || ""} · фаза: ${t.phase || "—"} · статус: ${t.status}` +
+    `${t.system || ""} · фаза: ${t.phase || "—"} · конвейер: ${PIPELINE_LABELS[pipelineOf(t)] || pipelineOf(t)}` +
+    (t.status ? ` · исполнитель: ${t.status}` : "") +
     ` · AC ${acs.filter(a => a.status === "PASSED").length}/${acs.length}` +
     ` · итераций: ${t.iteration_count || 0}/4` +
     (t.branch ? ` · <code>${esc(t.branch)}</code>` : "") +
