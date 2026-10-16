@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Task, TaskDoc } from "../../types";
 import { api, pipelineOf, PIPE_RU } from "../../api";
-import { ChecklistView, Chip, inline, md, parseComments, UsageBadge } from "../common/ui";
+import { ChecklistView, Chip, inline, parseComments, UsageBadge } from "../common/ui";
 
-type Tab = "card" | "comments" | "log" | "history" | "clk";
+type Tab = "impl" | "review" | "comments" | "history";
 
 const ACTION_LABELS: Record<string, string> = {
   REQUEST_CHANGES: "Вернуть на доработку",
@@ -13,67 +13,6 @@ const ACTION_LABELS: Record<string, string> = {
   PAUSE: "Пауза",
   ABORT: "Остановить",
 };
-
-function Comments({ raw }: { raw: string }) {
-  const comments = parseComments(raw);
-  return (
-    <div className="md">
-      {comments.length === 0 && <p className="empty">комментариев пока нет</p>}
-      {comments.map((c, i) => (
-        <div className={`comment ${c.author}`} key={i}>
-          <div className="cmeta">{c.ts} · {c.author}</div>
-          <div dangerouslySetInnerHTML={{ __html: inline(c.text).replace(/\n/g, "<br>") }} />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function Attachments({ taskId }: { taskId: string }) {
-  const [files, setFiles] = useState<string[] | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const load = useCallback(() =>
-    api.attachments(taskId).then((d) => setFiles(d.files)).catch(() => {}), [taskId]);
-  useEffect(() => { load(); }, [load]);
-  return (
-    <div style={{ marginTop: 10, borderTop: "1px solid var(--line)", paddingTop: 8 }}>
-      <div className="meta">Файлы</div>
-      {(files || []).length === 0 && <p className="empty">вложений нет</p>}
-      {(files || []).map((f) => (
-        <div key={f} style={{ padding: "2px 0" }}>
-          <a href={api.attachmentUrl(taskId, f)} target="_blank" rel="noreferrer"
-            style={{ color: "var(--acc)" }}>📎 {f}</a>
-        </div>
-      ))}
-      <input ref={fileRef} type="file" style={{ display: "none" }}
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (!f) return;
-          f.arrayBuffer().then((buf) =>
-            api.uploadAttachment(taskId, f.name, buf)).then(load);
-          e.target.value = "";
-        }} />
-      <button className="ghost" style={{ marginTop: 4 }}
-        onClick={() => fileRef.current?.click()}>+ прикрепить файл</button>
-    </div>
-  );
-}
-
-function History({ taskId }: { taskId: string }) {
-  const [entries, setEntries] = useState<Array<{ ts: string; text: string }> | null>(null);
-  useEffect(() => {
-    api.timeline(taskId).then((d) => setEntries(d.entries)).catch(() => setEntries([]));
-  }, [taskId]);
-  if (entries === null) return <p className="empty">загрузка…</p>;
-  if (entries.length === 0) return <p className="empty">событий в журнале демона пока нет</p>;
-  return (
-    <ul className="timeline">
-      {entries.map((e, i) => (
-        <li key={i}><span className="ts">{e.ts}</span>{e.text}</li>
-      ))}
-    </ul>
-  );
-}
 
 function SessionLog({ taskId }: { taskId: string }) {
   const [log, setLog] = useState<{ log: string; file: string | null } | null>(null);
@@ -94,26 +33,72 @@ function SessionLog({ taskId }: { taskId: string }) {
   );
 }
 
+function History({ taskId }: { taskId: string }) {
+  const [entries, setEntries] = useState<Array<{ ts: string; text: string }> | null>(null);
+  useEffect(() => {
+    api.timeline(taskId).then((d) => setEntries(d.entries)).catch(() => setEntries([]));
+  }, [taskId]);
+  if (entries === null) return <p className="empty">загрузка…</p>;
+  if (entries.length === 0) return <p className="empty">событий в журнале демона пока нет</p>;
+  return (
+    <ul className="timeline">
+      {entries.map((e, i) => (
+        <li key={i}><span className="ts">{e.ts}</span>{e.text}</li>
+      ))}
+    </ul>
+  );
+}
+
+function Attachments({ taskId }: { taskId: string }) {
+  const [files, setFiles] = useState<string[] | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const load = useCallback(() =>
+    api.attachments(taskId).then((d) => setFiles(d.files)).catch(() => {}), [taskId]);
+  useEffect(() => { load(); }, [load]);
+  return (
+    <div className="sect">
+      <div className="s-title">Вложения</div>
+      {(files || []).length === 0 && <p className="empty">вложений нет</p>}
+      {(files || []).map((f) => (
+        <div key={f} style={{ padding: "2px 0" }}>
+          <a href={api.attachmentUrl(taskId, f)} target="_blank" rel="noreferrer"
+            style={{ color: "var(--acc)", fontSize: 12.5 }}>📎 {f}</a>
+        </div>
+      ))}
+      <input ref={fileRef} type="file" style={{ display: "none" }}
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (!f) return;
+          f.arrayBuffer().then((buf) =>
+            api.uploadAttachment(taskId, f.name, buf)).then(load);
+          e.target.value = "";
+        }} />
+      <button className="ghost" style={{ marginTop: 6 }}
+        onClick={() => fileRef.current?.click()}>＋ прикрепить файл</button>
+    </div>
+  );
+}
+
+/** Панель задачи: 2 колонки (редактируемое | хроники), как в aif-handoff. */
 export function TaskPanel({ doc, onClose, onAction }: {
   doc: TaskDoc | null;
   onClose: () => void;
-  onAction: (flag: string) => void;
+  onAction: () => void;
 }) {
-  const [tab, setTab] = useState<Tab>("card");
+  const [tab, setTab] = useState<Tab | "comments">("comments");
   const [editing, setEditing] = useState(false);
   const [descDraft, setDescDraft] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
   const cInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { setEditing(false); setTab("card"); }, [doc?.task?.id]);
-
-  useEffect(() => {
-    if (editing) inputRef.current?.focus();
-  }, [editing]);
+  useEffect(() => { setEditing(false); setTab("comments"); }, [doc?.task?.id]);
 
   const t: Task | null = doc?.task ?? null;
   if (!doc || !t) return null;
   const p = pipelineOf(t);
+
+  const comments = parseComments(doc.comments_md);
+  const reviewComments = comments.filter((c) => c.author === "reviewer");
+  const humanComments = comments.filter((c) => c.author !== "reviewer");
 
   const send = useCallback(() => {
     const text = cInputRef.current?.value.trim();
@@ -125,60 +110,108 @@ export function TaskPanel({ doc, onClose, onAction }: {
       if (isIntervention) return api.setFlag(`TASK_${t.id}_RETRY`);
       if (isDone) return api.setFlag(`TASK_${t.id}_REQUEST_CHANGES`);
       return undefined;
-    }).then(() => onAction(`TASK_${t.id}_RELOAD`));
+    }).then(() => onAction());
   }, [t, p, onAction]);
 
   const saveDescription = () => {
     api.editTaskDescription(t.id, descDraft).then(() => {
       setEditing(false);
-      onAction(`TASK_${t.id}_RELOAD`);
+      onAction();
     });
   };
 
-  const tabs: Array<[Tab, string]> = [
-    ["card", "Карточка"], ["comments", `Комментарии`], ["log", "Лог"],
-    ["history", "История"], ["clk", "Чек-лист"],
-  ];
+  const renderComments = (list: typeof comments) => (
+    <div className="md">
+      {list.length === 0 && <p className="empty">записей нет</p>}
+      {list.map((c, i) => (
+        <div className={`comment ${c.author}`} key={i}>
+          <div className="cmeta">{c.ts} · {c.author}</div>
+          <div dangerouslySetInnerHTML={{ __html: inline(c.text).replace(/\n/g, "<br>") }} />
+        </div>
+      ))}
+    </div>
+  );
 
   return (
     <>
       <div className="backdrop" onClick={onClose} />
-      <div className="panel">
-        <div className="phead">
+      <div className="sheet">
+        <div className="sheet-head">
           <span className="tid">{t.id}</span>
-          <span className="meta">{t.title}</span>
+          <Chip pipeline={p} />
+          <span className="meta">{PIPE_RU[p] || p}</span>
+          <UsageBadge usage={t.usage} />
           <span className="spacer" />
-          {tabs.map(([key, label]) => (
-            <button key={key} className={`tabbtn ${tab === key ? "active" : ""}`}
-              onClick={() => setTab(key)}>
-              {key === "comments"
-                ? `Комментарии (${parseComments(doc.comments_md).length})` : label}
-            </button>
-          ))}
           <button className="ghost" onClick={onClose}>✕</button>
         </div>
 
-        {(p === "NEEDS_HUMAN" || p === "BLOCKED") && (
+        {tab === "comments" && (
           <div style={{ padding: "10px 18px 0" }}>
-            <div id="p-banner">
-              <span className="btitle">{p === "BLOCKED" ? "⛔ Задача заблокирована"
-                : "⏸ Требуется ваше участие"}</span>
-              — отчёт: в комментариях ниже.
+            <div className="pfoot" style={{ border: 0, padding: 0 }}>
+              <input ref={cInputRef} placeholder={
+                p === "NEEDS_HUMAN" || p === "BLOCKED" ? "Ваш ответ задаче… (вернёт её в работу)"
+                : p === "DONE" ? "Что переделать… (задание доработки)"
+                : "Комментарий к задаче…"}
+                onKeyDown={(e) => { if (e.key === "Enter") send(); }} />
+              <button className={
+                p === "NEEDS_HUMAN" || p === "BLOCKED" || p === "DONE" ? "primary" : ""}
+                onClick={send}>
+                {p === "NEEDS_HUMAN" || p === "BLOCKED" ? "Ответить и вернуть в работу"
+                  : p === "DONE" ? "Вернуть на доработку" : "Отправить"}
+              </button>
+              {t.can_ask && (
+                <button className="quiet" title="Уйдёт в сессию задачи"
+                  onClick={() => {
+                    const text = cInputRef.current?.value.trim();
+                    if (!text) return;
+                    api.ask(t.id, text).then(() => {
+                      if (cInputRef.current) cInputRef.current.value = "";
+                      onAction();
+                    });
+                  }}>спросить агента</button>
+              )}
             </div>
           </div>
         )}
 
-        <div className="pbody">
-          {tab === "card" && (
-            <>
-              <div className="meta" style={{ marginBottom: 8 }}>
-                <Chip pipeline={p} /> · {t.system || ""} · AC{" "}
-                {(t.acceptance_criteria || []).filter((a) => a.status === "PASSED").length}/
-                {(t.acceptance_criteria || []).length}
-                {!!t.review_iterations && ` · ревью: ${t.review_iterations}/3`}{" "}
-                <UsageBadge usage={t.usage} />
+        <div className="sheet-grid">
+          {/* левая колонка: редактируемое */}
+          <div className="sheet-col">
+            <div className="sect">
+              <div className="s-title">Описание
+                {!editing && (
+                  <button className="ghost" style={{ marginLeft: "auto", padding: "0 4px" }}
+                    onClick={() => { setDescDraft(t.description || ""); setEditing(true); }}>
+                    ✎
+                  </button>
+                )}
               </div>
-              <div id="p-actions">
+              {editing ? (
+                <>
+                  <textarea value={descDraft} onChange={(e) => setDescDraft(e.target.value)}
+                    style={{ width: "100%", minHeight: 80, background: "var(--chip)",
+                      color: "var(--text)", border: "1px solid var(--line2)",
+                      borderRadius: 6, padding: 8, font: "inherit" }} />
+                  <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                    <button className="primary" onClick={saveDescription}>Сохранить</button>
+                    <button className="ghost" onClick={() => setEditing(false)}>Отмена</button>
+                  </div>
+                </>
+              ) : (
+                <div className="md">{t.description || <span className="empty">—</span>}</div>
+              )}
+            </div>
+
+            {(p === "NEEDS_HUMAN" || p === "BLOCKED") && (
+              <div id="p-banner">
+                <span className="btitle">{p === "BLOCKED" ? "⛔ Задача заблокирована"
+                  : "⏸ Требуется ваше участие"}</span> — отчёт во вкладке «Комментарии».
+              </div>
+            )}
+
+            <div className="sect">
+              <div className="s-title">Действия</div>
+              <div id="p-actions" style={{ marginBottom: 0 }}>
                 {(t.actions || []).map((flag) => {
                   const key = flag.split("_").slice(2).join("_");
                   const label = key === "RESUME_WORK" ? (t.paused ? "Продолжить" : "Возобновить")
@@ -187,67 +220,49 @@ export function TaskPanel({ doc, onClose, onAction }: {
                   return (
                     <button key={flag}
                       style={key === "ABORT" ? { color: "var(--bad)" } : undefined}
-                      onClick={() => onAction(flag)}>{label}</button>
+                      onClick={() => { api.setFlag(flag).then(onAction); }}>
+                      {label}
+                    </button>
                   );
                 })}
-                {!editing && (
-                  <button style={{ color: "var(--acc)" }}
-                    onClick={() => { setDescDraft(t.description || ""); setEditing(true); }}>
-                    ✎ Описание
-                  </button>
-                )}
+                {(t.actions || []).length === 0 && <span className="empty">—</span>}
               </div>
-              {editing ? (
-                <div style={{ marginTop: 8 }}>
-                  <textarea className="pedit" style={{ width: "100%", minHeight: 90,
-                    background: "var(--chip)", color: "var(--text)", border: "1px solid var(--line2)",
-                    borderRadius: 8, padding: 9, font: "inherit" }}
-                    value={descDraft}
-                    onChange={(e) => setDescDraft(e.target.value)} />
-                  <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-                    <button className="primary" onClick={saveDescription}>Сохранить</button>
-                    <button className="ghost" onClick={() => setEditing(false)}>Отмена</button>
-                  </div>
-                </div>
-              ) : (
-                <div className="md" dangerouslySetInnerHTML={{ __html: md(doc.card_md) }} />
-              )}
-              <Attachments taskId={t.id} />
-            </>
-          )}
-          {tab === "comments" && <Comments raw={doc.comments_md} />}
-          {tab === "log" && <SessionLog taskId={t.id} />}
-          {tab === "history" && <History taskId={t.id} />}
-          {tab === "clk" && <ChecklistView sections={doc.checklist_sections || []} />}
-        </div>
+            </div>
 
-        <div className="pfoot">
-          <input ref={cInputRef}
-            placeholder={
-              p === "NEEDS_HUMAN" || p === "BLOCKED" ? "Ваш ответ задаче… (вернёт её в работу)"
-              : p === "DONE" ? "Что переделать… (задание доработки)"
-              : "Ваш комментарий к задаче…"}
-            onKeyDown={(e) => { if (e.key === "Enter") send(); }} />
-          <button className={
-            p === "NEEDS_HUMAN" || p === "BLOCKED" || p === "DONE" ? "primary" : ""}
-            onClick={send}>
-            {p === "NEEDS_HUMAN" || p === "BLOCKED" ? "Ответить и вернуть в работу"
-              : p === "DONE" ? "Вернуть на доработку" : "Отправить"}
-          </button>
-          {t.can_ask && (
-            <button className="quiet" title="Уйдёт в сессию задачи; ответ появится в журнале"
-              onClick={() => {
-                const text = cInputRef.current?.value.trim();
-                if (!text) return;
-                api.ask(t.id, text).then(() => {
-                  if (cInputRef.current) cInputRef.current.value = "";
-                });
-              }}>спросить агента</button>
-          )}
+            <div className="sect">
+              <div className="s-title">Worktree</div>
+              <div className="mono" style={{ fontSize: 11.5, wordBreak: "break-all" }}>
+                {t.branch || "—"}
+              </div>
+            </div>
+
+            <div className="sect">
+              <div className="s-title">План (чек-лист)</div>
+              <ChecklistView sections={doc.checklist_sections || []} />
+            </div>
+
+            <Attachments taskId={t.id} />
+          </div>
+
+          {/* правая колонка: вкладки-хроники */}
+          <div className="sheet-col">
+            <div className="sheet-tabs">
+              {([["impl", "Лог реализации"], ["review", "Ревью"],
+                 ["comments", "Комментарии"], ["history", "История"]] as const).map(([key, label]) => (
+                <button key={key} className={`tabbtn ${tab === key ? "active" : ""}`}
+                  onClick={() => setTab(key)}>
+                  {key === "review" ? `${label} (${reviewComments.length})`
+                    : key === "comments" ? `Комментарии (${comments.length})` : label}
+                </button>
+              ))}
+            </div>
+            {tab === "impl" && <SessionLog taskId={t.id} />}
+            {tab === "review" && renderComments(reviewComments)}
+            {tab === "comments" && renderComments(humanComments)}
+            {tab === "history" && <History taskId={t.id} />}
+          </div>
         </div>
       </div>
     </>
   );
 }
-
-export { PIPE_RU };

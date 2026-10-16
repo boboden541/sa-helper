@@ -1,62 +1,58 @@
 import { useMemo, useState } from "react";
 import type { BoardState, Task } from "../../types";
-import { pipelineOf, PIPE_RU } from "../../api";
-import { Chip, LiveDot, ProgressBar, UsageBadge } from "../common/ui";
+import { pipelineOf } from "../../api";
+import { Chip, UsageBadge } from "../common/ui";
+import { timeAgo } from "../Header";
 
-const COLUMNS: Array<{ key: string; title: string; also?: string[] }> = [
-  { key: "PROPOSED", title: "Предложены" },
-  { key: "BACKLOG", title: "Бэклог" },
-  { key: "READY", title: "Готовы к запуску" },
-  { key: "IMPLEMENTING", title: "В работе" },
-  { key: "REVIEW", title: "Ревью" },
-  { key: "DONE", title: "Готовы" },
-  { key: "VERIFIED", title: "Проверены" },
-  { key: "BLOCKED", title: "Блок / Нужен человек", also: ["NEEDS_HUMAN", "ABORTED"] },
+const COLUMNS: Array<{ key: string; title: string; also?: string[];
+  dot: string; mode: "ai" | "human" | "decision"; modeLabel: string }> = [
+  { key: "PROPOSED", title: "Предложены", dot: "var(--amber)",
+    mode: "decision", modeLabel: "Human decision" },
+  { key: "BACKLOG", title: "Бэклог", dot: "var(--faint)",
+    mode: "human", modeLabel: "Human controlled" },
+  { key: "READY", title: "Готовы к запуску", dot: "var(--acc)",
+    mode: "ai", modeLabel: "AI controlled" },
+  { key: "IMPLEMENTING", title: "В работе", dot: "var(--purple)",
+    mode: "ai", modeLabel: "AI controlled" },
+  { key: "REVIEW", title: "Ревью", dot: "var(--pink)",
+    mode: "ai", modeLabel: "AI controlled" },
+  { key: "DONE", title: "Готовы", dot: "var(--ok)",
+    mode: "decision", modeLabel: "Human decision" },
+  { key: "VERIFIED", title: "Проверены", dot: "var(--ok)",
+    mode: "human", modeLabel: "Human controlled" },
+  { key: "BLOCKED", title: "Блок / Нужен человек", dot: "var(--warn)",
+    also: ["NEEDS_HUMAN", "ABORTED"], mode: "decision", modeLabel: "Human decision" },
 ];
 
-const FILTERS = [
-  { key: "active", label: "в работе", test: (p: string) => ["IMPLEMENTING", "REVIEW", "READY"].includes(p) },
-  { key: "blocked", label: "блок", test: (p: string) => ["BLOCKED", "NEEDS_HUMAN"].includes(p) },
-  { key: "proposed", label: "предложены", test: (p: string) => p === "PROPOSED" },
-  { key: "manual", label: "ручные", test: (_p: string, t: Task) => t.origin === "manual" },
-  { key: "agent", label: "от агента", test: (_p: string, t: Task) => t.origin === "agent" },
-  { key: "done", label: "закрытые", test: (p: string) => ["DONE", "VERIFIED"].includes(p) },
-];
-
-function LiveLabel({ t }: { t: Task }) {
-  const lv = t.live;
-  if (!lv) return null;
-  const age = lv.hb_age_s < 60 ? `${lv.hb_age_s}с` : `${Math.round(lv.hb_age_s / 60)}мин`;
-  if (lv.running && lv.hb_age_s < 180) return <><LiveDot running />агент работает · {age}</>;
-  if (lv.running) return <><LiveDot running={false} />без вывода {age}</>;
-  return <>завершена {age} назад</>;
+function edgeOf(p: string): string {
+  return { IMPLEMENTING: "var(--purple)", REVIEW: "var(--pink)", DONE: "var(--ok)",
+    VERIFIED: "var(--ok)", NEEDS_HUMAN: "var(--warn)", BLOCKED: "var(--warn)",
+    PROPOSED: "var(--amber)" }[p] || "var(--line2)";
 }
 
-function TaskCardView({ t, onOpen }: { t: Task; onOpen: (id: string) => void }) {
+function Card({ t, onOpen }: { t: Task; onOpen: (id: string) => void }) {
   const p = pipelineOf(t);
   const acs = t.acceptance_criteria || [];
   const passed = acs.filter((a) => a.status === "PASSED").length;
-  const inner = t.status && !["PLANNED", "APPROVED"].includes(t.status) ? t.status : null;
   return (
-    <div className={`tcard st-${p}`} onClick={() => onOpen(t.id)}>
-      <div className="row1">
-        <span className="tid">{t.id}</span>
-        <span className="pipeline-label">{PIPE_RU[p] || p}</span>
-        {inner && <span>· {inner}</span>}
-        {t.paused && <span style={{ color: "var(--warn)" }}>⏸</span>}
-        <span className="sys">{t.system}</span>
+    <div className="tcard" style={{ "--edge": edgeOf(p) } as React.CSSProperties}
+      onClick={() => onOpen(t.id)}>
+      <div className="ttitle">{t.title || t.id}</div>
+      {t.description && <div className="tdesc">{t.description}</div>}
+      <div className="tagrow">
+        <span className="tag">{t.id}</span>
+        {t.phase && t.phase !== "regular" && <span className="tag">phase:{t.phase}</span>}
+        {t.origin === "agent" && <span className="tag origin-agent">origin:agent</span>}
+        {t.origin === "manual" && <span className="tag origin-manual">origin:manual</span>}
+        {t.paused && <span className="tag paused">PAUSED</span>}
       </div>
-      <div className="ttitle">{t.title}</div>
-      {t.description && <div className="desc">{t.description}</div>}
-      <div className="foot">
-        {!!t.review_iterations && <span>ревью: {t.review_iterations}/3</span>}
-        {t.checklist && t.checklist.total > 0 &&
-          <span className="chkline">☑ {t.checklist.done}/{t.checklist.total}</span>}
+      <div className="tfoot">
+        <span>{t.live?.running ? <><span className="live-dot" />работает</> : timeAgo(t.pipeline_since)}</span>
         <span className="grow" />
+        {t.review_iterations ? <span>ревью:{t.review_iterations}</span> : null}
         <UsageBadge usage={t.usage} />
         {acs.length > 0 && <span>AC {passed}/{acs.length}</span>}
       </div>
-      {t.live && <div className="meta" style={{ marginTop: 4 }}><LiveLabel t={t} /></div>}
     </div>
   );
 }
@@ -64,103 +60,75 @@ function TaskCardView({ t, onOpen }: { t: Task; onOpen: (id: string) => void }) 
 export function Board({ state, onOpenTask, onAddTask }: {
   state: BoardState;
   onOpenTask: (id: string) => void;
-  onAddTask?: () => void;
+  onAddTask: () => void;
 }) {
-  const [view, setView] = useState<"board" | "list">("board");
   const [active, setActive] = useState<string[]>([]);
   const [query, setQuery] = useState("");
-
   const tasks = state.manifest.tasks || [];
+
   const visible = useMemo(() => tasks.filter((t) => {
     const p = pipelineOf(t);
-    for (const f of active) {
-      const def = FILTERS.find((x) => x.key === f);
-      if (def && !def.test(p, t)) return false;
+    for (const key of active) {
+      if (key === "active" && !["IMPLEMENTING", "REVIEW", "READY"].includes(p)) return false;
+      if (key === "blocked" && !["BLOCKED", "NEEDS_HUMAN"].includes(p)) return false;
+      if (key === "proposed" && p !== "PROPOSED") return false;
+      if (key === "manual" && t.origin !== "manual") return false;
+      if (key === "agent" && t.origin !== "agent") return false;
+      if (key === "done" && !["DONE", "VERIFIED"].includes(p)) return false;
     }
-    if (query && !`${t.id} ${t.title} ${t.description || ""}`.toLowerCase().includes(query.toLowerCase()))
-      return false;
+    if (query && !`${t.id} ${t.title} ${t.description || ""}`.toLowerCase()
+        .includes(query.toLowerCase())) return false;
     return true;
   }), [tasks, active, query]);
 
-  const toggle = (key: string) =>
-    setActive((prev) => (prev.includes(key) ? prev.filter((x) => x !== key) : [...prev, key]));
+  const FILTERS = [
+    ["active", "в работе"], ["blocked", "блок"], ["proposed", "предложены"],
+    ["manual", "ручные"], ["agent", "от агента"], ["done", "закрытые"],
+  ];
 
-  const controls = (
-    <div className="filterbar">
-      <input placeholder="Поиск задачи…" value={query}
-        onChange={(e) => setQuery(e.target.value)} />
-      {FILTERS.map((f) => (
-        <button key={f.key}
-          className={`fchip ${active.includes(f.key) ? "active" : ""}`}
-          onClick={() => toggle(f.key)}>{f.label}</button>
-      ))}
-      <span className="spacer" />
-      <div className="seg">
-        <button className={view === "board" ? "active" : ""} onClick={() => setView("board")}>Доска</button>
-        <button className={view === "list" ? "active" : ""} onClick={() => setView("list")}>Список</button>
+  return (
+    <>
+      <div className="filterbar">
+        <span className="mlabel">Фильтры</span>
+        {FILTERS.map(([key, label]) => (
+          <button key={key} className={`fchip ${active.includes(key) ? "active" : ""}`}
+            onClick={() => setActive((prev) =>
+              prev.includes(key) ? prev.filter((x) => x !== key) : [...prev, key])}>
+            {label}
+          </button>
+        ))}
+        <span className="spacer" />
+        <input placeholder="поиск по задачам…" value={query}
+          onChange={(e) => setQuery(e.target.value)} />
       </div>
-    </div>
-  );
-
-  const kanban = (
-    <div className="board">
-      {COLUMNS.map((col) => {
-        const list = visible.filter((t) => pipelineOf(t) === col.key || (col.also || []).includes(pipelineOf(t)));
-        return (
-          <div className="col" key={col.key}>
-            <h2>{col.title}<span className="count">{list.length}</span>
-              {col.key === "BACKLOG" && onAddTask && (
-                <button className="ghost" style={{ padding: "0 6px", fontSize: 14 }}
-                  title="Добавить задачу в бэклог"
-                  onClick={onAddTask}>+</button>
-              )}</h2>
-            {list.length === 0 && <div className="empty">{col.key === "BACKLOG" && onAddTask
-              ? "добавьте задачу («+»)" : "—"}</div>}
-            {list.map((t) => <TaskCardView key={t.id} t={t} onOpen={onOpenTask} />)}
-          </div>
-        );
-      })}
-    </div>
-  );
-
-  const list = (
-    <div className="page">
-      <table className="tasks">
-        <thead><tr>
-          <th style={{ width: 56 }}>ID</th><th>Задача</th><th style={{ width: 150 }}>Статус</th>
-          <th style={{ width: 120 }}>Система</th><th style={{ width: 150 }}>Прогресс</th>
-        </tr></thead>
-        <tbody>
-          {visible.length === 0 && <tr><td colSpan={5}><p className="empty">Задач нет</p></td></tr>}
-          {visible.map((t) => (
-            <tr key={t.id} onClick={() => onOpenTask(t.id)}>
-              <td><b style={{ color: "var(--acc)" }}>{t.id}</b></td>
-              <td>{t.title}</td>
-              <td>{chipWithLive(t)}</td>
-              <td>{t.system || "—"}</td>
-              <td>{t.checklist && t.checklist.total > 0
-                ? <ProgressBar done={t.checklist.done} total={t.checklist.total} /> : "—"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-
-  return (
-    <>
-      {controls}
-      {view === "board" ? kanban : list}
+      <div className="board">
+        {COLUMNS.map((col) => {
+          const list = visible.filter((t) =>
+            pipelineOf(t) === col.key || (col.also || []).includes(pipelineOf(t)));
+          const done = col.key === "DONE" ? list.length : 0;
+          const pct = list.length ? Math.round((100 * done) / list.length) : 0;
+          return (
+            <div className="col" key={col.key}>
+              <div className="col-head">
+                <span className="dot" style={{ background: col.dot }} />
+                <span className="name">{col.title}</span>
+                <span className="count">{list.length}</span>
+              </div>
+              <div className="col-underline">
+                <i style={{ width: `${pct}%`, background: col.dot }} />
+              </div>
+              <span className={`col-mode mode-${col.mode}`}>{col.modeLabel}</span>
+              {col.key === "BACKLOG" && (
+                <button className="add-task" onClick={onAddTask}>＋ Add task</button>
+              )}
+              {list.map((t) => <Card key={t.id} t={t} onOpen={onOpenTask} />)}
+              {list.length === 0 && <div className="empty">—</div>}
+            </div>
+          );
+        })}
+      </div>
     </>
   );
 }
 
-function chipWithLive(t: Task) {
-  const live = t.live && t.live.running;
-  return (
-    <>
-      <Chip pipeline={pipelineOf(t)} />
-      {live && <LiveDot running />}
-    </>
-  );
-}
+export { Chip };

@@ -66,6 +66,7 @@ export interface Task {
   checklist?: ChecklistProgress;
   live?: LiveStatus | null;
   usage?: Usage;
+  pipeline_since?: string;
 }
 
 export interface Usage {
