@@ -26,7 +26,7 @@ import subprocess
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, unquote
 from pathlib import Path
 
 sys_path = str(Path(__file__).resolve().parents[1])
@@ -42,7 +42,46 @@ CLASSIC_HTML = WEB_DIR / "classic" / "index.html"
 STATIC_TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript",
                 ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png",
                 ".ico": "image/x-icon", ".json": "application/json",
-                ".woff2": "font/woff2", ".map": "application/json"}
+                ".woff2": "font/woff2", ".map": "application/json",
+                ".pdf": "application/pdf", ".csv": "text/csv",
+                ".txt": "text/plain; charset=utf-8", ".md": "text/markdown; charset=utf-8",
+                ".log": "text/plain; charset=utf-8", ".jpg": "image/jpeg",
+                ".jpeg": "image/jpeg"}
+
+ATTACHMENT_NAME_RE = re.compile(r"[^A-Za-z0-9._\-\u0400-\u04FF]+")
+TIMELINE_RE = re.compile(r"^\s*-\s+\[([^\]]+?)\s*\|\s*\w+\]\s*(.*)$")
+
+
+def log_event(harness: Path, message: str) -> None:
+    """Запись демона/сервера в журнал событий (тот же формат, что у orchestrator)."""
+    logs = harness / "logs"
+    logs.mkdir(exist_ok=True)
+    line = f"- [{time.strftime('%Y-%m-%d %H:%M:%S')} | daemon] {message}\n"
+    with (logs / "events.log").open("a", encoding="utf-8") as fh:
+        fh.write(line)
+
+
+def _attachments_dir(harness: Path, task_id: str) -> Path:
+    return harness / "attachments" / task_id
+
+
+def _timeline_entries(harness: Path, task_id: str) -> list[dict]:
+    """События задачи из журнала демона (logs/events.log) по порядку."""
+    entries: list[dict] = []
+    log_path = harness / "logs" / "events.log"
+    try:
+        lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return entries
+    for line in lines:
+        m = TIMELINE_RE.match(line)
+        if not m:
+            continue
+        text = line.rstrip().split("] ", 1)[-1]
+        if not text.startswith(f"{task_id}:"):
+            continue
+        entries.append({"ts": m.group(1), "text": text[len(f"{task_id}:"):].strip()})
+    return entries
 
 
 def _serve_static(self, rel: str) -> bool:
@@ -425,6 +464,33 @@ class Handler(BaseHTTPRequestHandler):
                 "checklist_sections": parse_checklist_sections(card_md),
             }
             self._send(200, json.dumps(doc, ensure_ascii=False).encode("utf-8"), "application/json")
+        elif path.startswith("/api/timeline/"):
+            task_id = path.rsplit("/", 1)[1]
+            if harness is None or not re.fullmatch(r"T\d+", task_id):
+                self._send(400, b'{"error":"bad task id"}', "application/json")
+                return
+            entries = _timeline_entries(harness, task_id)
+            self._send(200, json.dumps({"entries": entries},
+                                       ensure_ascii=False).encode("utf-8"), "application/json")
+        elif path.startswith("/api/attachment/"):
+            # GET /api/attachment/<T<k>>/<имя файла>?fnr= — отдать файл
+            rest = [unquote(x) for x in path.split("/")[3:]]
+            if harness is None or len(rest) != 2:
+                self._send(400, b'{"error":"bad attachment path"}', "application/json")
+                return
+            target = (_attachments_dir(harness, rest[0]) / rest[1]).resolve()
+            if not str(target).startswith(str(_attachments_dir(harness, rest[0]).resolve())) \
+                    or not target.is_file():
+                self._send(404, b'{"error":"not found"}', "application/json")
+                return
+            ctype = STATIC_TYPES.get(target.suffix, "application/octet-stream")
+            self._send(200, target.read_bytes(), ctype)
+        elif path == "/api/attachments" and harness is not None:
+            task_id = params.get("task", "")
+            adir = _attachments_dir(harness, task_id)
+            names = sorted(x.name for x in adir.iterdir()) if adir.is_dir() else []
+            self._send(200, json.dumps({"files": names}, ensure_ascii=False)
+                       .encode("utf-8"), "application/json")
         elif path.startswith("/api/log/"):
             task_id = path.rsplit("/", 1)[1]
             if not re.fullmatch(r"T\d+", task_id) or harness is None:
@@ -463,7 +529,20 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         path, params = self._route()
         harness = _harness_of(params.get("fnr"))
-        if path == "/api/story":
+        if path.startswith("/api/attachment/") and harness is not None:
+            # POST /api/attachment/<T<k>>/<имя>?fnr= — сохранить файл (raw body)
+            rest = [unquote(x) for x in path.split("/")[3:]]
+            if len(rest) != 2:
+                self._send(400, b'{"error":"bad attachment path"}', "application/json")
+                return
+            safe = ATTACHMENT_NAME_RE.sub("_", rest[1]).strip("._") or "file.bin"
+            adir = _attachments_dir(harness, rest[0])
+            adir.mkdir(parents=True, exist_ok=True)
+            length = int(self.headers.get("Content-Length", 0))
+            (adir / safe).write_bytes(self.rfile.read(length))
+            log_event(harness, f"{rest[0]}: вложение добавлено человеком: {safe}")
+            self._send(200, b'{"ok":true}', "application/json")
+        elif path == "/api/story":
             body = self._json_body()
             ok, info = create_story(str(body.get("title") or "").strip(),
                                     str(body.get("source") or "").strip())

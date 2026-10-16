@@ -13,6 +13,7 @@ export function App() {
   const [state, setState] = useState<BoardState | null>(null);
   const [taskDoc, setTaskDoc] = useState<TaskDoc | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [createType, setCreateType] = useState<"story" | "task">("story");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [conn, setConn] = useState("…");
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -150,14 +151,15 @@ export function App() {
             {(state?.flags || []).includes("PAUSE") ? "▶" : "⏸"}
           </button>
         )}
-        <button className="primary" onClick={() => setCreateOpen(true)}>+ Создать</button>
+        <button className="primary" onClick={() => { setCreateType("story"); setCreateOpen(true); }}>+ Создать</button>
         <span className={`conn ${conn === "live" ? "on" : ""}`}>{conn}</span>
       </header>
 
       {fnr === null
         ? <Portfolio stories={stories} onOpen={openStory} />
         : (state
-          ? <Board state={state} onOpenTask={openTask} />
+          ? <Board state={state} onOpenTask={openTask}
+              onAddTask={() => { setCreateType("task"); setCreateOpen(true); }} />
           : <div className="page"><p className="empty">загрузка Story…</p></div>)}
 
       <TaskPanel doc={taskDoc} onClose={() => { setTaskDoc(null); if (fnr) loadBoard(fnr); }}
@@ -167,10 +169,11 @@ export function App() {
         }} />
 
       {createOpen && (
-        <CreateModal onClose={() => setCreateOpen(false)} onCreated={() => {
-          refreshStories();
-          if (fnr) loadBoard(fnr);
-        }} stories={stories} preselectedFnr={fnr} />
+        <CreateModal initialType={createType}
+          onClose={() => setCreateOpen(false)} onCreated={() => {
+            refreshStories();
+            if (fnr) loadBoard(fnr);
+          }} stories={stories} preselectedFnr={fnr} />
       )}
 
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)}

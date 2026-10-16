@@ -1,14 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Story } from "../../types";
 import { api } from "../../api";
 
-export function CreateModal({ onClose, onCreated, stories, preselectedFnr }: {
+export function CreateModal({ onClose, onCreated, stories, preselectedFnr, initialType = "story" }: {
   onClose: () => void;
   onCreated: () => void;
   stories: Story[];
   preselectedFnr?: string | null;
+  initialType?: "story" | "task";
 }) {
-  const [type, setType] = useState<"story" | "task">("story");
+  const [type, setType] = useState<"story" | "task">(initialType);
   const [title, setTitle] = useState("");
   const [source, setSource] = useState("");
   const preTitle = preselectedFnr
@@ -22,6 +23,7 @@ export function CreateModal({ onClose, onCreated, stories, preselectedFnr }: {
   const [desc, setDesc] = useState("");
   const [system, setSystem] = useState("");
   const [msg, setMsg] = useState("");
+  useEffect(() => { setType(initialType); }, [initialType]);
 
   const hits = storyQuery.trim()
     ? stories.filter((s) =>

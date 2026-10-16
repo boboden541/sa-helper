@@ -66,6 +66,18 @@ export const api = {
       body: JSON.stringify(payload),
     }).then((r) => json<{ ok: boolean }>(r)),
 
+  attachments: (id: string) =>
+    fetch(withFnr(`/api/attachments?task=${id}`)).then((r) =>
+      json<{ files: string[] }>(r)),
+
+  uploadAttachment: (id: string, name: string, content: ArrayBuffer | string) =>
+    fetch(withFnr(`/api/attachment/${id}/${encodeURIComponent(name)}`), {
+      method: "POST", body: content,
+    }),
+
+  attachmentUrl: (id: string, name: string) =>
+    withFnr(`/api/attachment/${id}/${encodeURIComponent(name)}`),
+
   editTaskDescription: (id: string, description: string) =>
     fetch(withFnr(`/api/flag/TASK_EDIT_${id}.json`), {
       method: "POST",

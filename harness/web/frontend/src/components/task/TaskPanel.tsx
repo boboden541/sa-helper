@@ -29,6 +29,36 @@ function Comments({ raw }: { raw: string }) {
   );
 }
 
+function Attachments({ taskId }: { taskId: string }) {
+  const [files, setFiles] = useState<string[] | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const load = useCallback(() =>
+    api.attachments(taskId).then((d) => setFiles(d.files)).catch(() => {}), [taskId]);
+  useEffect(() => { load(); }, [load]);
+  return (
+    <div style={{ marginTop: 10, borderTop: "1px solid var(--line)", paddingTop: 8 }}>
+      <div className="meta">Файлы</div>
+      {(files || []).length === 0 && <p className="empty">вложений нет</p>}
+      {(files || []).map((f) => (
+        <div key={f} style={{ padding: "2px 0" }}>
+          <a href={api.attachmentUrl(taskId, f)} target="_blank" rel="noreferrer"
+            style={{ color: "var(--acc)" }}>📎 {f}</a>
+        </div>
+      ))}
+      <input ref={fileRef} type="file" style={{ display: "none" }}
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (!f) return;
+          f.arrayBuffer().then((buf) =>
+            api.uploadAttachment(taskId, f.name, buf)).then(load);
+          e.target.value = "";
+        }} />
+      <button className="ghost" style={{ marginTop: 4 }}
+        onClick={() => fileRef.current?.click()}>+ прикрепить файл</button>
+    </div>
+  );
+}
+
 function History({ taskId }: { taskId: string }) {
   const [entries, setEntries] = useState<Array<{ ts: string; text: string }> | null>(null);
   useEffect(() => {
@@ -182,6 +212,7 @@ export function TaskPanel({ doc, onClose, onAction }: {
               ) : (
                 <div className="md" dangerouslySetInnerHTML={{ __html: md(doc.card_md) }} />
               )}
+              <Attachments taskId={t.id} />
             </>
           )}
           {tab === "comments" && <Comments raw={doc.comments_md} />}

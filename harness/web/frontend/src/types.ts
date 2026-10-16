@@ -114,6 +114,7 @@ export interface TaskDoc {
   comments_md: string;
   ask_pending?: boolean;
   checklist_sections?: ChecklistSection[];
+  attachments?: string[];
 }
 
 export interface JournalEntry {

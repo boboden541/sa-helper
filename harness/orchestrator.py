@@ -679,6 +679,22 @@ def find_pending_handoffs(workspace: Path) -> list[Path]:
                   if (p / ".flags" / "HANDOFF").exists() and not (p / "manifest.json").is_file())
 
 
+def _update_card_description(harness: Path, tid: str, description: str) -> None:
+    """Правка описания человеком: секция «Что сделать» в карточке задачи."""
+    card_dir = harness / "tasks"
+    cards = sorted(card_dir.glob(f"{tid}_*.md")) or sorted(card_dir.glob(f"{tid}.md"))
+    if not cards:
+        return
+    card = cards[0]
+    body = card.read_text(encoding="utf-8", errors="replace")
+    section = re.search(r"(## Что сделать\n\n)(.*?)(\n## |\Z)", body, re.S)
+    if section:
+        body = body[:section.start(2)] + description + body[section.end(2):]
+    else:
+        body += f"\n## Что сделать\n\n{description}\n"
+    card.write_text(body, encoding="utf-8")
+
+
 def _next_task_id(doc: dict) -> str:
     numbers = [int(t["id"][1:]) for t in doc.get("tasks", [])
                if re.fullmatch(r"T\d+", str(t.get("id", "")))]
@@ -834,6 +850,30 @@ def process_workspace(lane: WorkspaceLane, opts: argparse.Namespace) -> None:
         flags_dir = harness / ".flags"
         flags = {p.name for p in flags_dir.glob("*")} if flags_dir.is_dir() else set()
         run_dir = harness / ".run"
+
+        # правка описания человеком (payload-флаги TASK_EDIT_<id>.json)
+        for edit_path in sorted(flags_dir.glob("TASK_EDIT_*.json")):
+            tid = edit_path.stem[len("TASK_EDIT_"):]
+            try:
+                payload = json.loads(edit_path.read_text(encoding="utf-8"))
+                description = str(payload.get("description") or "").strip()
+            except (OSError, json.JSONDecodeError, AttributeError) as exc:
+                description, exc_msg = "", str(exc)
+            edit_path.unlink(missing_ok=True)
+            doc = load_manifest(harness) or doc
+            task = next((t for t in doc.get("tasks", []) if t.get("id") == tid), None)
+            if not description or task is None:
+                log_event(harness, f"TASK_EDIT {tid} отклонён: {exc_msg if not description else 'нет задачи'}")
+                continue
+            task["description"] = description[:600]
+            doc["updated_at"] = now_iso()
+            save_manifest(harness, doc)
+            shadow_save(harness, doc)
+            _update_card_description(harness, tid, description)
+            comment(harness, tid, f"**Описание обновлено человеком** через витрину — "
+                                  f"карточка и манифест синхронизированы.")
+            log_event(harness, f"{tid}: описание обновлено (TASK_EDIT)")
+            doc = load_manifest(harness) or doc
 
         # ручные задачи Story (payload-флаги; пишет демон — гонок нет)
         for payload_path in sorted(flags_dir.glob("TASK_NEW_*.json")):

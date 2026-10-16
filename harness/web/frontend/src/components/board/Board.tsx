@@ -61,9 +61,10 @@ function TaskCardView({ t, onOpen }: { t: Task; onOpen: (id: string) => void }) 
   );
 }
 
-export function Board({ state, onOpenTask }: {
+export function Board({ state, onOpenTask, onAddTask }: {
   state: BoardState;
   onOpenTask: (id: string) => void;
+  onAddTask?: () => void;
 }) {
   const [view, setView] = useState<"board" | "list">("board");
   const [active, setActive] = useState<string[]>([]);
@@ -107,8 +108,14 @@ export function Board({ state, onOpenTask }: {
         const list = visible.filter((t) => pipelineOf(t) === col.key || (col.also || []).includes(pipelineOf(t)));
         return (
           <div className="col" key={col.key}>
-            <h2>{col.title}<span className="count">{list.length}</span></h2>
-            {list.length === 0 && <div className="empty">—</div>}
+            <h2>{col.title}<span className="count">{list.length}</span>
+              {col.key === "BACKLOG" && onAddTask && (
+                <button className="ghost" style={{ padding: "0 6px", fontSize: 14 }}
+                  title="Добавить задачу в бэклог"
+                  onClick={onAddTask}>+</button>
+              )}</h2>
+            {list.length === 0 && <div className="empty">{col.key === "BACKLOG" && onAddTask
+              ? "добавьте задачу («+»)" : "—"}</div>}
             {list.map((t) => <TaskCardView key={t.id} t={t} onOpen={onOpenTask} />)}
           </div>
         );

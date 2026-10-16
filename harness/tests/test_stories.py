@@ -215,3 +215,67 @@ class TestUsage(unittest.TestCase):
         self.assertEqual((u["tokens_in"], u["tokens_total"], u["sessions"]),
                          (150, 165, 2))
         self.assertAlmostEqual(u["cost_usd"], 0.15, places=3)
+
+
+class TestTaskEdit(unittest.TestCase):
+    """Порция G3: правка описания человеком через payload-флаг."""
+
+    def test_task_edit_updates_manifest_and_card(self):
+        with tempfile.TemporaryDirectory() as td:
+            ws, harness = sandbox(Path(td), approved=True)
+            (harness / "tasks").mkdir()
+            (harness / "tasks" / "T1.md").write_text(
+                "# T1: A\n\n## Что сделать\n\nСтарое описание\n\n## Критерии приёмки\n",
+                encoding="utf-8")
+            (harness / ".flags" / "TASK_EDIT_T1.json").write_text(json.dumps({
+                "description": "Новое описание от человека"}), encoding="utf-8")
+
+            class Opts:
+                poll_interval = 0
+                stage_timeout = 60
+                heartbeat_timeout = 60
+                max_retries = 3
+                max_turns = 10
+                skip_permissions = True
+                claude_bin = str(STUB)
+                dry_run = False
+                verbose = False
+
+            lane = orch.WorkspaceLane(ws)
+            for _ in range(4):
+                orch.process_workspace(lane, Opts)
+                time.sleep(0.02)
+
+            doc = json.loads((harness / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(doc["tasks"][0]["description"], "Новое описание от человека")
+            card = (harness / "tasks" / "T1.md").read_text(encoding="utf-8")
+            self.assertIn("Новое описание от человека", card)
+            self.assertNotIn("Старое описание", card)
+            journal = (harness / "comments" / "T1.md").read_text(encoding="utf-8")
+            self.assertIn("Описание обновлено человеком", journal)
+
+
+class TestTimelineAndAttachments(unittest.TestCase):
+    """Порция G4: таймлайн из events.log и вложения задачи."""
+
+    def test_timeline_entries(self):
+        with tempfile.TemporaryDirectory() as td:
+            ws, harness = sandbox(Path(td))
+            logs = harness / "logs"
+            logs.mkdir()
+            (logs / "events.log").write_text(
+                "- [2026-10-17 10:00:00 | daemon] T1: start → IMPLEMENTING (слот)\n"
+                "- [2026-10-17 10:05:00 | daemon] T2: start → IMPLEMENTING (слот)\n"
+                "- [2026-10-17 10:09:00 | daemon] T1: implementation_passed → REVIEW\n",
+                encoding="utf-8")
+            sys.path.insert(0, str(ROOT / "web"))
+            import server as ui
+            entries = ui._timeline_entries(harness, "T1")
+            self.assertEqual(len(entries), 2)
+            self.assertIn("IMPLEMENTING", entries[0]["text"])
+
+    def test_attachments_safe_name(self):
+        sys.path.insert(0, str(ROOT / "web"))
+        import server as ui
+        self.assertEqual(ui.ATTACHMENT_NAME_RE.sub("_", "../etc/passwd"), ".._etc_passwd")
+        self.assertEqual(ui.ATTACHMENT_NAME_RE.sub("_", "отчёт май.csv"), "отчёт_май.csv")
