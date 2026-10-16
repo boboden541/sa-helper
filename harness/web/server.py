@@ -106,16 +106,24 @@ def list_stories() -> list[dict]:
                 "pipeline": t.get("pipeline") or "",
                 "status": t.get("status", ""), "system": t.get("system", ""),
                 "origin": t.get("origin", "plan"),
+                "usage": t.get("usage"),
                 "plan_done": chk["done"], "plan_total": chk["total"],
                 "live": (_live_status(harness, tid) or {}).get("running")
                         if t.get("pipeline") in ("IMPLEMENTING", "REVIEW") else None,
             })
+        usage_agg = {"tokens_in": 0, "tokens_out": 0, "tokens_total": 0,
+                     "cost_usd": 0.0}
+        for t in tasks:
+            u = t.get("usage") or {}
+            for k in usage_agg:
+                usage_agg[k] = round(usage_agg[k] + float(u.get(k) or 0), 4)
         stories.append({
             "fnr": fnr,
             "title": manifest.get("story_title") or manifest.get("source_document") or fnr,
             "status": manifest.get("status", "—"),
             "tasks": len(tasks),
             "counts": counts,
+            "usage": usage_agg,
             "task_list": task_rows,
             "handoff_pending": (harness / ".flags" / "HANDOFF").exists(),
             "handoff_failed": (harness / ".run" / "handoff_failed").exists(),

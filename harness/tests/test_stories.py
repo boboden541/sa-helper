@@ -175,3 +175,43 @@ class TestHandoffQueue(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestUsage(unittest.TestCase):
+    """Порция G2: сбор токенов/$ из result-событий stream-лога."""
+
+    def _harness_with_log(self, tmp: Path) -> Path:
+        harness = tmp / "harness"
+        (harness / ".run").mkdir(parents=True)
+        (harness / "manifest.json").write_text(json.dumps({
+            "fnr_id": "FNR_1", "status": "IN_PROGRESS", "tasks": []}), encoding="utf-8")
+        stream = "".join([
+            json.dumps({"type": "assistant", "message": {"content": []}}) + "\n",
+            json.dumps({"type": "result", "duration_ms": 60000,
+                        "total_cost_usd": 0.4200,
+                        "usage": {"input_tokens": 1000,
+                                  "cache_read_input_tokens": 5000,
+                                  "cache_creation_input_tokens": 200,
+                                  "output_tokens": 300}}) + "\n",
+        ])
+        (harness / ".run" / "T1_implementing_77.log").write_text(stream, encoding="utf-8")
+        return harness
+
+    def test_pick_usage_parses_result(self):
+        with tempfile.TemporaryDirectory() as td:
+            h = self._harness_with_log(Path(td))
+            u = orch._pick_usage(h, "T1", "implementing")
+            self.assertEqual(u["tokens_in"], 6200)
+            self.assertEqual(u["tokens_out"], 300)
+            self.assertEqual(u["tokens_total"], 6500)
+            self.assertAlmostEqual(u["cost_usd"], 0.42, places=3)
+
+    def test_merge_usage_accumulates_sessions(self):
+        task = {"usage": {"tokens_in": 100, "tokens_out": 10, "tokens_total": 110,
+                          "cost_usd": 0.1, "sessions": 1}}
+        orch._merge_usage(task, {"tokens_in": 50, "tokens_out": 5,
+                                 "tokens_total": 55, "cost_usd": 0.05})
+        u = task["usage"]
+        self.assertEqual((u["tokens_in"], u["tokens_total"], u["sessions"]),
+                         (150, 165, 2))
+        self.assertAlmostEqual(u["cost_usd"], 0.15, places=3)

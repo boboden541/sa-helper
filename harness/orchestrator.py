@@ -66,7 +66,7 @@ _V2_TO_PIPELINE = {
 
 V3_FIELDS = ("pipeline", "blocked_from", "retries", "review_iterations",
              "findings", "session_id", "paused", "skip_review", "owner",
-             "retry_after_ts", "pipeline_since")
+             "retry_after_ts", "pipeline_since", "usage")
 
 
 def _shadow_path(harness: Path) -> Path:
@@ -617,6 +617,43 @@ class WorkspaceLane:
         self.started_at = 0.0
 
 
+def _pick_usage(harness: Path, task_id: str | None, stage: str) -> dict | None:
+    """Расход сессии из result-события stream-лога (токены и стоимость)."""
+    suffix = task_id or "fnr"
+    logs = sorted((harness / ".run").glob(f"{suffix}_{stage}_*.log"))[-1:]
+    for log_path in reversed(logs):
+        try:
+            content = log_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for line in reversed(content.splitlines()):
+            try:
+                d = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if d.get("type") != "result":
+                continue
+            u = d.get("usage") or {}
+            tokens_in = int(u.get("input_tokens") or 0) \
+                + int(u.get("cache_read_input_tokens") or 0) \
+                + int(u.get("cache_creation_input_tokens") or 0)
+            tokens_out = int(u.get("output_tokens") or 0)
+            return {"tokens_in": tokens_in, "tokens_out": tokens_out,
+                    "tokens_total": tokens_in + tokens_out,
+                    "cost_usd": round(float(d.get("total_cost_usd") or 0), 4)}
+        break
+    return None
+
+
+def _merge_usage(task: dict, usage: dict) -> None:
+    """Накопить расход сессии в задаче (по всем стадиям)."""
+    acc = dict(task.get("usage") or {})
+    for k in ("tokens_in", "tokens_out", "tokens_total", "cost_usd"):
+        acc[k] = round(float(acc.get(k) or 0) + float(usage.get(k) or 0), 4)
+    acc["sessions"] = int(acc.get("sessions") or 0) + 1
+    task["usage"] = acc
+
+
 def _pick_session_id(harness: Path, task_id: str | None, stage: str) -> str | None:
     """session_id стадии: из лога (stream-json) — детерминированно, без гонок."""
     suffix = task_id or "fnr"
@@ -759,6 +796,9 @@ def process_workspace(lane: WorkspaceLane, opts: argparse.Namespace) -> None:
             if task:
                 task["session_id"] = _pick_session_id(harness, task_id, stage) \
                     or task.get("session_id")
+                usage = _pick_usage(harness, task_id, stage)
+                if usage:
+                    _merge_usage(task, usage)
                 summary = reconcile_after_stage(harness, doc, task, code,
                                                 max_retries=opts.max_retries)
                 print(f"  [stage] {summary}")
