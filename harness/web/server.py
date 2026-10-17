@@ -86,6 +86,21 @@ STATIC_TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript",
                 ".jpeg": "image/jpeg"}
 
 ATTACHMENT_NAME_RE = re.compile(r"[^A-Za-z0-9._\-\u0400-\u04FF]+")
+# Разрешённые перемещения задачи по колонкам (порция H-UX): цель -> действие.
+# Идут через те же флаги, что и кнопки — машину состояний не обойти.
+MOVE_MAP = {
+    ("PROPOSED", "BACKLOG"): "TASK_{tid}_ACCEPT",
+    ("DONE", "IMPLEMENTING"): "TASK_{tid}_REQUEST_CHANGES",
+    ("BLOCKED", "IMPLEMENTING"): "TASK_{tid}_RETRY",
+    ("NEEDS_HUMAN", "IMPLEMENTING"): "TASK_{tid}_RETRY",
+    ("REVIEW", "DONE"): "TASK_{tid}_FORCE_APPROVE",
+}
+
+
+def _move_targets(pipeline: str) -> list[str]:
+    return sorted({to for (frm, to) in MOVE_MAP if frm == pipeline})
+
+
 TIMELINE_RE = re.compile(r"^\s*-\s+\[([^\]]+?)\s*\|\s*\w+\]\s*(.*)$")
 
 
@@ -159,9 +174,16 @@ def _harness_of(project: str | None, fnr: str | None) -> Path | None:
     return STATE["harness"]
 
 
+_STORIES_CACHE: dict = {}
+
+
 def list_stories(workspace: Path) -> list[dict]:
-    """Stories воркспейса: прогресс конвейера, расход, разрез по системам."""
+    """Stories воркспейса (кэш 2с — SSE и опросы бьют часто)."""
     ws = workspace
+    key = str(ws)
+    cached = _STORIES_CACHE.get(key)
+    if cached and time.time() - cached[0] < 2.0:
+        return cached[1]
     stories = []
     for harness in sorted(ws.glob("sa_documentation/FNR/FNR_*/harness")):
         fnr = harness.parent.name
@@ -211,6 +233,7 @@ def list_stories(workspace: Path) -> list[dict]:
             "handoff_failed": (harness / ".run" / "handoff_failed").exists(),
             "manifest_ok": bool(manifest),
         })
+    _STORIES_CACHE[key] = (time.time(), stories)
     return stories
 
 
@@ -414,6 +437,7 @@ def read_state(harness: Path) -> dict:
                 if card_path and card_path.exists() else ""
         t["checklist"] = checklist_progress(card_cache[tid])
         t["live"] = _live_status(harness, tid)
+        t["move_targets"] = _move_targets(t.get("pipeline") or "")
     return {"manifest": manifest, "flags": flags, "comments_fp": comments_fp}
 
 
@@ -607,7 +631,27 @@ class Handler(BaseHTTPRequestHandler):
         path, params = self._route()
         project = params.get("project")
         harness = _harness_of(project, params.get("fnr"))
-        if path.startswith("/api/attachment/") and harness is not None:
+        if path.startswith("/api/task/") and path.endswith("/move") and harness is not None:
+            task_id = path.split("/")[3]
+            target = str(self._json_body().get("to") or "").strip()
+            state = read_state(harness)
+            task = next((t for t in state["manifest"].get("tasks", [])
+                         if t.get("id") == task_id), None)
+            frm = pipeline_of(task) if task else ""
+            if task is None:
+                self._send(404, b'{"error":"no such task"}', "application/json")
+                return
+            flag_tpl = MOVE_MAP.get((frm, target))
+            if not flag_tpl:
+                self._send(400, json.dumps(
+                    {"error": f"переход {frm} → {target} недопустим"},
+                    ensure_ascii=False).encode("utf-8"), "application/json")
+                return
+            flag = flag_tpl.format(tid=task_id)
+            (harness / ".flags" / flag).touch()
+            log_event(harness, f"{task_id}: человек перемещает {frm} → {target} (флаг {flag})")
+            self._send(200, b'{"ok":true}', "application/json")
+        elif path.startswith("/api/attachment/") and harness is not None:
             # POST /api/attachment/<T<k>>/<имя>?fnr= — сохранить файл (raw body)
             rest = [unquote(x) for x in path.split("/")[3:]]
             if len(rest) != 2:

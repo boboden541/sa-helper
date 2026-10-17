@@ -150,6 +150,7 @@ export function App() {
         }}
         onAllStories={() => setOverviewOpen(true)}
         onAddProject={() => setProjectModalOpen(true)}
+        onOpenTask={openTask}
         onCreate={() => setCreateOpen(true)} onMetrics={() => setMetricsOpen(true)}
         view={view} setView={setView}
         onFlag={(name, method) => {
@@ -163,7 +164,8 @@ export function App() {
               : "загрузка Story…"}</p></div>
         : view === "board"
           ? <Board state={state} onOpenTask={openTask}
-              onAddTask={() => { setCreateType("task"); setCreateOpen(true); }} />
+              onAddTask={() => { setCreateType("task"); setCreateOpen(true); }}
+              onMove={(id, to) => api.move(id, to).then(reloadAll)} />
           : <TaskList state={state} onOpenTask={openTask}
               onAddTask={() => { setCreateType("task"); setCreateOpen(true); }} />}
 

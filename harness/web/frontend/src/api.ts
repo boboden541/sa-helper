@@ -92,6 +92,13 @@ export const api = {
       body: JSON.stringify({ text }),
     }).then((r) => json<{ ok: boolean }>(r)),
 
+  move: (id: string, to: string) =>
+    fetch(withFnr(`/api/task/${id}/move`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ to }),
+    }).then((r) => json<{ ok: boolean }>(r)),
+
   attachments: (id: string) =>
     fetch(withFnr(`/api/attachments?task=${id}`)).then((r) =>
       json<{ files: string[] }>(r)),

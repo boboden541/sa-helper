@@ -5,6 +5,31 @@ interface Msg { ts: string; author: string; text: string; }
 /** Чат со Steward — диспетчером конвейера (порция H1). */
 export function StewardChat() {
   const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(() => {
+    try { return JSON.parse(localStorage.getItem("stewardPos") || "null"); }
+    catch { return null; }
+  });
+  const dragRef = useRef<{ dx: number; dy: number } | null>(null);
+
+  const onHeaderDown = (e: React.MouseEvent) => {
+    const el = e.currentTarget.closest(".steward-panel") as HTMLElement;
+    const r = el.getBoundingClientRect();
+    dragRef.current = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+    const move = (ev: MouseEvent) => {
+      if (!dragRef.current) return;
+      const x = Math.max(0, Math.min(window.innerWidth - 120, ev.clientX - dragRef.current.dx));
+      const y = Math.max(0, Math.min(window.innerHeight - 80, ev.clientY - dragRef.current.dy));
+      setPos({ x, y });
+      localStorage.setItem("stewardPos", JSON.stringify({ x, y }));
+    };
+    const up = () => {
+      dragRef.current = null;
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  };
   const [messages, setMessages] = useState<Msg[]>([]);
   const [pending, setPending] = useState(false);
   const [draft, setDraft] = useState("");
@@ -49,14 +74,14 @@ export function StewardChat() {
           onClick={() => setOpen(true)}>💬 Steward</button>
       )}
       {open && (
-        <div style={{ position: "fixed", bottom: 20, right: 20, width: "min(430px, 94vw)",
-          height: "min(560px, 76vh)", background: "var(--surface)",
-          border: "1px solid var(--line2)", borderRadius: 14, zIndex: 40,
-          display: "flex", flexDirection: "column", boxShadow: "0 8px 28px rgba(0,0,0,.5)" }}>
+        <div className="steward-panel"
+          style={pos ? { position: "fixed", left: pos.x, top: pos.y,
+            width: "min(430px, 94vw)", height: "min(560px, 76vh)" } : undefined}>
           <div style={{ display: "flex", alignItems: "center", gap: 8,
-            padding: "10px 14px", borderBottom: "1px solid var(--line)" }}>
+            padding: "10px 14px", borderBottom: "1px solid var(--line)", cursor: "move" }}
+            onMouseDown={onHeaderDown}>
             <b style={{ fontSize: 13 }}>💬 Steward — диспетчер</b>
-            <span className="meta">управляет конвейером словами</span>
+            <span className="meta">управляет конвейером словами · тяните за шапку</span>
             <span className="spacer" />
             <button className="ghost" onClick={() => setOpen(false)}>✕</button>
           </div>

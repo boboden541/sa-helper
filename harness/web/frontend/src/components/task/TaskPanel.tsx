@@ -88,9 +88,31 @@ export function TaskPanel({ doc, onClose, onAction }: {
   const [tab, setTab] = useState<Tab | "comments">("comments");
   const [editing, setEditing] = useState(false);
   const [descDraft, setDescDraft] = useState("");
+  const [width, setWidth] = useState(() =>
+    Number(localStorage.getItem("sheetWidth")) || 1020);
+  const resizing = useRef(false);
   const cInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { setEditing(false); setTab("comments"); }, [doc?.task?.id]);
+
+  // ресайз панели за левую кромку (замечание 4)
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!resizing.current) return;
+      setWidth(Math.min(window.innerWidth - 24,
+        Math.max(460, window.innerWidth - e.clientX)));
+    };
+    const onUp = () => {
+      if (resizing.current) {
+        resizing.current = false;
+        localStorage.setItem("sheetWidth", String(width));
+      }
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => { window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp); };
+  }, [width]);
 
   const t: Task | null = doc?.task ?? null;
   const p = t ? pipelineOf(t) : "BACKLOG";  // при t=null сразу вернём null ниже
@@ -138,11 +160,25 @@ export function TaskPanel({ doc, onClose, onAction }: {
   return (
     <>
       <div className="backdrop" onClick={onClose} />
-      <div className="sheet">
+      <div className="sheet" style={{ width: `min(${width}px, 97vw)` }}>
+        <div className="sheet-resize" onMouseDown={() => { resizing.current = true; }} />
         <div className="sheet-head">
           <span className="tid">{t.id}</span>
           <Chip pipeline={p} />
           <span className="meta">{PIPE_RU[p] || p}</span>
+          {(t.move_targets || []).length > 0 && (
+            <select defaultValue="" title="Переместить в допустимый статус"
+              style={{ background: "var(--chip)", color: "var(--text)",
+                border: "1px solid var(--line2)", borderRadius: 6, padding: "3px 6px",
+                font: "11.5px var(--mono)" }}
+              onChange={(e) => { const to = e.target.value;
+                if (to) { api.move(t.id, to).then(onAction); } e.target.value = ""; }}>
+              <option value="">переместить в…</option>
+              {(t.move_targets || []).map((to) => (
+                <option key={to} value={to}>{PIPE_RU[to] || to}</option>
+              ))}
+            </select>
+          )}
           <UsageBadge usage={t.usage} />
           <span className="spacer" />
           <button className="ghost" onClick={onClose}>✕</button>

@@ -9,8 +9,19 @@
   --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--text);
-  font: 13.5px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; min-height: 100vh; }
+body { margin: 0; color: var(--text);
+  font: 13.5px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; min-height: 100vh;
+  background:
+    radial-gradient(900px 480px at 85% -10%, rgba(88,166,255,.07), transparent 60%),
+    radial-gradient(700px 420px at -10% 110%, rgba(163,113,247,.06), transparent 60%),
+    repeating-linear-gradient(0deg, transparent 0 39px, rgba(255,255,255,.017) 39px 40px),
+    repeating-linear-gradient(90deg, transparent 0 39px, rgba(255,255,255,.017) 39px 40px),
+    var(--bg);
+  background-attachment: fixed; }
+.col.drop-ok { border-color: var(--acc-dim); border-style: dashed; }
+.col.drop-hot { border-color: var(--acc); background: rgba(88,166,255,.05); }
+.sheet-resize { position: absolute; left: -3px; top: 0; bottom: 0; width: 7px;
+  cursor: col-resize; z-index: 3; }
 h1, h2, h3 { margin: 0; font-weight: 600; }
 button { background: var(--surface2); color: var(--text); border: 1px solid var(--line2);
   border-radius: 6px; padding: 6px 12px; font: inherit; font-size: 12px;

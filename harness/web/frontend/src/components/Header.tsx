@@ -13,7 +13,7 @@ function timeAgo(iso?: string): string {
 
 /** Шапка-пульт: лого, селектор Story (обзор внутри), вид, метрики, действия. */
 export function Header({ fnr, stories, projects, activeProject, state, conn = "…",
-  onOpenStory, onOpenProject, onAllStories, onAddProject,
+  onOpenStory, onOpenProject, onAllStories, onAddProject, onOpenTask,
   onCreate, onMetrics, view, setView, onFlag }: {
   fnr: string | null;
   stories: Story[];
@@ -25,6 +25,7 @@ export function Header({ fnr, stories, projects, activeProject, state, conn = "�
   onOpenProject: (name: string) => void;
   onAllStories: () => void;
   onAddProject: () => void;
+  onOpenTask: (id: string) => void;
   onCreate: () => void;
   onMetrics: () => void;
   view: "board" | "list";
@@ -32,6 +33,7 @@ export function Header({ fnr, stories, projects, activeProject, state, conn = "�
   onFlag: (name: string, method?: "POST" | "DELETE") => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [bellOpen, setBellOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -111,9 +113,29 @@ export function Header({ fnr, stories, projects, activeProject, state, conn = "�
       </div>
 
       <button onClick={onMetrics} title="Метрики расхода">📊 METRICS</button>
-      <button title="Нужные действия" style={attention ? { color: "var(--warn)", borderColor: "var(--warn)" } : undefined}>
-        🔔 {attention || ""}
-      </button>
+      <div className="story-select">
+        <button title="Задачи, требующие вашего участия"
+          style={attention ? { color: "var(--warn)", borderColor: "var(--warn)" } : undefined}
+          onClick={() => setBellOpen((v) => !v)}>
+          🔔 {attention || ""}
+        </button>
+        {bellOpen && (
+          <div className="story-menu" style={{ left: "auto", right: 0, width: 340 }}>
+            <div className="s-head meta">Требуют вашего участия</div>
+            {(state?.manifest.tasks || []).filter((t) =>
+              ["NEEDS_HUMAN", "BLOCKED"].includes(t.pipeline || "")).map((t) => (
+              <div className="s-item" key={t.id}
+                onClick={() => { onOpenTask(t.id); setBellOpen(false); }}>
+                <span className="fnr">{t.id}</span>
+                <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis",
+                  whiteSpace: "nowrap" }}>{t.title}</span>
+                <span className="meta">{t.pipeline === "BLOCKED" ? "блок" : "решение"}</span>
+              </div>
+            ))}
+            {attention === 0 && <div className="s-item empty">ничего не требует участия</div>}
+          </div>
+        )}
+      </div>
 
       <span id="flags">
         {flags.filter((f) => !f.startsWith("TASK_")).map((f) => (

@@ -1,8 +1,7 @@
 import { useMemo, useState } from "react";
 import type { BoardState, Task } from "../../types";
 import { pipelineOf } from "../../api";
-import { Chip, UsageBadge } from "../common/ui";
-import { timeAgo } from "../Header";
+import { UsageBadge } from "../common/ui";
 
 const COLUMNS: Array<{ key: string; title: string; also?: string[];
   dot: string; mode: "ai" | "human" | "decision"; modeLabel: string }> = [
@@ -30,12 +29,30 @@ function edgeOf(p: string): string {
     PROPOSED: "var(--amber)" }[p] || "var(--line2)";
 }
 
-function Card({ t, onOpen }: { t: Task; onOpen: (id: string) => void }) {
+function timeAgoShort(iso?: string): string {
+  if (!iso) return "";
+  const ms = Date.now() - Date.parse(iso);
+  if (Number.isNaN(ms)) return "";
+  const m = Math.round(ms / 60000);
+  return m < 1 ? "только что" : m < 60 ? `${m}м назад` : `${Math.round(m / 60)}ч назад`;
+}
+
+function Card({ t, onOpen, onDragStart }: {
+  t: Task;
+  onOpen: (id: string) => void;
+  onDragStart: (id: string, targets: string[]) => void;
+}) {
   const p = pipelineOf(t);
   const acs = t.acceptance_criteria || [];
   const passed = acs.filter((a) => a.status === "PASSED").length;
   return (
     <div className="tcard" style={{ "--edge": edgeOf(p) } as React.CSSProperties}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData("text/plain", t.id);
+        e.dataTransfer.effectAllowed = "move";
+        onDragStart(t.id, (t as Task & { move_targets?: string[] }).move_targets ?? []);
+      }}
       onClick={() => onOpen(t.id)}>
       <div className="ttitle">{t.title || t.id}</div>
       {t.description && <div className="tdesc">{t.description}</div>}
@@ -47,7 +64,9 @@ function Card({ t, onOpen }: { t: Task; onOpen: (id: string) => void }) {
         {t.paused && <span className="tag paused">PAUSED</span>}
       </div>
       <div className="tfoot">
-        <span>{t.live?.running ? <><span className="live-dot" />работает</> : timeAgo(t.pipeline_since)}</span>
+        {t.live?.running
+          ? <><span className="live-dot" />работает</>
+          : <span>{timeAgoShort(t.pipeline_since)}</span>}
         <span className="grow" />
         {t.review_iterations ? <span>ревью:{t.review_iterations}</span> : null}
         <UsageBadge usage={t.usage} />
@@ -57,13 +76,17 @@ function Card({ t, onOpen }: { t: Task; onOpen: (id: string) => void }) {
   );
 }
 
-export function Board({ state, onOpenTask, onAddTask }: {
+export function Board({ state, onOpenTask, onAddTask, onMove }: {
   state: BoardState;
   onOpenTask: (id: string) => void;
   onAddTask: () => void;
+  onMove: (id: string, to: string) => void;
 }) {
   const [active, setActive] = useState<string[]>([]);
   const [query, setQuery] = useState("");
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dragTargets, setDragTargets] = useState<string[]>([]);
+  const [dropCol, setDropCol] = useState<string | null>(null);
   const tasks = state.manifest.tasks || [];
 
   const visible = useMemo(() => tasks.filter((t) => {
@@ -81,7 +104,7 @@ export function Board({ state, onOpenTask, onAddTask }: {
     return true;
   }), [tasks, active, query]);
 
-  const FILTERS = [
+  const FILTERS: Array<[string, string]> = [
     ["active", "в работе"], ["blocked", "блок"], ["proposed", "предложены"],
     ["manual", "ручные"], ["agent", "от агента"], ["done", "закрытые"],
   ];
@@ -103,25 +126,40 @@ export function Board({ state, onOpenTask, onAddTask }: {
       </div>
       <div className="board">
         {COLUMNS.map((col) => {
-          const list = visible.filter((t) =>
-            pipelineOf(t) === col.key || (col.also || []).includes(pipelineOf(t)));
-          const done = col.key === "DONE" ? list.length : 0;
-          const pct = list.length ? Math.round((100 * done) / list.length) : 0;
+          const list = visible.filter((t) => pipelineOf(t) === col.key ||
+            (col.also || []).includes(pipelineOf(t)));
+          // пустая служебная колонка «Предложены» не рисуется (замечание 7)
+          if (col.key === "PROPOSED" && list.length === 0) return null;
+          const droppable = dragId !== null &&
+            (dragTargets.includes(col.key) ||
+             (col.also || []).some((k) => dragTargets.includes(k)));
+          const hot = droppable && dropCol === col.key;
           return (
-            <div className="col" key={col.key}>
+            <div className={`col ${droppable ? "drop-ok" : ""} ${hot ? "drop-hot" : ""}`}
+              key={col.key}
+              onDragOver={(e) => {
+                if (droppable) { e.preventDefault(); setDropCol(col.key); }
+              }}
+              onDragLeave={() => setDropCol((c) => (c === col.key ? null : c))}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (dragId && droppable) onMove(dragId, col.key);
+                setDragId(null); setDragTargets([]); setDropCol(null);
+              }}>
               <div className="col-head">
                 <span className="dot" style={{ background: col.dot }} />
                 <span className="name">{col.title}</span>
                 <span className="count">{list.length}</span>
               </div>
-              <div className="col-underline">
-                <i style={{ width: `${pct}%`, background: col.dot }} />
-              </div>
               <span className={`col-mode mode-${col.mode}`}>{col.modeLabel}</span>
               {col.key === "BACKLOG" && (
                 <button className="add-task" onClick={onAddTask}>＋ Add task</button>
               )}
-              {list.map((t) => <Card key={t.id} t={t} onOpen={onOpenTask} />)}
+              {list.map((t) => (
+                <Card key={t.id} t={t} onOpen={onOpenTask} onDragStart={(id, targets) => {
+                  setDragId(id); setDragTargets(targets);
+                }} />
+              ))}
               {list.length === 0 && <div className="empty">—</div>}
             </div>
           );
@@ -130,5 +168,3 @@ export function Board({ state, onOpenTask, onAddTask }: {
     </>
   );
 }
-
-export { Chip };

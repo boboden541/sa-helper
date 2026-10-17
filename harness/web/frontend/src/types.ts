@@ -67,6 +67,7 @@ export interface Task {
   live?: LiveStatus | null;
   usage?: Usage;
   pipeline_since?: string;
+  move_targets?: string[];
 }
 
 export interface Usage {
