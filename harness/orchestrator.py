@@ -905,10 +905,22 @@ def process_workspace(lane: WorkspaceLane, opts: argparse.Namespace) -> None:
                 except (OSError, ValueError):
                     continue
 
-        # восстановление v3-полей из тени (v2-сессии перезаписывают манифест,
-        # не зная о них) + жадная миграция v2-документа
+        # Тень — безусловный авторитет pipeline (порция J-фикс): pipeline
+        # принадлежит демону; сессии/чужие писатели, перезаписавшие его,
+        # откатываются за один тик. Раньше сравнение было только при ПОЛНОЙ
+        # потере поля — из-за этого T6 получила чужой DONE без ревью.
         if not opts.dry_run:
-            changed = shadow_restore(harness, doc)
+            shadow = shadow_load(harness)
+            changed = False
+            for t in doc.get("tasks", []):
+                saved = shadow.get(t.get("id"))
+                if saved and saved.get("pipeline") \
+                        and t.get("pipeline") != saved.get("pipeline"):
+                    log_event(harness, f"{t['id']}: pipeline {t.get('pipeline')} → "
+                                       f"{saved['pipeline']} (восстановлен из тени — "
+                                       f"чужой писатель)")
+                    t["pipeline"] = saved["pipeline"]
+                    changed = True
             changed = any(migrate_task_pipeline(t) for t in doc.get("tasks", [])) or changed
             if changed:
                 save_manifest(harness, doc)

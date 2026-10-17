@@ -197,7 +197,10 @@ V2_SET_FOR_PIPELINE: dict[str, set[str]] = {
     VERIFIED: {"DONE"},
     BLOCKED: {"PLANNED", "APPROVED", "TDD_RED", "TDD_GREEN", "GATES", "AGENT_REVIEW"},
     NEEDS_HUMAN: {"ESCALATED_BLOCKED"},
-    ABORTED: {"ABORTED"},
+    # ABORTED замораживает внутренний статус в каком бы то ни было виде —
+    # остановленная задача не обязана «дойти» до терминального v2-статуса
+    ABORTED: {"PLANNED", "APPROVED", "TDD_RED", "TDD_GREEN", "GATES",
+              "AGENT_REVIEW", "DONE", "ESCALATED_BLOCKED", "ABORTED"},
 }
 
 

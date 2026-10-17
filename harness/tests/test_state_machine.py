@@ -170,6 +170,7 @@ class TestV2Consistency(unittest.TestCase):
             (sm.REVIEW, "AGENT_REVIEW"), (sm.DONE, "DONE"),
             (sm.VERIFIED, "DONE"), (sm.NEEDS_HUMAN, "ESCALATED_BLOCKED"),
             (sm.ABORTED, "ABORTED"), (sm.BLOCKED, "TDD_GREEN"),
+            (sm.ABORTED, "APPROVED"),  # остановленная задача — статус заморожен
         ]
         for pipeline, v2 in pairs:
             with self.subTest(pipeline=pipeline, v2=v2):
@@ -179,7 +180,7 @@ class TestV2Consistency(unittest.TestCase):
         pairs = [
             (sm.BACKLOG, "DONE"), (sm.REVIEW, "DONE"), (sm.DONE, "TDD_RED"),
             (sm.NEEDS_HUMAN, "DONE"), (sm.VERIFIED, "AGENT_REVIEW"),
-            (sm.READY, "PLANNED"), (sm.ABORTED, "DONE"),
+            (sm.READY, "PLANNED"),
         ]
         for pipeline, v2 in pairs:
             with self.subTest(pipeline=pipeline, v2=v2):

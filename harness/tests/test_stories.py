@@ -279,3 +279,39 @@ class TestTimelineAndAttachments(unittest.TestCase):
         import server as ui
         self.assertEqual(ui.ATTACHMENT_NAME_RE.sub("_", "../etc/passwd"), ".._etc_passwd")
         self.assertEqual(ui.ATTACHMENT_NAME_RE.sub("_", "отчёт май.csv"), "отчёт_май.csv")
+
+
+class TestShadowAuthority(unittest.TestCase):
+    """Чужой писатель перезаписал pipeline — демон восстанавливает из тени."""
+
+    def test_foreign_pipeline_write_reverted(self):
+        with tempfile.TemporaryDirectory() as td:
+            ws, harness = sandbox(Path(td), approved=False)
+            doc = json.loads((harness / "manifest.json").read_text(encoding="utf-8"))
+            doc["tasks"][0]["pipeline"] = "BACKLOG"   # у задачи есть v3-поля
+            (harness / "manifest.json").write_text(json.dumps(doc), encoding="utf-8")
+            # тень отражает текущее состояние манифеста
+            orch.shadow_save(harness, doc)
+            # сессия-«самоделкин» перезаписала pipeline готовой задачи
+            doc["tasks"][0]["pipeline"] = "DONE"
+            doc["tasks"][0]["status"] = "DONE"
+            (harness / "manifest.json").write_text(json.dumps(doc), encoding="utf-8")
+
+            class Opts:
+                poll_interval = 0
+                stage_timeout = 60
+                heartbeat_timeout = 60
+                max_retries = 3
+                max_turns = 10
+                skip_permissions = True
+                claude_bin = str(STUB)
+                dry_run = False
+                verbose = False
+
+            lane = orch.WorkspaceLane(ws)
+            orch.process_workspace(lane, Opts)  # план не утверждён — но authority сработает
+
+            doc = json.loads((harness / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(doc["tasks"][0]["pipeline"], "BACKLOG")  # истина из тени
+            log = (harness / "logs" / "events.log").read_text(encoding="utf-8")
+            self.assertIn("восстановлен из тени", log)
