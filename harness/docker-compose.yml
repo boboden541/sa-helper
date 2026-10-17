@@ -1,0 +1,47 @@
+# AI Harness в Docker: витрина + демон конвейера.
+#
+# Запуск:
+#   WORKSPACE_DIR=/Users/you/projects/vitrina docker compose -f harness/docker-compose.yml up
+#
+# Витрина:  http://127.0.0.1:4040
+# Auth Claude монтируется из ~/.claude (логин — на хосте, один раз).
+# Docker-сокет монтируется, чтобы гейты задач (docker run из workspaces.yaml)
+# работали внутри контейнера против демона хоста.
+
+services:
+  web:
+    image: sa-helper-harness
+    build:
+      context: ..
+      dockerfile: harness/web/Dockerfile
+    ports:
+      - "4040:4040"
+    environment:
+      PYTHONUNBUFFERED: "1"
+      PROJECT_NAME: ${PROJECT_NAME:-work}
+      HARNESS_WORKSPACE: /work
+      HARNESS_API: http://127.0.0.1:4040
+      DOCKER_CONFIG: /tmp/dockercfg
+    volumes:
+      - ${WORKSPACE_DIR:?Укажите WORKSPACE_DIR — путь к воркспейсу}:/work
+      - ${HOME}/.claude:/root/.claude
+      - ${HOME}/.sa-helper:/root/.sa-helper
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: ["python3", "/app/harness/web/server.py", "--workspace", "/work", "--port", "4040", "--bind", "0.0.0.0", "--project-name", "${PROJECT_NAME:-work}"]
+    restart: unless-stopped
+
+  daemon:
+    image: sa-helper-harness
+    environment:
+      HARNESS_WORKSPACE: /work
+      HARNESS_API: http://web:4040
+      DOCKER_CONFIG: /tmp/dockercfg
+    volumes:
+      - ${WORKSPACE_DIR:?Укажите WORKSPACE_DIR}:/work
+      - ${HOME}/.claude:/root/.claude
+      - ${HOME}/.sa-helper:/root/.sa-helper
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: ["python3", "/app/harness/orchestrator.py", "--workspace", "/work"]
+    depends_on:
+      - web
+    restart: unless-stopped

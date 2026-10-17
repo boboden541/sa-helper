@@ -919,21 +919,25 @@ def main() -> None:
     parser.add_argument("--harness", help="путь к каталогу FNR_N/harness (одна Story)")
     parser.add_argument("--workspace",
                         help="корень воркспейса: портфель Stories + /api/story")
+    parser.add_argument("--project-name", default="",
+                        help="имя проекта в портфеле (по умолчанию — имя каталога)")
     parser.add_argument("--port", type=int, default=4040)
+    parser.add_argument("--bind", default="127.0.0.1",
+                        help="адрес привязки (в Docker: 0.0.0.0)")
     parser.add_argument("--claude-bin", default="claude",
                         help="бинарь claude для чата задачи (тесты: заглушка)")
     args = parser.parse_args()
     if args.workspace:
         wsp = Path(args.workspace).resolve()
         STATE["workspace"] = wsp
-        STATE["projects"][wsp.name] = str(wsp)
+        STATE["projects"][args.project_name or wsp.name] = str(wsp)
     else:
         for name, path in load_registry().items():
             STATE["projects"][name] = path
     if args.harness:
         STATE["harness"] = Path(args.harness).resolve()
     STATE["claude_bin"] = args.claude_bin
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    server = ThreadingHTTPServer((args.bind, args.port), Handler)
     print(f"AI Harness dashboard: http://127.0.0.1:{args.port}  ({STATE['harness']})")
     try:
         server.serve_forever()
