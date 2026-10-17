@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Task, TaskDoc } from "../../types";
 import { api, pipelineOf, PIPE_RU } from "../../api";
-import { ChecklistView, Chip, inline, parseComments, UsageBadge } from "../common/ui";
+import { ChecklistView, Chip, inline, md, parseComments, UsageBadge } from "../common/ui";
 
 type Tab = "impl" | "review" | "comments" | "history";
 
@@ -93,16 +93,16 @@ export function TaskPanel({ doc, onClose, onAction }: {
   useEffect(() => { setEditing(false); setTab("comments"); }, [doc?.task?.id]);
 
   const t: Task | null = doc?.task ?? null;
-  if (!doc || !t) return null;
-  const p = pipelineOf(t);
-
-  const comments = parseComments(doc.comments_md);
+  const p = t ? pipelineOf(t) : "BACKLOG";  // при t=null сразу вернём null ниже
+  const comments = doc ? parseComments(doc.comments_md) : [];
   const reviewComments = comments.filter((c) => c.author === "reviewer");
   const humanComments = comments.filter((c) => c.author !== "reviewer");
 
+  // ВСЕ хуки — до раннего return: иначе при null→doc меняется их число
+  // и React размонтирует приложение («Rendered more hooks…»)
   const send = useCallback(() => {
     const text = cInputRef.current?.value.trim();
-    if (!text || !t.id) return;
+    if (!text || !t?.id) return;
     const isIntervention = p === "NEEDS_HUMAN" || p === "BLOCKED";
     const isDone = p === "DONE";
     api.comment(t.id, text).then(() => {
@@ -114,11 +114,14 @@ export function TaskPanel({ doc, onClose, onAction }: {
   }, [t, p, onAction]);
 
   const saveDescription = () => {
+    if (!t) return;
     api.editTaskDescription(t.id, descDraft).then(() => {
       setEditing(false);
       onAction();
     });
   };
+
+  if (!doc || !t) return null;
 
   const renderComments = (list: typeof comments) => (
     <div className="md">
@@ -178,7 +181,12 @@ export function TaskPanel({ doc, onClose, onAction }: {
           {/* левая колонка: редактируемое */}
           <div className="sheet-col">
             <div className="sect">
-              <div className="s-title">Описание
+              <div className="s-title">Карточка задачи</div>
+              <div className="md" dangerouslySetInnerHTML={{ __html: md(doc.card_md) }} />
+            </div>
+
+            <div className="sect">
+              <div className="s-title">Описание (краткое, редактируемое)
                 {!editing && (
                   <button className="ghost" style={{ marginLeft: "auto", padding: "0 4px" }}
                     onClick={() => { setDescDraft(t.description || ""); setEditing(true); }}>

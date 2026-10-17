@@ -74,6 +74,13 @@ export const api = {
       body: JSON.stringify(payload),
     }).then((r) => json<{ ok: boolean }>(r)),
 
+  addProject: (name: string, path: string) =>
+    fetch("/api/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, path }),
+    }).then((r) => json<{ ok: boolean; info: string }>(r)),
+
   stewardChat: () =>
     fetch(withFnr("/api/steward/chat")).then((r) =>
       json<{ messages: Array<{ ts: string; author: string; text: string }>; pending: boolean }>(r)),

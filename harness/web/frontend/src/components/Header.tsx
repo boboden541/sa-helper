@@ -13,7 +13,7 @@ function timeAgo(iso?: string): string {
 
 /** Шапка-пульт: лого, селектор Story (обзор внутри), вид, метрики, действия. */
 export function Header({ fnr, stories, projects, activeProject, state, conn = "…",
-  onOpenStory, onOpenProject, onAllStories,
+  onOpenStory, onOpenProject, onAllStories, onAddProject,
   onCreate, onMetrics, view, setView, onFlag }: {
   fnr: string | null;
   stories: Story[];
@@ -24,6 +24,7 @@ export function Header({ fnr, stories, projects, activeProject, state, conn = "�
   onOpenStory: (fnr: string) => void;
   onOpenProject: (name: string) => void;
   onAllStories: () => void;
+  onAddProject: () => void;
   onCreate: () => void;
   onMetrics: () => void;
   view: "board" | "list";
@@ -84,6 +85,9 @@ export function Header({ fnr, stories, projects, activeProject, state, conn = "�
             )}
             <div className="s-item" onClick={() => { onAllStories(); setMenuOpen(false); }}>
               <span className="meta">📊 Обзор всех проектов и Story</span>
+            </div>
+            <div className="s-item" onClick={() => { onAddProject(); setMenuOpen(false); }}>
+              <span className="meta">＋ Добавить проект (путь на компьютере)…</span>
             </div>
             <div className="s-item" onClick={() => { onCreate(); setMenuOpen(false); }}>
               <span className="meta">＋ Новая Story…</span>

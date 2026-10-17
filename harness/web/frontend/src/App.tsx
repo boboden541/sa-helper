@@ -5,6 +5,7 @@ import { Board } from "./components/board/Board";
 import { TaskList } from "./components/board/TaskList";
 import { TaskPanel } from "./components/task/TaskPanel";
 import { CreateModal } from "./components/create/CreateModal";
+import { ProjectModal } from "./components/create/ProjectModal";
 import { Header } from "./components/Header";
 import { MetricsDialog } from "./components/common/MetricsDialog";
 import { OverviewDialog } from "./components/common/OverviewDialog";
@@ -19,6 +20,7 @@ export function App() {
   const [taskDoc, setTaskDoc] = useState<TaskDoc | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [createType, setCreateType] = useState<"story" | "task">("story");
+  const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [metricsOpen, setMetricsOpen] = useState(false);
   const [overviewOpen, setOverviewOpen] = useState(false);
@@ -147,6 +149,7 @@ export function App() {
           else { setFnr(null); setState(null); }
         }}
         onAllStories={() => setOverviewOpen(true)}
+        onAddProject={() => setProjectModalOpen(true)}
         onCreate={() => setCreateOpen(true)} onMetrics={() => setMetricsOpen(true)}
         view={view} setView={setView}
         onFlag={(name, method) => {
@@ -169,6 +172,14 @@ export function App() {
       {createOpen && (
         <CreateModal initialType={createType} onClose={() => setCreateOpen(false)}
           onCreated={reloadAll} stories={stories} preselectedFnr={fnr} />
+      )}
+      {projectModalOpen && (
+        <ProjectModal onClose={() => setProjectModalOpen(false)}
+          onAdded={(name) => {
+            const prj = projects.find((x) => x.name === name);
+            if (prj?.stories[0]) openStory(name, prj.stories[0].fnr);
+            else refresh();
+          }} />
       )}
       {metricsOpen && (
         <MetricsDialog stories={stories} fnr={fnr} onClose={() => setMetricsOpen(false)} />

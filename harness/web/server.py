@@ -620,6 +620,14 @@ class Handler(BaseHTTPRequestHandler):
             (adir / safe).write_bytes(self.rfile.read(length))
             log_event(harness, f"{rest[0]}: вложение добавлено человеком: {safe}")
             self._send(200, b'{"ok":true}', "application/json")
+        elif path == "/api/projects":
+            # POST /api/projects — добавить проект (имя + существующий каталог)
+            body = self._json_body()
+            ok, info = add_project(str(body.get("name") or "").strip(),
+                                   str(body.get("path") or "").strip())
+            self._send(200 if ok else 400,
+                       json.dumps({"ok": ok, "info": info}, ensure_ascii=False)
+                       .encode("utf-8"), "application/json")
         elif path == "/api/steward/message":
             body = self._json_body()
             msg = str(body.get("text") or "").strip()
