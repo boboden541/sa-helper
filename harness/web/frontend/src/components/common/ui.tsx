@@ -49,9 +49,8 @@ export function md(src: string | null | undefined): string {
     const h = line.match(/^(#{1,4})\s+(.*)$/);
     if (h) { flushList(); html += `<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`; i++; continue; }
     if (/^---+$/.test(line.trim())) { flushList(); html += "<hr>"; i++; continue; }
-    const chk = line.match(/^\s*-\s+\[( |~|x)\]\s*(.*)$/);
+    const chk = line.match(/^\s*-\s+\[( |~|x|r|b|f)\]\s*(.*)$/);
     if (chk) {
-      flushList();
       const cls = chk[1] === "x" ? "done" : chk[1] === "~" ? "wip" : "todo";
       const glyph = chk[1] === "x" ? "✓" : chk[1] === "~" ? "⟳" : "☐";
       html += `<div class="clk-item ${cls}"><span class="box">${glyph}</span><span>${inline(chk[2])}</span></div>`;
@@ -148,7 +147,7 @@ export function ChecklistView({ sections }: { sections: ChecklistSection[] }) {
             <div className={`clk-item ${it.state}`} key={i}>
               <span className="box">{it.state === "done" ? "✓" : it.state === "wip" ? "⟳" : ""}</span>
               <span>{it.text}</span>
-              <span className="st">{it.state}</span>
+              <span className={`st ${it.state}`}>{it.state}</span>
             </div>
           ))}
         </div>

@@ -242,7 +242,8 @@ def list_stories(workspace: Path) -> list[dict]:
 
 CHECKBOX_RE = re.compile(r"^\s*-\s+\[( |~|x)\]\s*(.*)$", re.MULTILINE)
 SECTION_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
-STATE_NAMES = {" ": "todo", "~": "wip", "x": "done"}
+STATE_NAMES = {" ": "todo", "~": "inprog", "x": "done",
+               "r": "review", "b": "blocked", "f": "failed"}
 
 
 def parse_checklist_sections(card_md: str) -> list[dict]:
@@ -276,7 +277,8 @@ def parse_checklist_sections(card_md: str) -> list[dict]:
             last_item["text"] += " " + line.strip()
     for s in sections:
         s["done"] = sum(1 for i in s["items"] if i["state"] == "done")
-        s["wip"] = sum(1 for i in s["items"] if i["state"] == "wip")
+        s["wip"] = sum(1 for i in s["items"]
+                       if i["state"] in ("inprog", "review", "blocked", "failed"))
         s["total"] = len(s["items"])
     return sections
 

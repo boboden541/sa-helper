@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Макет v3 — единая карта статусов, чек-лист со статусами, Обсуждение последним</title>
+<style>
+  :root, [data-theme="dark"] {
+    --bg: #0d1117; --surface: #161b22; --surface2: #1b222b;
+    --line: #232b34; --line2: #2f3944;
+    --text: #d9e1ea; --dim: #8b96a5; --faint: #55606d;
+    --acc: #58a6ff; --ok: #3fb950; --warn: #d29922; --bad: #f85149;
+    --mono: ui-monospace, "JetBrains Mono", Menlo, monospace;
+  }
+  [data-theme="light"] {
+    --bg: #f4f6f9; --surface: #ffffff; --surface2: #f6f8fa;
+    --line: #e2e7ee; --line2: #d3dae3;
+    --text: #1c2430; --dim: #5d6878; --faint: #9aa4b2;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.55 -apple-system, "Segoe UI", Roboto, sans-serif; min-height: 100vh; }
+  button { font: inherit; color: inherit; background: var(--surface2);
+    border: 1px solid var(--line2); border-radius: 8px; padding: 7px 13px; cursor: pointer; }
+  button:hover { border-color: var(--acc); }
+  button.primary { background: var(--acc); border-color: var(--acc); color: #fff; font-weight: 650; }
+  .meta { color: var(--dim); font-size: 12.5px; }
+  .mono { font-family: var(--mono), monospace; }
+  .spacer { flex: 1; }
+  .hintbar { background: linear-gradient(90deg,#1c2430,#161b22); color: #cfd8e3;
+    padding: 7px 16px; text-align: center; font: 12px var(--mono), monospace; }
+  .hintbar b { color: #9be29b; }
+
+  header { display: flex; gap: 10px; align-items: center; padding: 9px 18px;
+    background: var(--surface); border-bottom: 1px solid var(--line); }
+  .logo { color: var(--ok); font-family: var(--mono), monospace; font-weight: 700; }
+  .sel { background: var(--surface2); border: 1px solid var(--line2);
+    border-radius: 8px; padding: 6px 12px; font: 12.5px var(--mono), monospace; }
+  .seg { display: flex; border: 1px solid var(--line2); border-radius: 7px; overflow: hidden; }
+  .seg span { padding: 5px 11px; font: 11px var(--mono), monospace; color: var(--faint); }
+  .seg span.on { background: var(--surface2); color: var(--text); }
+
+  .filters { display: flex; gap: 8px; align-items: center; margin: 12px 18px 0;
+    padding: 7px 12px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--surface); }
+  .mlabel { font: 10.5px var(--mono), monospace; text-transform: uppercase;
+    letter-spacing: 1.2px; color: var(--faint); }
+  .fchip { font: 11px var(--mono), monospace; padding: 3px 10px; border-radius: 4px;
+    border: 1px solid var(--line2); background: none; color: var(--dim); }
+  .fchip.on { border-color: var(--acc); color: var(--acc); }
+
+  .board { display: flex; gap: 13px; padding: 14px 18px 30px; overflow: hidden;
+    filter: blur(2px) saturate(.7); opacity: .55; }
+  .col { min-width: 250px; flex: 1; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 12px; padding: 11px; }
+  .col-h { display: flex; gap: 8px; align-items: center; margin-bottom: 2px; }
+  .col-h .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .col-h .name { font: 650 12.5px var(--mono), monospace; }
+  .col-h .n { margin-left: auto; font: 11px var(--mono), monospace; color: var(--faint); }
+  .cmode { display: inline-block; font: 10px var(--mono), monospace; text-transform: uppercase;
+    letter-spacing: .6px; padding: 2px 7px; border-radius: 3px; border: 1px solid;
+    margin: 4px 2px 9px; }
+  .cmode.ai { color: var(--warn); border-color: var(--warn); }
+  .kcard { background: var(--surface2); border: 1px solid var(--line);
+    border-left: 3px solid var(--line2); border-radius: 9px; padding: 10px 12px;
+    margin-bottom: 9px; }
+  .kcard .kt { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+  .kcard .tags { display: flex; gap: 4px; }
+  .tag { font: 10px var(--mono), monospace; color: var(--faint);
+    border: 1px solid var(--line2); border-radius: 4px; padding: 1px 6px; }
+
+  /* ═══ side-page ═══ */
+  .dim { display: none; position: fixed; inset: 0; background: rgba(3,6,10,.55); z-index: 20; }
+  .dim.open { display: block; }
+  .sheet { position: fixed; top: 0; right: 0; bottom: 0; z-index: 21;
+    width: min(760px, 96vw); min-width: 460px;
+    background: var(--surface); border-left: 1px solid var(--line2);
+    display: flex; flex-direction: column; box-shadow: -14px 0 40px rgba(0,0,0,.35); }
+  .rsz { position: absolute; left: -3px; top: 0; bottom: 0; width: 8px;
+    cursor: col-resize; z-index: 3; }
+  .sh-head { padding: 16px 26px 12px; border-bottom: 1px solid var(--line); }
+  .crumb { font: 11.5px var(--mono), monospace; color: var(--faint); margin-bottom: 8px; }
+  .r1 { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .bignum { font: 700 15px var(--mono), monospace; color: var(--acc); }
+  .stbig { display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
+    border: 1px solid var(--warn); color: var(--warn);
+    background: rgba(210,153,34,.08); border-radius: 999px; padding: 6px 15px;
+    font: 650 13px inherit; }
+  .sh-head h1 { font-size: 19px; margin: 10px 0 8px; font-weight: 650; }
+  .usage { display: flex; gap: 14px; font: 12px var(--mono), monospace;
+    color: var(--faint); flex-wrap: wrap; }
+  .actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .more-wrap { position: relative; }
+  .more-menu { position: absolute; right: 0; top: calc(100% + 6px); width: 260px;
+    background: var(--surface2); border: 1px solid var(--line2); border-radius: 10px;
+    z-index: 30; box-shadow: 0 12px 30px rgba(0,0,0,.4); overflow: hidden; }
+  .more-menu div { padding: 9px 14px; cursor: pointer; font-size: 13px;
+    border-bottom: 1px solid var(--line); }
+  .more-menu div:last-child { border-bottom: 0; }
+  .more-menu div:hover { background: var(--surface); }
+  .sh-body { flex: 1; overflow-y: auto; padding: 0 26px 0; }
+
+  /* ═══ блок причины: динамически расширяемый, симметричные отступы ═══ */
+  .alert { margin: 14px 0 16px; border: 1.5px solid var(--warn);
+    border-radius: 14px; background: rgba(210,153,34,.05); }
+  [data-theme="light"] .alert { background: #fff9ec; }
+  .alert .a-head { padding: 13px 18px 2px; }
+  .alert .a-head .t { color: var(--warn); font-weight: 700; font-size: 14.5px; }
+  .alert .a-body { padding: 6px 18px 16px; }
+  .a-cause .step { display: flex; gap: 8px; margin: 4px 0; font-size: 13.5px; }
+  .a-cause .step::before { content: "→"; color: var(--warn); font-weight: 700; }
+  .a-sep { border: 0; border-top: 1px solid rgba(210,153,34,.3); margin: 10px 0; }
+  .a-opt-t { font-weight: 650; margin-bottom: 8px; }
+  .a-opt { display: flex; gap: 12px; align-items: flex-start;
+    border: 1px solid var(--line2); border-radius: 10px; padding: 10px 13px;
+    margin: 7px 0; cursor: pointer; background: var(--surface); }
+  .a-opt:hover { border-color: var(--acc); }
+  .a-opt.rec { border-color: var(--ok); background: rgba(63,185,80,.05); }
+  .a-opt .num { flex-shrink: 0; width: 25px; height: 25px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--surface2); font: 700 12.5px var(--mono), monospace; }
+  .a-opt.rec .num { background: var(--ok); color: #fff; }
+  .a-opt .ot { font-weight: 650; font-size: 13.5px; }
+  .a-opt .oe { color: var(--dim); font-size: 12.5px; margin-top: 1px; }
+  .a-opt .orec { font: 700 10px var(--mono), monospace; color: var(--ok);
+    text-transform: uppercase; letter-spacing: .5px; margin-left: 8px; }
+  .a-hint { font-size: 12px; color: var(--dim); margin-top: 8px; }
+
+  /* карта переходов в блоке (компактная ссылка-строка) */
+  .flow-link { font-size: 12.5px; color: var(--acc); cursor: pointer;
+    text-decoration: underline dotted; }
+  .flow-link:hover { color: var(--text); }
+
+  /* ═══ секции ═══ */
+  .sections { padding: 2px 26px 26px; }
+  .sect { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 11px; }
+  .sect-h { display: flex; align-items: center; gap: 10px; cursor: pointer;
+    user-select: none; }
+  .sect-h .t { font-weight: 650; font-size: 15.5px; }
+  .sect-h .cnt { font: 600 11px var(--mono), monospace; color: var(--acc);
+    background: rgba(88,166,255,.1); border-radius: 999px; padding: 2px 9px; }
+  .sect-h .tog { margin-left: auto; color: var(--faint); font-size: 12px; }
+  .sect-b { padding: 4px 2px 8px; }
+  .sect.collapsed .sect-b { display: none; }
+  .caret { display: inline-block; margin-right: 4px; }
+  .sect.collapsed .caret { transform: rotate(-90deg); }
+
+  .post h3 { font-size: 13.5px; margin: 12px 0 4px; }
+  .post ul { margin: 6px 0; padding-left: 20px; }
+  .post li { margin: 3px 0; }
+  .ac { font-family: var(--mono), monospace; font-size: 12.5px; color: var(--acc); }
+  .src { color: var(--faint); font-size: 12px; margin-top: 12px;
+    border-top: 1px dashed var(--line); padding-top: 8px; }
+
+  /* ═══ чек-лист: пункт = чекбокс + этап + статус ═══ */
+  .check { display: flex; gap: 10px; padding: 6px 0; align-items: center;
+    border-bottom: 1px solid var(--line); }
+  .check:last-child { border-bottom: 0; }
+  .check .box { flex-shrink: 0; width: 22px; height: 22px; line-height: 20px;
+    text-align: center; border-radius: 6px; border: 1px solid var(--line2);
+    background: var(--surface2); font-size: 12px; }
+  .check .txt { flex: 1; font-size: 13.5px; }
+  .check.done .txt { color: var(--dim); }
+  .st { font: 650 10px var(--mono), monospace; text-transform: uppercase;
+    letter-spacing: .6px; padding: 2px 9px; border-radius: 999px; border: 1px solid; }
+  .st.todo { color: var(--faint); border-color: var(--line2); }
+  .st.inprog { color: var(--acc); border-color: var(--acc); }
+  .st.review { color: var(--acc); border-color: var(--acc); background: rgba(88,166,255,.07); }
+  .st.done { color: var(--ok); border-color: var(--ok); }
+  .st.block { color: var(--acc); border-color: var(--acc); }
+  .st.failed { color: var(--bad); border-color: var(--bad); }
+
+  .sess { margin-top: 12px; padding: 11px 14px; border-radius: 10px;
+    background: var(--surface2); border: 1px solid var(--line); font-size: 13.5px; }
+  .sess .l { color: var(--dim); font-size: 11px; font-family: var(--mono), monospace;
+    text-transform: uppercase; letter-spacing: .8px; margin-bottom: 4px; }
+
+  /* ═══ обсуждение: последний, всегда раскрыт, явно выделен ═══ */
+  .discuss { margin-top: 18px; border: 1.5px solid var(--acc); border-radius: 14px;
+    background: rgba(88,166,255,.04); overflow: hidden; }
+  [data-theme="light"] .discuss { background: #f6f9ff; }
+  .discuss .d-head { padding: 11px 16px 2px; }
+  .discuss .d-head .t { font-weight: 700; font-size: 15px; color: var(--acc); }
+  .discuss .d-head .s { color: var(--dim); font-size: 12.5px; margin-top: 2px; }
+  .discuss .d-list { padding: 8px 16px 4px; }
+  .cmt { border-left: 2px solid var(--acc); padding: 5px 12px; margin: 7px 0;
+    background: rgba(88,166,255,.04); }
+  .cmt .who { font: 11px var(--mono), monospace; color: var(--dim); margin-bottom: 2px; }
+  .cmt.human { border-color: var(--ok); background: rgba(63,185,80,.05); }
+  .discuss .d-input { display: flex; gap: 8px; padding: 10px 16px 14px;
+    border-top: 1px solid var(--line); }
+  .discuss .d-input input { flex: 1; background: var(--chip, var(--surface2));
+    color: var(--text); border: 1px solid var(--line2); border-radius: 8px;
+    padding: 9px 12px; font: inherit; }
+
+  /* ═══ единая карта статусов (поповер) ═══ */
+  .flowpop { position: fixed; z-index: 40; width: 640px;
+    background: var(--surface); border: 1px solid var(--line2); border-radius: 14px;
+    box-shadow: 0 16px 44px rgba(0,0,0,.45); padding: 14px 18px 8px; }
+  .flowpop .ft { font: 650 11px var(--mono), monospace; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--faint); margin-bottom: 4px; }
+  .legend { display: flex; gap: 16px; font-size: 11.5px; color: var(--dim);
+    margin-top: 2px; flex-wrap: wrap; }
+  .legend .l-acc { color: var(--acc); }
+  .legend .l-dim { color: var(--faint); }
+</style>
+</head>
+<body>
+<div class="hintbar">макет v3 · единая карта статусов · чек-лист со статусами пунктов ·
+  «Обсуждение» — последний, всегда раскрыт · <b id="tl">тёмная тема</b> (☀/🌙 в шапке)</div>
+
+<header>
+  <span class="logo">{">"}</span>
+  <span class="sel">📋 vitrina ▾</span>
+  <span class="meta">/ FNR_8</span>
+  <span class="spacer"></span>
+  <span class="mono">⌘K</span>
+  <div class="seg"><span class="on">KANBAN</span><span>LIST</span></div>
+  <button onclick="toggleTheme()" id="tb">🌙</button>
+  <button>📊 METRICS</button>
+  <button>🔔</button>
+  <button class="primary">+ Создать</button>
+</header>
+
+<div class="filters">
+  <span class="mlabel">Фильтры</span>
+  <span class="fchip on">в работе</span>
+  <span class="fchip">блок</span>
+  <span class="fchip">ручные</span>
+  <span class="fchip">закрытые</span>
+  <span class="spacer"></span>
+  <span class="fchip">поиск…</span>
+</div>
+
+<div class="board">
+  <div class="col">
+    <div class="col-h"><span class="dot" style="background:var(--faint)"></span>
+      <span class="name">Бэклог</span><span class="n">4</span></div>
+    <span class="cmode hum">Human controlled</span>
+    <div class="kcard"><div class="kt">Синхронизация статусов публикации</div>
+      <div class="tags"><span class="tag">T7</span></div></div>
+  </div>
+  <div class="col">
+    <div class="col-h"><span class="dot" style="background:var(--purple)"></span>
+      <span class="name">В работе</span><span class="n">1</span></div>
+    <span class="cmode ai">AI controlled</span>
+    <div class="kcard" style="border-left-color: var(--purple)">
+      <div class="kt">Доверенный API: обработчик 403</div>
+      <div class="tags"><span class="tag">T6</span>
+        <span class="tag" style="color:var(--ok)">⟳ работает</span></div></div>
+  </div>
+  <div class="col">
+    <div class="col-h"><span class="dot" style="background:var(--pink)"></span>
+      <span class="name">Ревью</span><span class="n">2</span></div>
+    <span class="cmode ai">AI controlled</span>
+    <div class="kcard" style="border-left-color: var(--pink)">
+      <div class="kt">Контроллер публикации каталога</div>
+      <div class="tags"><span class="tag">T7</span></div></div>
+  </div>
+  <div class="col">
+    <div class="col-h"><span class="dot" style="background:var(--ok)"></span>
+      <span class="name">Готовы</span><span class="n">3</span></div>
+    <span class="cmode dec">Human decision</span>
+    <div class="kcard" style="border-left-color: var(--ok)">
+      <div class="kt">Доверенный сервисный API (ядро)</div>
+      <div class="tags"><span class="tag">T6</span></div></div>
+  </div>
+</div>
+
+<!-- ═══ side-page ═══ -->
+<div class="dim open"></div>
+<div class="sheet" id="sheet">
+  <div class="rsz" id="rsz"></div>
+  <div class="sh-head">
+    <div class="crumb">vitrina / FNR_8 / T5</div>
+    <div class="r1">
+      <span class="bignum">T5</span>
+      <span class="stbig" onclick="toggleFlow(event)"
+        title="Нажмите — единая карта возможных переходов">⏸ Нужен человек ▾</span>
+      <span class="meta">ticketscloud</span>
+      <span class="actions">
+        <button class="primary">▶ Вернуть в работу</button>
+        <button class="more-wrap" onclick="toggleMore(event)">Ещё ▾</button>
+        <button onclick="closeSheet()" style="border:0;background:none">✕</button>
+      </span>
+    </div>
+    <h1>Доверенный сервисный API публикации каталога (ядро)</h1>
+    <div class="usage">
+      <span>🪙 26,5 млн токенов</span><span>$16.40</span><span>1 сессия</span>
+      <span>ветка: harness/FNR-8-core-t5</span><span>чек-лист: 2/3</span>
+    </div>
+    <div class="more-menu" id="more-menu" style="display:none; position: absolute;
+      right: 26px; top: 118px;">
+      <div onclick="alert('таймлайн — вкладка История')">🕘 История (таймлайн событий)</div>
+      <div onclick="alert('хроники сессий — вкладка Лог')">📜 Хроники сессий</div>
+      <div onclick="alert('вложения — секция слева/ниже')">📎 Вложения</div>
+      <div onclick="alert('скопировано: harness/FNR-8-core-t5')">⧉ Скопировать ветку</div>
+      <div onclick="alert('экспорт карточки в markdown')">⇩ Экспорт карточки</div>
+    </div>
+  </div>
+
+  <div class="sh-body">
+    <!-- ═══ блок причины: расширяемый, симметричные отступы ═══ -->
+    <div class="alert">
+      <div class="a-head">
+        <div class="t">⏸ Почему задача остановлена</div>
+      </div>
+      <div class="a-body">
+        <div class="a-cause">
+          <div class="step">Сессия доработки трижды падала на одном и том же шаге</div>
+          <div class="step">Последняя попытка (18 мин): «PublishResponseHandlerTest падает —
+            в ответе 403 тело перезаписывается глобальным обработчиком ошибок»</div>
+          <div class="step">Ревью отмечало 2 существенных замечания — они не закрыты</div>
+          <div class="step">Лимит перезапусков (3) исчерпан — конвейер ждёт решения</div>
+        </div>
+        <hr class="a-sep">
+        <div class="a-opt-t">Steward предлагает варианты — выберите один или напишите свой</div>
+        <div class="a-opt rec">
+          <span class="num">1</span>
+          <span style="flex:1">
+            <span class="ot">Вернуть в работу — с подсказкой в карточку</span>
+            <span class="orec">рекомендую</span>
+            <div class="oe">Конфликт известен: глобальный error-view перехватывает 403.
+              В карточку добавится подсказка «исключить маршрут из обработчика».</div>
+          </span>
+        </div>
+        <div class="a-opt">
+          <span class="num">2</span>
+          <span style="flex:1">
+            <span class="ot">Принять как есть (без ревью)</span>
+            <div class="oe">Уйдёт в «Готовы» с открытым замечанием — риск в коде.</div>
+          </span>
+        </div>
+        <div class="a-opt">
+          <span class="num">3</span>
+          <span style="flex:1">
+            <span class="ot">Остановить задачу</span>
+            <div class="oe">Снять с конвейера; вернуть можно из бэклога.</div>
+          </span>
+        </div>
+        <div class="a-hint">Не подошло — напишите свободный текст в «Обсуждении»
+          (внизу страницы), Steward выполнит его как поручение. ·
+          <span class="flow-link" onclick="toggleFlow(event)">Единая карта статусов ↗</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- постановка: первый обычный раздел -->
+    <div class="sect">
+      <div class="sect-h" onclick="tog(this.parentElement)">
+        <span class="caret">▾</span><span class="t">Постановка</span>
+        <span class="cnt">полная, из СТ</span><span class="tog">свернуть</span>
+      </div>
+      <div class="sect-b post">
+        <h3>Контекст</h3>
+        <p>Публикация каталога из ticketscloud в ядро идёт через доверенный сервисный API.
+          Ответ при ошибках авторизации перезаписывается глобальным обработчиком —
+          потребители не различают «нет прав» и «сбой».</p>
+        <h3>Что сделать</h3>
+        <ul>
+          <li>Исключить маршруты публикации из error-view; доменная ошибка 403
+            с телом <span class="ac">{code, message}</span></li>
+          <li>Повторная публикация без дубликатов (reseal без insert)</li>
+          <li>Обрезка сообщений до 512 символов на входе</li>
+        </ul>
+        <h3>Критерии приёмки</h3>
+        <ul>
+          <li><span class="ac">AC-4.2.3.1</span> — 403 возвращает доменное тело
+            (<span class="ac">MessageTruncatesForeignInput</span>)</li>
+          <li><span class="ac">AC-4.2.3.2</span> — повторная публикация без дубликатов</li>
+        </ul>
+        <div class="src">Источник: system_requirements_concept_f.md, задача 4.2.3 ·
+          карточка: tasks/T5_4-3-1.md</div>
+      </div>
+    </div>
+
+    <!-- чек-лист: пункт = чекбокс + этап + статус -->
+    <div class="sect">
+      <div class="sect-h" onclick="tog(this.parentElement)">
+        <span class="caret">▾</span><span class="t">Чек-лист</span>
+        <span class="cnt">2/3</span><span class="tog">свернуть</span>
+      </div>
+      <div class="sect-b">
+        <div class="check done">
+          <span class="box">✓</span><span class="txt">Миграция реестра публикации (V2)</span>
+          <span class="st done">Done</span>
+        </div>
+        <div class="check">
+          <span class="box"></span><span class="txt">Обработчик 403 — доменная ошибка
+            вместо глобального error-view</span>
+          <span class="st block">Blocked</span>
+        </div>
+        <div class="check">
+          <span class="box"></span><span class="txt">Повторная публикация без дубликатов —
+            тест падает (см. причину)</span>
+          <span class="st failed">Failed</span>
+        </div>
+        <div class="check">
+          <span class="box"></span><span class="txt">Обрезка сообщений до 512 символов</span>
+          <span class="st todo">Todo</span>
+        </div>
+        <div class="sess">
+          <div class="l">итог последней сессии · 18 мин</div>
+          Доработка iteration 2: AC-4.2.3.1 закрыт (6 тестов на живом PG);
+          обработчик 403 — Blocked (глобальный error-view);
+          повторная публикация — Failed (тест падает).
+        </div>
+      </div>
+    </div>
+
+    <div class="sect collapsed">
+      <div class="sect-h" onclick="tog(this.parentElement)">
+        <span class="caret">▸</span><span class="t">Ревью</span>
+        <span class="cnt">2 существенно · 5 nit</span><span class="tog">развернуть</span>
+      </div>
+      <div class="sect-b post">
+        <p><b>Ревью №1:</b> CHANGES_REQUESTED</p>
+        <ul>
+          <li>403-ответ перезаписывается глобальным обработчиком — <i>существенно</i></li>
+          <li>Повторная публикация создаёт дубликаты — <i>существенно</i></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="sect collapsed">
+      <div class="sect-h" onclick="tog(this.parentElement)">
+        <span class="caret">▸</span><span class="t">Хроники</span>
+        <span class="tog">развернуть</span>
+      </div>
+      <div class="sect-b post">
+        <p><i>Лог реализации (хроника сессии) · История (таймлайн переходов).</i></p>
+      </div>
+    </div>
+
+    <div class="sect collapsed">
+      <div class="sect-h" onclick="tog(this.parentElement)">
+        <span class="caret">▸</span><span class="t">Мета</span>
+        <span class="tog">развернуть</span>
+      </div>
+      <div class="sect-b post">
+        <p style="font-family: var(--mono); font-size: 12px; color: var(--dim);">
+          система: ticketscloud · ветка: harness/FNR-8-core-t5 · worktree:
+          .worktrees/FNR-8-t5 · origin: plan · steward-сессия: ce00e3ed…</p>
+      </div>
+    </div>
+
+    <!-- обсуждение: последний, всегда раскрыт, выделен -->
+    <div class="discuss">
+      <div class="d-head">
+        <div class="t">💬 Обсуждение</div>
+        <div class="s">Человек, Steward, агенты, демон. Свободный текст при блокировке
+          = четвёртый вариант действий — Steward выполнит его как поручение.</div>
+      </div>
+      <div class="d-list">
+        <div class="cmt"><div class="who">2026-10-17 01:49 · reviewer</div>
+          CHANGES_REQUESTED: 403 перезаписывается глобальным обработчиком — существенно</div>
+        <div class="cmt human"><div class="who">2026-10-17 02:20 · human</div>
+          Сначала почини 403, потом дубликаты. Отчёт — сюда.</div>
+        <div class="cmt"><div class="who">2026-10-17 02:41 · agent</div>
+          Принято. Обработчик изолирован, тест на доменное тело добавлен —
+          красным остаётся только повторная публикация.</div>
+      </div>
+      <div class="d-input">
+        <input placeholder="Напишите Steward или команде…" />
+        <button class="primary">Отправить</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ единая карта статусов ═══ -->
+<div class="flowpop" id="flowpop" style="display:none;">
+  <div class="ft">Карта статусов — единая схема возможных переходов</div>
+  <svg width="600" height="240" viewBox="0 0 600 240"
+    font-family="ui-monospace,Menlo,monospace" font-size="11.5">
+    <defs>
+      <marker id="ah" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+        <polygon points="0 0, 8 4, 0 8" fill="var(--acc)"/>
+      </marker>
+      <marker id="ahg" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+        <polygon points="0 0, 8 4, 0 8" fill="var(--faint)"/>
+      </marker>
+    </defs>
+    <!-- главный поток -->
+    <g text-anchor="middle">
+      <rect x="12"  y="30" width="86" height="34" rx="8" fill="none" stroke="var(--faint)" stroke-dasharray="4 3"/>
+      <text x="55"  y="51" fill="var(--faint)">Предложены</text>
+      <line x1="100" y1="47" x2="126" y2="47" stroke="var(--faint)" stroke-dasharray="4 3" marker-end="url(#ahg)"/>
+      <rect x="130" y="30" width="80" height="34" rx="8" fill="none" stroke="var(--line2)"/>
+      <text x="170" y="51" fill="var(--text)">Бэклог</text>
+      <line x1="212" y1="47" x2="238" y2="47" stroke="var(--acc)" stroke-width="1.6" marker-end="url(#ah)"/>
+      <rect x="242" y="30" width="82" height="34" rx="8" fill="none" stroke="var(--line2)"/>
+      <text x="283" y="51" fill="var(--text)">Готовы</text>
+      <line x1="326" y1="47" x2="352" y2="47" stroke="var(--acc)" stroke-width="1.6" marker-end="url(#ah)"/>
+      <rect x="356" y="30" width="92" height="34" rx="8" fill="rgba(88,166,255,.08)" stroke="var(--acc)" stroke-width="1.6"/>
+      <text x="402" y="51" fill="var(--acc)">В работе</text>
+      <line x1="450" y1="47" x2="476" y2="47" stroke="var(--acc)" stroke-width="1.6" marker-end="url(#ah)"/>
+      <rect x="480" y="30" width="76" height="34" rx="8" fill="none" stroke="var(--line2)"/>
+      <text x="518" y="51" fill="var(--text)">Ревью</text>
+      <line x1="558" y1="47" x2="584" y2="47" stroke="var(--acc)" stroke-width="1.6" marker-end="url(#ah)"/>
+      <rect x="480" y="110" width="76" height="34" rx="8" fill="none" stroke="var(--line2)"/>
+      <text x="518" y="131" fill="var(--text)">Готовы</text>
+      <line x1="518" y1="64" x2="518" y2="106" stroke="var(--acc)" stroke-width="1.6" marker-end="url(#ah)"/>
+      <rect x="480" y="190" width="76" height="34" rx="8" fill="none" stroke="var(--line2)"/>
+      <text x="518" y="211" fill="var(--text)">Проверены</text>
+      <line x1="518" y1="144" x2="518" y2="186" stroke="var(--acc)" stroke-width="1.6" marker-end="url(#ah)"/>
+      <!-- Блок / Нужен человек: под «В работе» -->
+      <rect x="330" y="150" width="180" height="40" rx="9" fill="rgba(210,153,34,.08)"
+        stroke="var(--warn)" stroke-width="1.8"/>
+      <text x="420" y="167" fill="var(--warn)" font-weight="700">Блок / Нужен человек</text>
+      <text x="420" y="181" fill="var(--warn)" font-size="9.5">(retry · force · abort)</text>
+      <!-- стрелки вокруг Блока -->
+      <line x1="402" y1="64" x2="402" y2="146" stroke="var(--acc)" stroke-width="1.6" marker-end="url(#ah)"/>
+      <text x="412" y="105" fill="var(--acc)" font-size="10">блокировка</text>
+      <path d="M 396 146 Q 380 110 390 66" fill="none" stroke="var(--acc)"
+        stroke-width="1.6" marker-end="url(#ah)"/>
+      <text x="330" y="105" fill="var(--acc)" font-size="10">retry</text>
+      <path d="M 476 145 Q 440 175 424 168" fill="none" stroke="var(--faint)"
+        stroke-dasharray="4 3" marker-end="url(#ahg)"/>
+      <text x="446" y="182" fill="var(--faint)" font-size="10">stalled</text>
+    </g>
+    <div class="legend">
+      <span class="l-acc">сплошное — допустимый переход</span>
+      <span class="l-dim">пунктир — сейчас недоступен</span>
+      <span>подсвечено текущее положение задачи</span>
+    </div>
+  </svg>
+  <div class="legend" style="padding: 4px 18px 10px;">
+    <span class="l-acc">— допустимый переход</span>
+    <span class="l-dim">- - недоступен сейчас</span>
+    <span>подсвеченный контур — где задача сейчас</span>
+  </div>
+</div>
+
+<script>
+  function tog(sect) { sect.classList.toggle("collapsed"); }
+  function toggleTheme() {
+    const cur = document.documentElement.dataset.theme;
+    const next = cur === "dark" ? "light" : "dark";
+    document.documentElement.dataset.theme = next;
+    document.getElementById("tb").textContent = next === "dark" ? "🌙" : "☀";
+    document.getElementById("tl").textContent = next === "dark" ? "тёмная тема" : "светлая тема";
+  }
+  function toggleMore(e) {
+    e.stopPropagation();
+    const m = document.getElementById("more-menu");
+    m.style.display = m.style.display === "none" ? "block" : "none";
+  }
+  function toggleFlow(e) {
+    e.stopPropagation();
+    const f = document.getElementById("flowpop");
+    const r = e.target.getBoundingClientRect();
+    f.style.left = Math.max(8, Math.min(window.innerWidth - 660, r.left - 40)) + "px";
+    f.style.top = Math.max(8, r.bottom + 8) + "px";
+    f.style.display = f.style.display === "none" ? "block" : "none";
+  }
+  document.addEventListener("click", () => {
+    document.getElementById("more-menu").style.display = "none";
+    document.getElementById("flowpop").style.display = "none";
+  });
+  const sheet = document.getElementById("sheet");
+  const rsz = document.getElementById("rsz");
+  let rOn = false;
+  rsz.addEventListener("mousedown", () => { rOn = true; document.body.style.cursor = "col-resize"; });
+  window.addEventListener("mousemove", (e) => {
+    if (!rOn) return;
+    sheet.style.width = Math.min(window.innerWidth - 24,
+      Math.max(460, window.innerWidth - e.clientX)) + "px";
+  });
+  window.addEventListener("mouseup", () => { rOn = false; document.body.style.cursor = ""; });
+</script>
+</body>
+</html>
