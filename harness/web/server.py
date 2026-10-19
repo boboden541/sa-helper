@@ -240,7 +240,7 @@ def list_stories(workspace: Path) -> list[dict]:
 
 
 
-CHECKBOX_RE = re.compile(r"^\s*-\s+\[( |~|x)\]\s*(.*)$", re.MULTILINE)
+CHECKBOX_RE = re.compile(r"^\s*-\s+\[( |~|x|r|b|f)\]\s*(.*)$", re.MULTILINE)
 SECTION_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
 STATE_NAMES = {" ": "todo", "~": "inprog", "x": "done",
                "r": "review", "b": "blocked", "f": "failed"}
@@ -264,7 +264,7 @@ def parse_checklist_sections(card_md: str) -> list[dict]:
             last_item = None
             pending_title = head.group(1)
             continue
-        box = re.match(r"^\s*-\s+\[( |~|x)\]\s*(.*)$", line)
+        box = re.match(r"^\s*-\s+\[( |~|x|r|b|f)\]\s*(.*)$", line)
         if box:
             if current is None:
                 current = {"title": pending_title, "items": []}
