@@ -35,7 +35,6 @@ import db as dbmod  # noqa: E402
 
 WEB_DIR = Path(__file__).resolve().parent
 DIST_DIR = WEB_DIR / "frontend" / "dist"
-CLASSIC_HTML = WEB_DIR / "classic" / "index.html"
 
 STATIC_TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript",
                 ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png",
@@ -420,17 +419,10 @@ class Handler(BaseHTTPRequestHandler):
             index = DIST_DIR / "index.html"
             if index.is_file():
                 self._send(200, index.read_bytes(), "text/html; charset=utf-8")
-            elif CLASSIC_HTML.is_file():
-                self._send(200, CLASSIC_HTML.read_bytes(), "text/html; charset=utf-8")
             else:
                 self._send(200, b"<h1>Frontend not built</h1>"
                                 b"<p>cd frontend &amp;&amp; npm ci &amp;&amp; npm run build</p>",
                            "text/html; charset=utf-8")
-        elif path == "/classic":
-            if CLASSIC_HTML.is_file():
-                self._send(200, CLASSIC_HTML.read_bytes(), "text/html; charset=utf-8")
-            else:
-                self._send(404, b"no classic ui", "text/html; charset=utf-8")
         elif path.startswith("/assets/") and self._serve_static(path.lstrip("/")):
             return
         elif path == "/favicon.ico" and self._serve_static("favicon.ico"):

@@ -284,10 +284,10 @@ flowchart TD
 |---|---|---|---|
 | `/impl-bootstrap` | Разведчик окружения | До всяких правок: собирает ли проект, проходят ли тесты, какие ловушки (VPN, версии, сокеты). Честный baseline | `bootstrap_report`, `workspaces.yaml` |
 | `/impl-handoff` | Вход конвейера | Машиночитаемая проверка СТ (FR-ID, критерии, системы) → досье → план-заявка в конвейер | Story готова к автономной работе |
-| `/impl-plan` | Планировщик | Разложение СТ на атомарные задачи с DAG-зависимостями и фазами (контракт → producers → consumers) | `dossier.md`, `execution_plan.md`, карточки |
-| `/impl-run` | **Исполнитель** | TDD-цикл: RED (тесты падают честно) → GREEN (минимальный код) → гейты → коммит. Circuit breaker: 4 итерации — иначе эскалация | Коммит `[FNR-N/Tk]` в worktree |
-| `/impl-review` | **Ревьюер-критик** | Независимая сессия по рубрике 6 осей: трассируемость, только `файл:строка`, вердикт с машиночитаемым блоком | `reviews/T<k>_review.md` |
-| `/impl-verify` | Верификатор | Сквозные прогоны всех затронутых систем, контрактные проверки, метрики | `verification_report.md`, PR-заготовка |
+| `/impl-plan` | Планирование | Шлюз пробелов входного СТ (gap-report → STOP), досье (срез кода, Golden Reference), DAG задач с фазами contract/producer/consumer, карточки и Story — в БД через `sahelper` | БД: stories/tasks/cards/documents; валидация `sahelper validate` |
+| `/impl-run` | Исполнитель | TDD-цикл в git worktree: RED-гейт (фиктивные тесты бракуются), circuit breaker=4, impact-лестница, coverage, enforcement-хуки (коммиты только в `harness/*`, push в main/develop запрещён) | Коммиты `[FNR-N/T<k>]`, статус `AGENT_REVIEW` в БД (через sahelper) |
+| `/impl-review` | Ревьюер | Независимый контекст ревью (не видит диалог кодера), рубрика 6 осей, находки только с `файл:строка` | БД: отчёт (documents) + вердикт (verdict-set): APPROVED/CHANGES_REQUESTED |
+| `/impl-verify` | Верификация | Полные прогоны систем, контрактные проверки, data-only проверки, метрики пилота | БД: документы `verification_report`, `pr_draft` (push — вручную) |
 | `/steward` | **Диспетчер** | Диалог с человеком: диагностика, создание задач, действия над задачами — только через API витрины | Действия + краткие отчёты в чате |
 
 #### Как устроен процесс разработки
@@ -396,20 +396,22 @@ producers, затем consumers. Внутри задачи — TDD с честн
 
 | Команда | Роль | Описание | Результат |
 |:--------|:-----|:---------|:----------|
-| `/impl-handoff` | Вход конвейера (v3) | Машиночитаемый шлюз готовности СТ (FR-ID, AC-префиксы, затронутые системы) → план по канону /impl-plan → манифест v3, готовый к автономному ведению | `handoff_report.md` + артефакты плана |
+| `/impl-plan` | Планирование | Шлюз пробелов входного СТ (gap-report → STOP), досье (срез кода, Golden Reference), DAG задач с фазами contract/producer/consumer, карточки и Story — в БД через `sahelper` | БД: stories/tasks/cards/documents; валидация `sahelper validate` |
 | `/impl-bootstrap` | Проверка окружения | Сборка и тесты системы **до** правок (baseline); auto-discovery `workspaces.yaml` с human-шлюзом; STOP при недоступном окружении | `bootstrap_report_<system>.md`, `workspaces.yaml` |
-| `/impl-plan` | Планирование | Шлюз пробелов входного СТ (gap-report → STOP), досье (срез кода, Golden Reference), DAG задач с фазами contract/producer/consumer, карточки, `manifest.json` + валидация | `FNR_N/harness/`: `dossier.md`, `execution_plan.md`, `tasks/T*.md`, `manifest.json` |
-| `/impl-run` | Исполнитель | TDD-цикл в git worktree: RED-гейт (фиктивные тесты бракуются), circuit breaker=4, impact-лестница, coverage, enforcement-хуки (коммиты только в `harness/*`, push в main/develop запрещён) | Коммиты `[FNR-N/T<k>]`, манифест `AGENT_REVIEW` |
-| `/impl-review` | Ревьюер | Независимый контекст ревью (не видит диалог кодера), рубрика 6 осей, находки только с `файл:строка` | `reviews/T<k>_review.md`, вердикт APPROVED/CHANGES_REQUESTED/BLOCKED |
-| `/impl-verify` | Верификация | Полные прогоны систем, контрактные проверки, data-only проверки, метрики пилота | `verification_report.md`, `pr_draft.md` (push — вручную) |
-| Dashboard | Витрина | Живой канбан задач из `manifest.json` (SSE), кнопки шлюзов через `.flags/` | `python3 harness/ui/ui_server.py --harness <путь>` |
+| `/impl-plan` | Планирование | Шлюз пробелов входного СТ (gap-report → STOP), досье (срез кода, Golden Reference), DAG задач с фазами contract/producer/consumer, карточки и Story — в БД через `sahelper` | БД: stories/tasks/cards/documents; валидация `sahelper validate` |
+| `/impl-run` | Исполнитель | TDD-цикл в git worktree: RED-гейт (фиктивные тесты бракуются), circuit breaker=4, impact-лестница, coverage, enforcement-хуки (коммиты только в `harness/*`, push в main/develop запрещён) | Коммиты `[FNR-N/T<k>]`, статус `AGENT_REVIEW` в БД (через sahelper) |
+| `/impl-review` | Ревьюер | Независимый контекст ревью (не видит диалог кодера), рубрика 6 осей, находки только с `файл:строка` | БД: отчёт (documents) + вердикт (verdict-set): APPROVED/CHANGES_REQUESTED |
+| `/impl-verify` | Верификация | Полные прогоны систем, контрактные проверки, data-only проверки, метрики пилота | БД: документы `verification_report`, `pr_draft` (push — вручную) |
+| Dashboard | Витрина | Живой канбан из БД (SSE по событиям), кнопки шлюзов — очередь команд | `python3 harness/web/server.py --workspace <путь>` → http://127.0.0.1:4040 |
 
 **Как это выглядит в работе** (пилот FNR_8, воркспейс vitrina): bootstrap нашёл и честно
 задокументировал 3 болячки окружения (Nexus-only зависимости, DNS Docker в VPN, часовой пояс
 контейнеров), план прошёл шлюз пробелов (gap-report на живом документе), первая задача прошла
 полный цикл RED→GREEN→ревью (CHANGES_REQUESTED → доработка → APPROVED) — трассируемость
-`FR-4.3.1 → AC → test_ac_* → [FNR-8/T1]` воспроизводится по артефактам. Схема артефактов —
-`FNR_N/harness/` (dossier, execution_plan, tasks, manifest, logs, reviews, `.flags/`).
+`FR-4.3.1 → AC → test_ac_* → [FNR-8/T1]` воспроизводится по артефактам. Схема хранения: БД
+`~/.sa-helper/harness.db` (stories, tasks, карточки markdown, комментарии, команды,
+события, сессии); файлами остаются stream-логи стадий `.run/*.log`, вложения и
+git-worktree — остальное в БД (дизайн-док §5, редакция v4).
 
 #### Автономный конвейер v3 (handoff)
 
@@ -421,15 +423,28 @@ producers, затем consumers. Внутри задачи — TDD с честн
 и приёмка PR.
 
 ```
-# запустить конвейер (после touch harness/.flags/APPROVE_PLAN)
+# запустить конвейер (после утверждения плана в витрине — кнопка «✓ План»)
 python3 harness/orchestrator.py --workspace <корень воркспейса>
 
 # витрина — канбан + пульт управления
-python3 harness/ui/ui_server.py --harness <путь к FNR_N/harness>   # http://127.0.0.1:4040
+python3 harness/web/server.py --workspace <корень воркспейса>   # http://127.0.0.1:4040
 ```
 
 Надёжность: heartbeat + watchdog (зависшую стадию демон убивает и перезапускает с backoff),
-`kill -9` демона не теряет состояние (всё в файлах, осиротевшая сессия не получает дубль).
+`kill -9` демона не теряет состояние (всё в SQLite WAL; осиротевшая сессия добивается
+по таблице sessions, дубля стадии нет).
+
+#### Хранение: БД, а не файлы (v4)
+
+Состояние витрины и конвейера — **SQLite** `~/.sa-helper/harness.db` (WAL): проекты,
+Stories (СТ — markdown-поле), задачи (карточки — markdown-контент в БД), критерии/
+зависимости/находки/вердикты — связанные таблицы; команды человека — очередь `commands`
+(бывшие `.flags/`); журнал `events` — одновременно SSE-фид, таймлайн и аудит. Markdown
+остаётся форматом контента (карточки, отчёты, СТ) и выгружается снапшотом
+`python3 harness/db_migrate.py export`. Файловые контракты агентов заменены адаптером
+`harness/sahelper.py` (владение доменами: v3-поля — только демон, v2 — только сессии;
+карточка — оптимистичная блокировка по версии). Мотивация и границы — дизайн-док §5
+(редакция v4).
 Ревью-петля: вердикт ревьюера содержит машиночитаемый блок — демон ведёт доработку без LLM
 и останавливается честно (стратегия closure_first: прежние замечания закрыты, а новые
 появились → «нужен человек», а не вечный цикл).

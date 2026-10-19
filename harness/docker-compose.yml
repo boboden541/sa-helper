@@ -21,6 +21,7 @@ services:
       PROJECT_NAME: ${PROJECT_NAME:-work}
       HARNESS_WORKSPACE: /work
       HARNESS_API: http://127.0.0.1:4040
+      SAHELPER_HOME: /root/.sa-helper
       DOCKER_CONFIG: /tmp/dockercfg
     volumes:
       - ${WORKSPACE_DIR:?Укажите WORKSPACE_DIR — путь к воркспейсу}:/work
@@ -35,6 +36,7 @@ services:
     environment:
       HARNESS_WORKSPACE: /work
       HARNESS_API: http://web:4040
+      SAHELPER_HOME: /root/.sa-helper
       DOCKER_CONFIG: /tmp/dockercfg
     volumes:
       - ${WORKSPACE_DIR:?Укажите WORKSPACE_DIR}:/work

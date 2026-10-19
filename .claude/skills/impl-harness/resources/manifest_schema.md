@@ -71,3 +71,22 @@
 пишет **демон**; `status`/`phase`/`iteration_count`/`acceptance_criteria[].status`/`gates` —
 пишет **сессия исполнителя** (как в v2). Проверка согласованности — `manifest_check.py`
 (принимает и v2-, и v3-документы).
+
+
+---
+
+## Редакция v4 (миграция на БД, 2026-10-19)
+
+Манифест как файл упразднён: поля переехали в таблицы `stories`/`tasks` БД
+`~/.sa-helper/harness.db`. Владение полями теперь — владение колонками:
+
+| Домен | Колонки | Писатель |
+|---|---|---|
+| v3 (конвейер) | pipeline, blocked_from, retries, review_iterations, retry_after_ts, pipeline_since, paused, skip_review, session_id, review_verdict, blocked_reason, usage_* | демон |
+| v2 (исполнение) | v2_status, iteration_count, AC.status/test, gates | сессия через `sahelper task-set/ac-set/gates-set` |
+| постановка | title, description, AC-создание, card_md | handoff/decompose-сессия; человек (витрина) |
+| общие | comments, events, commands — append-only / очередь | все роли |
+
+Доступ сессий — только `harness/sahelper.py` (карточка — оптимистичная блокировка
+card_version, конфликт = exit 3). Канон чекбоксов `[ ~/x/r/b/f]` и секций карточки
+не изменился.
