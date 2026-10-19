@@ -1,3 +1,4 @@
+
 """Harness test/build runner: executes a command in a repo and returns structured JSON.
 
 The harness slash-commands (/impl-*) need machine-readable build/test results:
