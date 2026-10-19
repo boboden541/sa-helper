@@ -145,7 +145,7 @@ export function ChecklistView({ sections }: { sections: ChecklistSection[] }) {
           <h3>{s.title}<span className="secmeta">{s.done}/{s.total} · {s.total ? Math.round((100 * s.done) / s.total) : 0}%</span></h3>
           {s.items.map((it, i) => (
             <div className={`clk-item ${it.state}`} key={i}>
-              <span className="box">{it.state === "done" ? "✓" : it.state === "wip" ? "⟳" : ""}</span>
+              <span className="box">{it.state === "done" ? "✓" : it.state === "inprog" ? "⟳" : ""}</span>
               <span>{it.text}</span>
               <span className={`st ${it.state}`}>{it.state}</span>
             </div>

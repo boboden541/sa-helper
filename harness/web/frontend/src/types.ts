@@ -103,9 +103,12 @@ export interface BoardState {
   flags: string[];
 }
 
+export type ChecklistItemState =
+  | "todo" | "inprog" | "review" | "done" | "blocked" | "failed";
+
 export interface ChecklistSection {
   title: string;
-  items: Array<{ state: "todo" | "wip" | "done"; text: string }>;
+  items: Array<{ state: ChecklistItemState; text: string }>;
   done: number;
   wip: number;
   total: number;

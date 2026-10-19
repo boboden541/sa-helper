@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Task, TaskDoc } from "../../types";
 import { api, pipelineOf, PIPE_RU } from "../../api";
-import { ChecklistView, inline, md, parseComments } from "../common/ui";
+import { inline, md, parseComments } from "../common/ui";
 import { StatusFlowMap } from "../common/StatusFlowMap";
 
 function SessionLog({ taskId }: { taskId: string }) {
@@ -310,8 +310,29 @@ export function TaskPanel({ doc, onClose, onAction }: {
 
           {/* ── Чек-лист ── */}
           <div className="sect">
-            <div className="s-title">Чек-лист</div>
-            <ChecklistView sections={doc.checklist_sections || []} />
+            <div className="s-title">Чек-лист
+              {t.checklist && t.checklist.total > 0 &&
+                <span className="cnt">{t.checklist.done}/{t.checklist.total}</span>}
+            </div>
+            <div>
+              {(doc.checklist_sections || []).map((s, si) => (
+                <div key={si}>
+                  {(s.items || []).map((it, ii) => (
+                    <div key={ii} className={`check ${it.state === "done" ? "done" : ""}`}>
+                      <span className="box">{it.state === "done" ? "✓" :
+                        it.state === "inprog" ? "⟳" : ""}</span>
+                      <span className="txt">{it.text}</span>
+                      <span className={`st ${it.state}`}>
+                        {it.state === "done" ? "Done" : it.state === "inprog" ? "InProgress"
+                          : it.state === "review" ? "Review"
+                          : it.state === "blocked" ? "Blocked"
+                          : it.state === "failed" ? "Failed" : "Todo"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
             <div className="sess">
               <div className="l">итог последней сессии</div>
               {problem?.last_result || "сессий ещё не было"}
