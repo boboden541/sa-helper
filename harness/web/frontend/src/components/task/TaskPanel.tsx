@@ -1,18 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Task, TaskDoc } from "../../types";
 import { api, pipelineOf, PIPE_RU } from "../../api";
-import { ChecklistView, Chip, inline, md, parseComments, UsageBadge } from "../common/ui";
-
-type Tab = "impl" | "review" | "comments" | "history";
-
-const ACTION_LABELS: Record<string, string> = {
-  REQUEST_CHANGES: "Вернуть на доработку",
-  FORCE_APPROVE: "Принять (force)",
-  RETRY: "Повторить",
-  RESUME_WORK: "Возобновить",
-  PAUSE: "Пауза",
-  ABORT: "Остановить",
-};
+import { ChecklistView, inline, md, parseComments } from "../common/ui";
+import { StatusFlowMap } from "../common/StatusFlowMap";
 
 function SessionLog({ taskId }: { taskId: string }) {
   const [log, setLog] = useState<{ log: string; file: string | null } | null>(null);
@@ -79,50 +69,68 @@ function Attachments({ taskId }: { taskId: string }) {
   );
 }
 
-/** Панель задачи: 2 колонки (редактируемое | хроники), как в aif-handoff. */
+function renderComments(list: Array<{ ts: string; author: string; text: string }>) {
+  return (
+    <div className="md">
+      {list.length === 0 && <p className="empty">записей нет</p>}
+      {list.map((c, i) => (
+        <div key={i} className={`comment ${c.author}`}>
+          <div className="cmeta">{c.ts} · {c.author}</div>
+          <div dangerouslySetInnerHTML={{ __html: inline(c.text).replace(/\n/g, "<br>") }} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Панель задачи — по макету v3: статус крупно и кликабелен (карта переходов),
+ *  блок причины сверху только для Блок/Нужен человек, одна колонка
+ *  сворачиваемых секций (Постановка первая), Обсуждение — последний, всегда раскрыт. */
 export function TaskPanel({ doc, onClose, onAction }: {
   doc: TaskDoc | null;
   onClose: () => void;
   onAction: () => void;
 }) {
-  const [tab, setTab] = useState<Tab | "comments">("comments");
-  const [pendingFlag, setPendingFlag] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [descDraft, setDescDraft] = useState("");
   const [width, setWidth] = useState(() =>
     Number(localStorage.getItem("sheetWidth")) || 1020);
-  const resizing = useRef(false);
+  const [resizeOn, setResizeOn] = useState(false);
+  const [flowOpen, setFlowOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const cInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { setEditing(false); setTab("comments"); }, [doc?.task?.id]);
+  useEffect(() => { setEditing(false); }, [doc?.task?.id]);
 
-  // ресайз панели за левую кромку (замечание 4)
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
-      if (!resizing.current) return;
+      if (!resizeOn) return;
       setWidth(Math.min(window.innerWidth - 24,
         Math.max(460, window.innerWidth - e.clientX)));
     };
     const onUp = () => {
-      if (resizing.current) {
-        resizing.current = false;
+      if (resizeOn) {
         localStorage.setItem("sheetWidth", String(width));
+        setResizeOn(false);
       }
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
     return () => { window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp); };
-  }, [width]);
+  }, [width, resizeOn]);
 
   const t: Task | null = doc?.task ?? null;
-  const p = t ? pipelineOf(t) : "BACKLOG";  // при t=null сразу вернём null ниже
+  const p = t ? pipelineOf(t) : "BACKLOG";
   const comments = doc ? parseComments(doc.comments_md) : [];
   const reviewComments = comments.filter((c) => c.author === "reviewer");
   const humanComments = comments.filter((c) => c.author !== "reviewer");
 
-  // ВСЕ хуки — до раннего return: иначе при null→doc меняется их число
-  // и React размонтирует приложение («Rendered more hooks…»)
+
+  const applyFlag = useCallback((flag: string) => {
+    api.setFlag(flag).then(onAction);
+  }, [onAction]);
+
   const send = useCallback(() => {
     const text = cInputRef.current?.value.trim();
     if (!text || !t?.id) return;
@@ -146,202 +154,261 @@ export function TaskPanel({ doc, onClose, onAction }: {
 
   if (!doc || !t) return null;
 
-  const renderComments = (list: typeof comments) => (
-    <div className="md">
-      {list.length === 0 && <p className="empty">записей нет</p>}
-      {list.map((c, i) => (
-        <div className={`comment ${c.author}`} key={i}>
-          <div className="cmeta">{c.ts} · {c.author}</div>
-          <div dangerouslySetInnerHTML={{ __html: inline(c.text).replace(/\n/g, "<br>") }} />
-        </div>
-      ))}
-    </div>
-  );
+  const problem = doc.problem;
+  const options = doc.options?.options || [];
+  const isAttention = p === "BLOCKED" || p === "NEEDS_HUMAN";
 
   return (
     <>
       <div className="backdrop" onClick={onClose} />
       <div className="sheet" style={{ width: `min(${width}px, 97vw)` }}>
-        <div className="sheet-resize" onMouseDown={() => { resizing.current = true; }} />
-        <div className="sheet-head">
-          <span className="tid">{t.id}</span>
-          <Chip pipeline={p} />
-          <span className="meta">{PIPE_RU[p] || p}</span>
-          {(t.move_targets || []).length > 0 && (
-            <select defaultValue="" title="Переместить в допустимый статус"
-              style={{ background: "var(--chip)", color: "var(--text)",
-                border: "1px solid var(--line2)", borderRadius: 6, padding: "3px 6px",
-                font: "11.5px var(--mono)" }}
-              onChange={(e) => { const to = e.target.value;
-                if (to) { api.move(t.id, to).then(onAction); } e.target.value = ""; }}>
-              <option value="">переместить в…</option>
-              {(t.move_targets || []).map((to) => (
-                <option key={to} value={to}>{PIPE_RU[to] || to}</option>
-              ))}
-            </select>
-          )}
-          <UsageBadge usage={t.usage} />
-          <span className="spacer" />
-          <button className="ghost" onClick={onClose}>✕</button>
+        <div className="sheet-resize" onMouseDown={() => setResizeOn(true)} />
+
+        {/* ── шапка: статус крупно, клик — карта переходов ── */}
+        <div className="sh-head">
+          <div className="crumb">vitrina / FNR_8 / {t.id}</div>
+          <div className="r1">
+            <span className="bignum">{t.id}</span>
+            <span className="stbig" onClick={() => setFlowOpen((v) => !v)}
+              title="Нажмите — карта возможных переходов">
+              {PIPE_RU[p] || p} ▾
+            </span>
+            <span className="meta">{t.system}</span>
+            <span className="actions">
+              {isAttention && (
+                <button className="primary"
+                  onClick={() => applyFlag(`TASK_${t.id}_RETRY`)}>▶ Вернуть в работу</button>
+              )}
+              {p === "DONE" && (
+                <button className="primary"
+                  onClick={() => applyFlag(`TASK_${t.id}_REQUEST_CHANGES`)}>Вернуть на доработку</button>
+              )}
+              <div className="more-wrap">
+                <button className="ghost" onClick={() => setMoreOpen((v) => !v)}>Ещё ▾</button>
+                {moreOpen && (
+                  <div className="more-menu">
+                    <div onClick={() => { setFlowOpen(true); setMoreOpen(false); }}>🗺 Карта переходов</div>
+                    <div onClick={() => {
+                      navigator.clipboard?.writeText(t.branch || ""); setMoreOpen(false);
+                    }}>⧉ Скопировать ветку</div>
+                    <div onClick={() => {
+                      const blob = new Blob([doc.card_md], { type: "text/markdown" });
+                      const a = document.createElement("a");
+                      a.href = URL.createObjectURL(blob);
+                      a.download = `${t.id}.md`; a.click(); setMoreOpen(false);
+                    }}>⇩ Экспорт карточки</div>
+                  </div>
+                )}
+              </div>
+              <button className="ghost" onClick={onClose}>✕</button>
+            </span>
+          </div>
+          <h1>{t.title}</h1>
+          <div className="usage">
+            <span>🪙 {fmtTok(t.usage?.tokens_total)}</span>
+            <span>{fmtUsd(t.usage?.cost_usd)}</span>
+            <span>{t.usage?.sessions ?? 0} сессий</span>
+            <span>ветка: {t.branch || "—"}</span>
+            {t.checklist && t.checklist.total > 0 &&
+              <span>чек-лист: {t.checklist.done}/{t.checklist.total}</span>}
+          </div>
         </div>
 
-        {tab === "comments" && (
-          <div style={{ padding: "10px 18px 0" }}>
-            <div className="pfoot" style={{ border: 0, padding: 0 }}>
-              <input ref={cInputRef} placeholder={
-                p === "NEEDS_HUMAN" || p === "BLOCKED" ? "Ваш ответ задаче… (вернёт её в работу)"
-                : p === "DONE" ? "Что переделать… (задание доработки)"
-                : "Комментарий к задаче…"}
-                onKeyDown={(e) => { if (e.key === "Enter") send(); }} />
-              <button className={
-                p === "NEEDS_HUMAN" || p === "BLOCKED" || p === "DONE" ? "primary" : ""}
-                onClick={send}>
-                {p === "NEEDS_HUMAN" || p === "BLOCKED" ? "Ответить и вернуть в работу"
-                  : p === "DONE" ? "Вернуть на доработку" : "Отправить"}
-              </button>
-              {t.can_ask && (
-                <button className="quiet" title="Уйдёт в сессию задачи"
-                  onClick={() => {
-                    const text = cInputRef.current?.value.trim();
-                    if (!text) return;
-                    api.ask(t.id, text).then(() => {
-                      if (cInputRef.current) cInputRef.current.value = "";
-                      onAction();
-                    });
-                  }}>спросить агента</button>
-              )}
+        {/* ── карта переходов (поповер по клику на статус) ── */}
+        {flowOpen && (
+          <div className="flowpop" onClick={(e) => e.stopPropagation()}>
+            <div className="ft">Карта статусов — допустимые переходы подсвечены</div>
+            <StatusFlowMap current={p} onMove={(to) => {
+              const flagMap: Record<string, string> = {
+                BACKLOG: `TASK_${t.id}_ACCEPT`,
+                IMPLEMENTING: `TASK_${t.id}_RETRY`,
+                DONE: `TASK_${t.id}_FORCE_APPROVE`,
+              };
+              const flag = flagMap[to];
+              if (flag) applyFlag(flag); else api.move(t.id, to).then(onAction);
+              setFlowOpen(false);
+            }} />
+            <div className="legend">
+              <span className="l-acc">сплошная стрелка — допустимый переход</span>
+              <span className="l-dim">пунктир — недоступен сейчас</span>
             </div>
           </div>
         )}
 
-        <div className="sheet-grid">
-          {/* левая колонка: редактируемое */}
-          <div className="sheet-col">
-            {(doc.options?.options || []).length > 0 && (
-              <div className="sect">
-                <div className="s-title">Варианты от Steward — выберите один</div>
-                {(doc.options?.options || []).map((o, i) => (
-                  <div key={i} className="pick-option"
-                    style={{ border: o.recommended ? "1px solid var(--ok)"
-                      : "1px solid var(--line2)", borderRadius: 8,
-                      padding: "8px 10px", margin: "6px 0", cursor: "pointer" }}
-                    onClick={() => {
-                      if (o.flag) { setPendingFlag(o.flag);
-                        api.setFlag(o.flag).then(onAction);
-                        api.stewardMessage(`Человек выбрал вариант: «${o.title}»`).catch(() => {});
-                      } else {
-                        api.stewardMessage("Человек выбрал: разобраться вручную").catch(() => {});
-                      }
-                    }}>
-                    <div style={{ fontWeight: 600 }}>
-                      {o.recommended ? "⭐ " : ""}{i + 1}. {o.title}
-                    </div>
-                    {o.explanation && <div className="meta">{o.explanation}</div>}
-                  </div>
-                ))}
-                <div className="hint">Не подошло ни одно — напишите свой вариант
-                  в поле ниже (вкладка «Комментарии»), Steward его увидит.</div>
+        <div className="sh-body">
+          {/* ── блок причины: только Блок/Нужен человек ── */}
+          {isAttention && (
+            <div className="alert">
+              <div className="a-head">
+                <div className="t">{p === "BLOCKED" ? "⛔ Почему задача заблокирована"
+                  : "⏸ Почему задача требует вашего участия"}</div>
               </div>
-            )}
-            <div className="sect">
-              <div className="s-title">Карточка задачи</div>
-              <div className="md" dangerouslySetInnerHTML={{ __html: md(doc.card_md) }} />
+              <div className="a-body">
+                <div className="a-cause">
+                  {problem?.reason
+                    ? <div className="step">{problem.reason}</div>
+                    : <div className="step">Причина уточняется — см. итог последней сессии ниже</div>}
+                  {problem?.last_result &&
+                    <div className="step">Итог последней сессии: {problem.last_result.slice(0, 300)}</div>}
+                  <div className="step">Незакрытые замечания ревью: {
+                    (problem?.findings || []).length || "нет"}</div>
+                  <div className="step">Лимиты: перезапусков {problem?.retries ?? 0},
+                    итераций ревью {problem?.review_iterations ?? 0}/3</div>
+                </div>
+                <div className="a-hint">Кнопка «Вернуть в работу» в шапке вернёт задачу
+                  с места остановки; свободный текст — в «Обсуждении» ниже.</div>
+              </div>
             </div>
+          )}
 
-            <div className="sect">
-              <div className="s-title">Описание (краткое, редактируемое)
-                {!editing && (
-                  <button className="ghost" style={{ marginLeft: "auto", padding: "0 4px" }}
-                    onClick={() => { setDescDraft(t.description || ""); setEditing(true); }}>
-                    ✎
-                  </button>
-                )}
-              </div>
-              {editing ? (
-                <>
-                  <textarea value={descDraft} onChange={(e) => setDescDraft(e.target.value)}
-                    style={{ width: "100%", minHeight: 80, background: "var(--chip)",
-                      color: "var(--text)", border: "1px solid var(--line2)",
-                      borderRadius: 6, padding: 8, font: "inherit" }} />
-                  <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-                    <button className="primary" onClick={saveDescription}>Сохранить</button>
-                    <button className="ghost" onClick={() => setEditing(false)}>Отмена</button>
-                  </div>
-                </>
-              ) : (
-                <div className="md">{t.description || <span className="empty">—</span>}</div>
+          {/* ── Постановка: первый раздел ── */}
+          <div className="sect">
+            <div className="s-title">Постановка — полная, из СТ
+              {!editing && (
+                <button className="ghost" style={{ marginLeft: "auto", padding: "0 4px" }}
+                  onClick={() => { setDescDraft(t.description || ""); setEditing(true); }}>
+                  ✎ править краткое
+                </button>
               )}
             </div>
-
-            {(p === "NEEDS_HUMAN" || p === "BLOCKED") && (
-              <div id="p-banner">
-                <span className="btitle">{p === "BLOCKED" ? "⛔ Задача заблокирована"
-                  : "⏸ Требуется ваше участие"}</span> — отчёт во вкладке «Комментарии».
+            <div className="md" dangerouslySetInnerHTML={{ __html: md(doc.card_md) }} />
+            {editing && (
+              <div style={{ marginTop: 8 }}>
+                <textarea value={descDraft} onChange={(e) => setDescDraft(e.target.value)}
+                  style={{ width: "100%", minHeight: 80, background: "var(--chip)",
+                    color: "var(--text)", border: "1px solid var(--line2)",
+                    borderRadius: 6, padding: 8, font: "inherit" }} />
+                <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                  <button className="primary" onClick={saveDescription}>Сохранить</button>
+                  <button className="ghost" onClick={() => setEditing(false)}>Отмена</button>
+                </div>
               </div>
             )}
-
-            <div className="sect">
-              <div className="s-title">Действия</div>
-              <div id="p-actions" style={{ marginBottom: 0 }}>
-                {(t.actions || []).map((flag) => {
-                  const key = flag.split("_").slice(2).join("_");
-                  const label = key === "RESUME_WORK" ? (t.paused ? "Продолжить" : "Возобновить")
-                    : ACTION_LABELS[key];
-                  if (!label) return null;
-                  const busy = pendingFlag === flag;
-                  return (
-                    <button key={flag} disabled={pendingFlag !== null}
-                      style={key === "ABORT" ? { color: "var(--bad)" } : undefined}
-                      title={busy ? "Команда принята — демон применит её на ближайшем тике (до 5 с)"
-                        : "Отправить команду демону"}
-                      onClick={() => { setPendingFlag(flag); api.setFlag(flag).then(onAction); }}>
-                      {busy ? "⟳ принята, ждём демона…" : label}
-                    </button>
-                  );
-                })}
-                {pendingFlag && (
-                  <span className="meta" style={{ width: "100%" }}>
-                    Команда принята. Доска обновится, как только демон заберёт её (до 5 с).
-                  </span>
-                )}
-                {(t.actions || []).length === 0 && <span className="empty">—</span>}
-              </div>
-            </div>
-
-            <div className="sect">
-              <div className="s-title">Worktree</div>
-              <div className="mono" style={{ fontSize: 11.5, wordBreak: "break-all" }}>
-                {t.branch || "—"}
-              </div>
-            </div>
-
-            <div className="sect">
-              <div className="s-title">План (чек-лист)</div>
-              <ChecklistView sections={doc.checklist_sections || []} />
-            </div>
-
-            <Attachments taskId={t.id} />
           </div>
 
-          {/* правая колонка: вкладки-хроники */}
-          <div className="sheet-col">
-            <div className="sheet-tabs">
-              {([["impl", "Лог реализации"], ["review", "Ревью"],
-                 ["comments", "Комментарии"], ["history", "История"]] as const).map(([key, label]) => (
-                <button key={key} className={`tabbtn ${tab === key ? "active" : ""}`}
-                  onClick={() => setTab(key)}>
-                  {key === "review" ? `${label} (${reviewComments.length})`
-                    : key === "comments" ? `Комментарии (${comments.length})` : label}
-                </button>
+          {/* ── Варианты Steward (при эскалации) ── */}
+          {options.length > 0 && (
+            <div className="sect">
+              <div className="s-title">Варианты от Steward</div>
+              {options.map((o, i) => (
+                <div key={i} className="a-opt" style={o.recommended
+                  ? { borderColor: "var(--ok)", background: "rgba(63,185,80,.05)" } : undefined}
+                  onClick={() => {
+                    if (o.flag) { applyFlag(o.flag);
+                      api.stewardMessage(`Человек выбрал вариант: «${o.title}»`).catch(() => {});
+                    }
+                  }}>
+                  <span className="num">{o.recommended ? "⭐" : i + 1}</span>
+                  <span style={{ flex: 1 }}>
+                    <span className="ot">{o.title}</span>
+                    {o.explanation && <div className="oe">{o.explanation}</div>}
+                  </span>
+                </div>
               ))}
             </div>
-            {tab === "impl" && <SessionLog taskId={t.id} />}
-            {tab === "review" && renderComments(reviewComments)}
-            {tab === "comments" && renderComments(humanComments)}
-            {tab === "history" && <History taskId={t.id} />}
+          )}
+
+          {/* ── Чек-лист ── */}
+          <div className="sect">
+            <div className="s-title">Чек-лист</div>
+            <ChecklistView sections={doc.checklist_sections || []} />
+            <div className="sess">
+              <div className="l">итог последней сессии</div>
+              {problem?.last_result || "сессий ещё не было"}
+            </div>
+          </div>
+
+          {/* ── Ревью ── */}
+          <div className="sect collapsed">
+            <div className="s-title">Ревью
+              {!!t.review_iterations && <span className="cnt">{t.review_iterations}/3</span>}
+            </div>
+            <div className="sect-b post">
+              <p><b>Вердикт:</b> {t.review_verdict || "ещё не проводилось"}</p>
+              <ul>
+                {(t.findings || []).map((f) => (
+                  <li key={f.id}>{f.text} {f.file && <span className="mono">({f.file})</span>}
+                    — <i>{f.resolution}</i></li>
+                ))}
+              </ul>
+              {renderComments(reviewComments)}
+            </div>
+          </div>
+
+          {/* ── Хроники ── */}
+          <div className="sect collapsed">
+            <div className="s-title">Хроники</div>
+            <div className="s-title" style={{ textTransform: "none", letterSpacing: 0,
+              fontSize: 12.5, color: "var(--text)" }}>Лог реализации</div>
+            <SessionLog taskId={t.id} />
+            <div className="s-title" style={{ textTransform: "none", letterSpacing: 0,
+              fontSize: 12.5, color: "var(--text)", marginTop: 10 }}>История (таймлайн)</div>
+            <History taskId={t.id} />
+          </div>
+
+          {/* ── Мета ── */}
+          <div className="sect collapsed">
+            <div className="s-title">Мета</div>
+            <div className="post">
+              <p style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--dim)" }}>
+                система: {t.system} · ветка: {t.branch} · origin: {t.origin} ·
+                сессия: {t.session_id || "—"}</p>
+            </div>
+            <Attachments taskId={t.id} />
+          </div>
+        </div>
+
+        {/* ── Обсуждение: последний, всегда раскрыт ── */}
+        <div className="discuss">
+          <div className="d-head">
+            <div className="t">💬 Обсуждение</div>
+            <div className="s">Человек, Steward, агенты, демон. При блокировке свободный
+              текст = четвёртый вариант действий.</div>
+          </div>
+          <div className="d-list">
+            {humanComments.length === 0 && <p className="empty" style={{ padding: "4px 16px" }}>
+              записей нет</p>}
+            {humanComments.map((c, i) => (
+              <div key={i} className={`cmt ${c.author}`}>
+                <div className="who">{c.ts} · {c.author}</div>
+                <div dangerouslySetInnerHTML={{ __html: inline(c.text).replace(/\n/g, "<br>") }} />
+              </div>
+            ))}
+          </div>
+          <div className="d-input">
+            <input ref={cInputRef} placeholder="Напишите Steward или команде…"
+              onKeyDown={(e) => { if (e.key === "Enter") send(); }} />
+            <button className={
+              isAttentionState(p) || p === "DONE" ? "primary" : ""} onClick={send}>
+              {isAttentionState(p) ? "Ответить и вернуть в работу"
+                : p === "DONE" ? "Вернуть на доработку" : "Отправить"}
+            </button>
+            {t.can_ask && (
+              <button className="quiet" title="Уйдёт в сессию задачи"
+                onClick={() => {
+                  const text = cInputRef.current?.value.trim();
+                  if (!text) return;
+                  api.ask(t.id, text).then(() => {
+                    if (cInputRef.current) cInputRef.current.value = "";
+                    onAction();
+                  });
+                }}>спросить агента</button>
+            )}
           </div>
         </div>
       </div>
     </>
   );
+}
+
+function isAttentionState(p: string) {
+  return p === "NEEDS_HUMAN" || p === "BLOCKED";
+}
+function fmtTok(n?: number) {
+  if (!n) return "0";
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+}
+function fmtUsd(n?: number) {
+  if (n == null) return "—";
+  return n >= 1 ? `$${n.toFixed(2)}` : `$${n.toFixed(4)}`;
 }

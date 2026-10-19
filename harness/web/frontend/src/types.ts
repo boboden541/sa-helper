@@ -126,6 +126,14 @@ export interface TaskDoc {
   checklist_sections?: ChecklistSection[];
   attachments?: string[];
   options?: { options: EscalationOption[] } | null;
+  problem?: {
+    reason: string;
+    last_result: string;
+    findings: Finding[];
+    retries: number;
+    review_iterations: number;
+    blocked_from: string | null;
+  } | null;
 }
 
 export interface JournalEntry {

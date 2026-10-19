@@ -67,7 +67,7 @@ _V2_TO_PIPELINE = {
 
 V3_FIELDS = ("pipeline", "blocked_from", "retries", "review_iterations",
              "findings", "session_id", "paused", "skip_review", "owner",
-             "retry_after_ts", "pipeline_since", "usage")
+             "retry_after_ts", "pipeline_since", "usage", "blocked_reason")
 
 
 def _shadow_path(harness: Path) -> Path:
@@ -260,6 +260,7 @@ def apply_transition(harness: Path, doc: dict, task: dict, event: str,
     log_event(harness, label)
     # мини-отчёт в журнал задачи на каждом переходе; эскалации — подробнее
     if task["pipeline"] == sm.NEEDS_HUMAN:
+        task["blocked_reason"] = reason
         comment(harness, task["id"], _escalation_report(task, reason, harness))
         # Steward готовит человеку три варианта действий (замечание 3):
         # фоновый ход, результат — steward/options/T<k>.json

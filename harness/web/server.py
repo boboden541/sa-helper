@@ -283,6 +283,29 @@ def parse_checklist_sections(card_md: str) -> list[dict]:
     return sections
 
 
+def _last_session_summary(harness: Path, task_id: str) -> str:
+    """Итог последней сессии задачи: финал result-события её stream-логов."""
+    logs = sorted((harness / ".run").glob(f"{task_id}_*_*.log"),
+                  key=lambda p: p.stat().st_mtime)
+    for log_path in reversed(logs):
+        try:
+            content = log_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for line in reversed(content.splitlines()):
+            try:
+                d = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if d.get("type") == "result":
+                dur = round(d.get("duration_ms", 0) / 60000, 1)
+                txt = " ".join(str(d.get("result") or "").split())
+                stage = log_path.name.split("_")[1]
+                return (f"сессия «{stage}» ({dur} мин): {txt[:400]}"
+                        + ("…" if len(txt) > 400 else ""))
+    return "итог последней сессии не найден"
+
+
 def _readable_tail(path: Path, max_events: int = 60) -> str:
     """Stream-json сессии -> человекочитаемая хроника (то, что видно в UI).
 
@@ -560,6 +583,7 @@ class Handler(BaseHTTPRequestHandler):
             card_md = card_path.read_text(encoding="utf-8", errors="replace") \
                 if card_path and card_path.exists() else ""
             options = None
+            problem = None
             if ws := resolve_workspace(project):
                 opt_path = (ws / "sa_documentation" / "harness" / "steward"
                             / "options" / f"{task_id}.json")
@@ -567,10 +591,21 @@ class Handler(BaseHTTPRequestHandler):
                     options = json.loads(opt_path.read_text(encoding="utf-8"))
                 except (OSError, json.JSONDecodeError):
                     options = None
+                if task.get("pipeline") in ("BLOCKED", "NEEDS_HUMAN"):
+                    problem = {
+                        "reason": task.get("blocked_reason") or "",
+                        "last_result": _last_session_summary(harness, task_id),
+                        "findings": [f for f in (task.get("findings") or [])
+                                     if f.get("resolution") != "resolved"],
+                        "retries": task.get("retries") or 0,
+                        "review_iterations": task.get("review_iterations") or 0,
+                        "blocked_from": task.get("blocked_from"),
+                    }
             doc = {
                 "task": task,
                 "card_md": card_md,
                 "options": options,
+                "problem": problem,
                 "comments_md": comments_path.read_text(encoding="utf-8", errors="replace") if comments_path.exists() else "",
                 "ask_pending": (_run_dir(harness) / f"{task_id}_ask.pending").exists(),
                 "checklist_sections": parse_checklist_sections(card_md),
