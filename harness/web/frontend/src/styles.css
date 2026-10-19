@@ -300,6 +300,28 @@ table.tasks td.mono { font-family: var(--mono); font-size: 11.5px; color: var(--
   cursor: pointer; font: 12px inherit; }
 .ced-tab.on { background: var(--surface3); color: var(--text); }
 .ced-tab:disabled { cursor: default; opacity: .5; }
+.ced-style { background: var(--surface3); color: var(--text); border: 1px solid var(--line2);
+  border-radius: 5px; padding: 4px 7px; font: 12px inherit; }
+.ced-visual { min-height: 320px; max-height: 60vh; overflow-y: auto; outline: none;
+  padding: 14px 18px; cursor: text; }
+.ced-visual:focus { box-shadow: inset 0 0 0 2px rgba(88,166,255,.25); }
+.ced-island { border: 1px dashed var(--line2); border-radius: 8px; padding: 10px 14px;
+  margin: 10px 0; background: var(--surface2); position: relative; cursor: default; }
+.ced-island h2 { font-size: 13.5px; margin: 0 0 8px; color: var(--dim); }
+.ced-island pre { margin: 0; background: none; padding: 0; }
+.ced-island ul { margin: 4px 0; padding-left: 18px; }
+.ced-island li { margin: 3px 0; }
+.ced-glyph { display: inline-flex; width: 18px; height: 18px; align-items: center;
+  justify-content: center; border: 1px solid var(--line2); border-radius: 5px;
+  background: var(--surface); margin-right: 6px; cursor: pointer; font-size: 11px; }
+.ced-glyph:hover { border-color: var(--acc); }
+.ced-island::after { content: "только просмотр — правьте в «Тексте»";
+  position: absolute; top: 4px; right: 8px; font: 9.5px var(--mono);
+  color: var(--faint); text-transform: uppercase; letter-spacing: .5px; }
+.ced-island[data-kind="checklist"] li .ced-glyph { cursor: pointer; }
+.ced-island table { border-collapse: collapse; width: 100%; font-size: 12px; }
+.ced-island th, .ced-island td { border: 1px solid var(--line2); padding: 4px 8px;
+  text-align: left; }
 
 /* итог последней сессии */
 .sess { margin-top: 12px; padding: 11px 14px; border-radius: 10px;

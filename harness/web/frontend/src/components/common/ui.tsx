@@ -9,6 +9,9 @@ export function inline(s: string): string {
   return esc(s)
     .replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+    // ссылки — только http(s), без кавычек в URL (экранирование атрибута)
+    .replace(/\[([^\]]+)\]\((https?:[^)\s"<>]+)\)/g,
+      '<a href="$2" target="_blank" rel="noreferrer" style="color:var(--acc)">$1</a>')
     // AC-идентификаторы — моно-синие (макет .ac)
     .replace(/\bAC-\d+(?:\.\d+)*\b/g, '<span class="ac">$&</span>');
 }
