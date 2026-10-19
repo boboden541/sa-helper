@@ -256,23 +256,7 @@ class TestTaskEdit(unittest.TestCase):
 
 
 class TestTimelineAndAttachments(unittest.TestCase):
-    """Порция G4: таймлайн из events.log и вложения задачи."""
-
-    def test_timeline_entries(self):
-        with tempfile.TemporaryDirectory() as td:
-            ws, harness = sandbox(Path(td))
-            logs = harness / "logs"
-            logs.mkdir()
-            (logs / "events.log").write_text(
-                "- [2026-10-17 10:00:00 | daemon] T1: start → IMPLEMENTING (слот)\n"
-                "- [2026-10-17 10:05:00 | daemon] T2: start → IMPLEMENTING (слот)\n"
-                "- [2026-10-17 10:09:00 | daemon] T1: implementation_passed → REVIEW\n",
-                encoding="utf-8")
-            sys.path.insert(0, str(ROOT / "web"))
-            import server as ui
-            entries = ui._timeline_entries(harness, "T1")
-            self.assertEqual(len(entries), 2)
-            self.assertIn("IMPLEMENTING", entries[0]["text"])
+    """Вложения задачи (таймлайн переехал в таблицу events — R2)."""
 
     def test_attachments_safe_name(self):
         sys.path.insert(0, str(ROOT / "web"))

@@ -1,26 +1,22 @@
-"""Веб-приложение витрины AI Harness (v3, порция G1).
+"""Веб-приложение витрины AI Harness на БД (порция R2 миграции на SQLite).
 
-Бэкенд — Python stdlib (эволюция ui/ui_server.py): те же API-эндпоинты плюс
-раздача собранного React-приложения (frontend/dist) и классического UI
-(/classic). Ноль Python-зависимостей; Node нужен только для сборки фронтенда.
+Состояние Story/задач/комментариев/команд — в harness.db (слой db.py);
+файлы воркспейса остаются только для runtime-артефактов (stream-логи
+стадий, вложения, ask.pending). Markdown — формат контента (карточка,
+комментарии рендерятся в канон «- [ts | author] text»).
 
-Маршруты:
-  /            → frontend/dist (React-приложение; fallback — classic)
-  /classic     → classic/index.html (прежний однофайловый UI)
-  /api/*       → JSON API (state, stories, task, log, flags, comment, ask, story)
-  /events      → SSE
+Маршруты: / и /assets/* — frontend/dist; /classic — legacy UI;
+/api/* — JSON API (проекты, stories, state, задачи, команды, комментарии);
+/events — SSE (инкремент по курсору events.id).
 
 Запуск:
-    python3 harness/web/server.py --workspace <корень воркспейса> [--port 4040]
-    python3 harness/web/server.py --harness <путь к FNR_N/harness>
+    python3 harness/web/server.py [--project-name имя] [--workspace путь] [--db путь]
 """
-
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import subprocess
 import threading
@@ -33,46 +29,10 @@ from pathlib import Path
 sys_path = str(Path(__file__).resolve().parents[1])
 if sys_path not in __import__("sys").path:
     __import__("sys").path.insert(0, sys_path)
-import state_machine as sm  # noqa: E402  (та же политика кнопок, что у демона)
+import state_machine as sm  # noqa: E402
+import cards  # noqa: E402
+import db as dbmod  # noqa: E402
 
-STATE: dict = {"harness": None, "workspace": None, "claude_bin": "claude",
-               "projects": {}}   # name -> path (порция J: реестр проектов)
-
-REGISTRY_PATH = Path.home() / ".sa-helper" / "workspaces.json"
-
-
-def load_registry() -> dict:
-    """Реестр проектов: ~/.sa-helper/workspaces.json — [{"name", "path"}]."""
-    try:
-        data = json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
-        items = data.get("workspaces", data) if isinstance(data, dict) else data
-        return {i["name"]: str(i["path"]) for i in items
-                if isinstance(i, dict) and i.get("name") and i.get("path")}
-    except (OSError, json.JSONDecodeError, KeyError, TypeError):
-        return {}
-
-
-def add_project(name: str, path: str) -> tuple[bool, str]:
-    safe = name.strip()
-    target = Path(path).expanduser()
-    if not safe or not target.is_dir():
-        return False, "нужны имя и существующий каталог"
-    registry = load_registry()
-    registry[safe] = str(target.resolve())
-    REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
-    REGISTRY_PATH.write_text(json.dumps(
-        {"workspaces": [{"name": k, "path": v} for k, v in sorted(registry.items())]},
-        ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    STATE["projects"][safe] = str(target.resolve())
-    return True, safe
-
-
-def resolve_workspace(project: str | None) -> Path | None:
-    """Каталог воркспейса по имени проекта (или одиночный --workspace)."""
-    if STATE.get("projects"):
-        path = STATE["projects"].get(project or "")
-        return Path(path) if path else None
-    return STATE.get("workspace")
 WEB_DIR = Path(__file__).resolve().parent
 DIST_DIR = WEB_DIR / "frontend" / "dist"
 CLASSIC_HTML = WEB_DIR / "classic" / "index.html"
@@ -86,17 +46,18 @@ STATIC_TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript",
                 ".log": "text/plain; charset=utf-8", ".jpg": "image/jpeg",
                 ".jpeg": "image/jpeg"}
 
-ATTACHMENT_NAME_RE = re.compile(r"[^A-Za-z0-9._\-\u0400-\u04FF]+")
-# Разрешённые перемещения задачи по колонкам (порция H-UX): цель -> действие.
-# Идут через те же флаги, что и кнопки — машину состояний не обойти.
+ATTACHMENT_NAME_RE = re.compile(r"[^A-Za-z0-9._\-Ѐ-ӿ]+")
+TASK_ID_RE = re.compile(r"T\d+")
+
+STATE: dict = {"conn": None, "default_project": None, "claude_bin": "claude"}
+
+# Разрешённые перемещения по колонкам (канон v3; цели через команды демону)
 MOVE_MAP = {
     ("PROPOSED", "BACKLOG"): "TASK_{tid}_ACCEPT",
     ("DONE", "IMPLEMENTING"): "TASK_{tid}_REQUEST_CHANGES",
     ("BLOCKED", "IMPLEMENTING"): "TASK_{tid}_RETRY",
     ("NEEDS_HUMAN", "IMPLEMENTING"): "TASK_{tid}_RETRY",
     ("REVIEW", "DONE"): "TASK_{tid}_FORCE_APPROVE",
-    # «Остановить задачу» (макет v3, вариант 3 из блока причины):
-    # EV_ABORT легален из любого активного статуса (state_machine.ACTIVE)
     ("READY", "ABORTED"): "TASK_{tid}_ABORT",
     ("IMPLEMENTING", "ABORTED"): "TASK_{tid}_ABORT",
     ("REVIEW", "ABORTED"): "TASK_{tid}_ABORT",
@@ -104,66 +65,6 @@ MOVE_MAP = {
     ("NEEDS_HUMAN", "ABORTED"): "TASK_{tid}_ABORT",
 }
 
-
-def _move_targets(pipeline: str) -> list[str]:
-    return sorted({to for (frm, to) in MOVE_MAP if frm == pipeline})
-
-
-# Внутренние v2-статусы → статус конвейера (зеркало pipelineOf в api.ts):
-# сессии v2 пишут status, демон/тень — pipeline; нужен единый ответ для /move.
-_V2_TO_PIPELINE = {
-    "PLANNED": "BACKLOG", "APPROVED": "READY",
-    "TDD_RED": "IMPLEMENTING", "TDD_GREEN": "IMPLEMENTING", "GATES": "IMPLEMENTING",
-    "AGENT_REVIEW": "REVIEW", "ESCALATED_BLOCKED": "NEEDS_HUMAN",
-}
-
-
-def pipeline_of(task: dict) -> str:
-    return task.get("pipeline") or _V2_TO_PIPELINE.get(task.get("status") or "") or "BACKLOG"
-
-
-def _session_count(harness: Path, task_id: str) -> int:
-    """Число сессий задачи = число её stream-логов в .run (показ «N сессий»)."""
-    run_dir = harness / ".run"
-    return len(list(run_dir.glob(f"{task_id}_*_*.log"))) if run_dir.is_dir() else 0
-
-
-TIMELINE_RE = re.compile(r"^\s*-\s+\[([^\]]+?)\s*\|\s*\w+\]\s*(.*)$")
-
-
-def log_event(harness: Path, message: str) -> None:
-    """Запись демона/сервера в журнал событий (тот же формат, что у orchestrator)."""
-    logs = harness / "logs"
-    logs.mkdir(exist_ok=True)
-    line = f"- [{time.strftime('%Y-%m-%d %H:%M:%S')} | daemon] {message}\n"
-    with (logs / "events.log").open("a", encoding="utf-8") as fh:
-        fh.write(line)
-
-
-def _attachments_dir(harness: Path, task_id: str) -> Path:
-    return harness / "attachments" / task_id
-
-
-def _timeline_entries(harness: Path, task_id: str) -> list[dict]:
-    """События задачи из журнала демона (logs/events.log) по порядку."""
-    entries: list[dict] = []
-    log_path = harness / "logs" / "events.log"
-    try:
-        lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        return entries
-    for line in lines:
-        m = TIMELINE_RE.match(line)
-        if not m:
-            continue
-        text = line.rstrip().split("] ", 1)[-1]
-        if not text.startswith(f"{task_id}:"):
-            continue
-        entries.append({"ts": m.group(1), "text": text[len(f"{task_id}:"):].strip()})
-    return entries
-
-
-# события машины состояний → флаги задач (демон забирает .flags/TASK_...)
 ACTION_FLAGS = {
     sm.EV_REQUEST_CHANGES: "REQUEST_CHANGES",
     sm.EV_FORCE_APPROVE: "FORCE_APPROVE",
@@ -173,161 +74,182 @@ ACTION_FLAGS = {
 }
 
 
-def _run_dir(harness: Path | None = None) -> Path:
-    return (harness or STATE["harness"]) / ".run"
+def conn() -> "dbmod.sqlite3.Connection":
+    return STATE["conn"]
 
 
-def _harness_of(project: str | None, fnr: str | None) -> Path | None:
-    """Каталог harness по (проект, FNR) или активный (--harness, одиночный режим)."""
-    ws = resolve_workspace(project)
-    if ws:
-        return ws / "sa_documentation" / "FNR" / (fnr or "") / "harness"
-    return STATE["harness"]
+def task_actions(task: dict) -> list[str]:
+    """Кнопки задачи по машине состояний + PAUSE/RESUME (канон v3)."""
+    tid = task.get("id") or task.get("tid")
+    actions: list[str] = []
+    for event in sm.allowed_events({"pipeline": task.get("pipeline")}):
+        flag = ACTION_FLAGS.get(event)
+        if flag:
+            actions.append(f"TASK_{tid}_{flag}")
+    actions.append(f"TASK_{tid}_" + ("RESUME_WORK" if task.get("paused") else "PAUSE"))
+    return actions
 
 
-_STORIES_CACHE: dict = {}
+def _move_targets(pipeline: str) -> list[str]:
+    return sorted({to for (frm, to) in MOVE_MAP if frm == pipeline})
 
 
-def list_stories(workspace: Path) -> list[dict]:
-    """Stories воркспейса (кэш 2с — SSE и опросы бьют часто)."""
-    ws = workspace
-    key = str(ws)
-    cached = _STORIES_CACHE.get(key)
-    if cached and time.time() - cached[0] < 2.0:
-        return cached[1]
-    stories = []
-    for harness in sorted(ws.glob("sa_documentation/FNR/FNR_*/harness")):
-        fnr = harness.parent.name
-        manifest = {}
+def pipeline_of(task: dict) -> str:
+    m = {"PLANNED": "BACKLOG", "APPROVED": "READY", "TDD_RED": "IMPLEMENTING",
+         "TDD_GREEN": "IMPLEMENTING", "GATES": "IMPLEMENTING",
+         "AGENT_REVIEW": "REVIEW", "ESCALATED_BLOCKED": "NEEDS_HUMAN"}
+    return task.get("pipeline") or m.get(task.get("v2_status") or "", "BACKLOG")
+
+
+# ─── вид данных: manifest-view (совместимость с фронтендом) ────────────────
+
+def _usage_view(row) -> dict:
+    return {"tokens_in": row["usage_tokens_in"], "tokens_out": row["usage_tokens_out"],
+            "tokens_total": row["usage_tokens_total"], "cost_usd": row["usage_cost_usd"],
+            "sessions": row["usage_sessions"]}
+
+
+def task_view(conn, story_id: int, tid: str) -> dict | None:
+    """Задача в форме старого манифеста + вычисляемые поля витрины."""
+    t = dbmod.read_task(conn, story_id, tid)
+    if not t:
+        return None
+    task = {
+        "id": t["tid"], "title": t["title"], "description": t["description"],
+        "system": t["system"], "phase": t["phase"], "branch": t["branch"],
+        "worktree": t["worktree"], "pipeline": t["pipeline"],
+        "status": t["v2_status"], "origin": t["origin"], "owner": t["owner"],
+        "paused": bool(t["paused"]), "skip_review": bool(t["skip_review"]),
+        "decomposed": bool(t["decomposed"]), "blocked_from": t["blocked_from"],
+        "retries": t["retries"], "review_iterations": t["review_iterations"],
+        "review_verdict": t["review_verdict"], "blocked_reason": t["blocked_reason"],
+        "iteration_count": t["iteration_count"], "session_id": t["session_id"],
+        "pipeline_since": t["pipeline_since"],
+        "usage": _usage_view(t if isinstance(t, dict) else dict(t)),
+        "depends_on": t["depends_on"],
+        "acceptance_criteria": [{"id": a["ac_id"], "desc": a["desc"],
+                                 "status": a["status"], "test": a["test"]}
+                                for a in t["acceptance_criteria"]],
+        "gates": t["gates"],
+        "card_version": t["card_version"],
+    }
+    task["pipeline"] = pipeline_of(task)
+    task["actions"] = task_actions(task)
+    task["can_ask"] = bool(t.get("session_id"))
+    task["checklist"] = cards.checklist_progress(t.get("card_md") or "")
+    task["description"] = cards.card_preview(t.get("card_md") or "",
+                                             t.get("description") or "")
+    task["move_targets"] = _move_targets(task["pipeline"])
+    task["live"] = _live_view(conn, story_id, tid)
+    return task
+
+
+def _live_view(conn, story_id: int, tid: str) -> dict | None:
+    """Живость стадии из sessions (R3 заполнит данными; мигрированные — без живости)."""
+    rows = [r for r in dbmod.live_sessions(conn, story_id) if r["tid"] == tid]
+    if not rows:
+        return None
+    r = rows[-1]
+    age = 0
+    if r["last_beat_at"]:
         try:
-            manifest = json.loads((harness / "manifest.json").read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            manifest = {}
-        tasks = manifest.get("tasks", [])
+            from datetime import datetime
+            beat = datetime.fromisoformat(r["last_beat_at"])
+            age = max(0, int((datetime.now().astimezone() - beat).total_seconds()))
+        except ValueError:
+            age = 0
+    return {"hb_age_s": age, "running": bool(r["alive"]), "stage": r["stage"]}
+
+
+def manifest_view(conn, story_id: int) -> dict:
+    """Story в форме старого manifest.json (совместимость фронтенда)."""
+    story = conn.execute("SELECT * FROM stories WHERE id=?", (story_id,)).fetchone()
+    tasks = [task_view(conn, story_id, r["tid"])
+             for r in conn.execute("SELECT tid FROM tasks WHERE story_id=? ORDER BY"
+                                   " CAST(SUBSTR(tid,2) AS INTEGER)", (story_id,))]
+    return {
+        "fnr_id": story["fnr"],
+        "story_title": story["story_title"],
+        "source_document": story["source_name"],
+        "status": story["status"],
+        "epic_branch": story["epic_branch"],
+        "workspace": story["workspace"],
+        "paused": bool(story["paused"]),
+        "tasks": [t for t in tasks if t],
+    }
+
+
+def flags_view(conn, story_id: int) -> list[str]:
+    """Вид .flags/ для фронтенда: имена отложенных команд + PAUSE из состояния."""
+    return sorted(dbmod.pending_flags_view(conn, story_id))
+
+
+def read_state(conn, story_id: int) -> dict:
+    return {"manifest": manifest_view(conn, story_id),
+            "flags": flags_view(conn, story_id),
+            "comments_fp": len(dbmod.list_comments(conn, story_id))}
+
+
+def _stories_payload(conn, project_id: int) -> dict:
+    """Портфель Story (бывший list_stories)."""
+    out = []
+    for s in conn.execute("SELECT * FROM stories WHERE project_id=? ORDER BY id",
+                          (project_id,)):
+        sid = int(s["id"])
         counts: dict[str, int] = {}
-        for t in tasks:
-            counts[t.get("pipeline") or "—"] = counts.get(t.get("pipeline") or "—", 0) + 1
-        card_cache: dict[str, str] = {}
+        for r in conn.execute("SELECT pipeline, COUNT(*) c FROM tasks WHERE story_id=?"
+                              " GROUP BY pipeline", (sid,)):
+            counts[r["pipeline"]] = r["c"]
+        usage = conn.execute(
+            "SELECT COALESCE(SUM(usage_tokens_in),0) i, COALESCE(SUM(usage_tokens_out),0) o,"
+            " COALESCE(SUM(usage_tokens_total),0) t, COALESCE(SUM(usage_cost_usd),0) c"
+            " FROM tasks WHERE story_id=?", (sid,)).fetchone()
         task_rows = []
-        for t in tasks:
-            tid = t.get("id", "")
-            if tid not in card_cache:
-                cp, _ = find_task_files(harness, tid)
-                card_cache[tid] = cp.read_text(encoding="utf-8", errors="replace") \
-                    if cp and cp.exists() else ""
-            chk = checklist_progress(card_cache[tid])
-            usage = dict(t.get("usage") or {})
-            usage["sessions"] = _session_count(harness, tid)
+        for tr in conn.execute("SELECT tid FROM tasks WHERE story_id=? ORDER BY"
+                               " CAST(SUBSTR(tid,2) AS INTEGER)", (sid,)):
+            t = dbmod.read_task(conn, sid, tr["tid"])
+            if not t:
+                continue
             task_rows.append({
-                "id": tid, "title": t.get("title", ""),
-                "pipeline": t.get("pipeline") or "",
-                "status": t.get("status", ""), "system": t.get("system", ""),
-                "origin": t.get("origin", "plan"),
-                "branch": t.get("branch", ""), "paused": t.get("paused", False),
-                "phase": t.get("phase", ""),
-                "description": card_preview(card_cache[tid],
-                                            str(t.get("description") or "")),
-                "usage": usage,
-                "plan_done": chk["done"], "plan_total": chk["total"],
-                "live": (_live_status(harness, tid) or {}).get("running")
-                        if t.get("pipeline") in ("IMPLEMENTING", "REVIEW") else None,
+                "id": t["tid"], "title": t["title"],
+                "pipeline": pipeline_of(t), "status": t["v2_status"],
+                "system": t["system"], "origin": t["origin"],
+                "branch": t["branch"], "paused": bool(t["paused"]),
+                "phase": t["phase"],
+                "description": cards.card_preview(t.get("card_md") or "",
+                                                  t.get("description") or ""),
+                "usage": _usage_view(t),
+                "plan_done": cards.checklist_progress(t.get("card_md") or "")["done"],
+                "plan_total": cards.checklist_progress(t.get("card_md") or "")["total"],
+                "live": (_live_view(conn, sid, t["tid"]) or {}).get("running")
+                        if t["pipeline"] in ("IMPLEMENTING", "REVIEW") else None,
             })
-        usage_agg = {"tokens_in": 0, "tokens_out": 0, "tokens_total": 0,
-                     "cost_usd": 0.0}
-        for t in tasks:
-            u = t.get("usage") or {}
-            for k in usage_agg:
-                usage_agg[k] = round(usage_agg[k] + float(u.get(k) or 0), 4)
-        stories.append({
-            "fnr": fnr,
-            "title": manifest.get("story_title") or manifest.get("source_document") or fnr,
-            "status": manifest.get("status", "—"),
-            "tasks": len(tasks),
+        out.append({
+            "fnr": s["fnr"],
+            "title": s["story_title"] or s["fnr"],
+            "status": s["status"],
+            "tasks": len(task_rows),
             "counts": counts,
-            "usage": usage_agg,
+            "usage": {"tokens_in": usage["i"], "tokens_out": usage["o"],
+                      "tokens_total": usage["t"], "cost_usd": usage["c"]},
             "task_list": task_rows,
-            "handoff_pending": (harness / ".flags" / "HANDOFF").exists(),
-            "handoff_failed": (harness / ".run" / "handoff_failed").exists(),
-            "manifest_ok": bool(manifest),
+            "handoff_pending": s["status"] == "PENDING_HANDOFF",
+            "handoff_failed": False,
+            "manifest_ok": True,
         })
-    _STORIES_CACHE[key] = (time.time(), stories)
-    return stories
+    return {"stories": out}
 
 
+# ─── пути runtime-артефактов (логи, вложения, pending) ─────────────────────
+
+def harness_dir(project_row, fnr: str) -> Path:
+    return Path(project_row["path"]) / "sa_documentation" / "FNR" / fnr / "harness"
 
 
-
-CHECKBOX_RE = re.compile(r"^\s*-\s+\[( |~|x|r|b|f)\]\s*(.*)$", re.MULTILINE)
-SECTION_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
-STATE_NAMES = {" ": "todo", "~": "inprog", "x": "done",
-               "r": "review", "b": "blocked", "f": "failed"}
-
-# Секция «Что сделать» карточки — источник краткого-превью (единое описание
-# задачи: карточка = документ, манифест остаётся как есть)
-CARD_DESC_RE = re.compile(r"^##\s+Что сделать\s*\n\n(.*?)(?=^##\s|\Z)", re.S | re.M)
-
-
-def card_preview(card_md: str, fallback: str = "", limit: int = 280) -> str:
-    """Выжимка карточки для доски/поиска: секция «Что сделать», иначе первый
-    абзац (не заголовок/таблица/код/чекбокс), иначе fallback из манифеста."""
-    src = card_md or ""
-    m = CARD_DESC_RE.search(src)
-    text = ""
-    if m:
-        text = m.group(1)
-    else:
-        for para in re.split(r"\n\s*\n", src):
-            para = para.strip()
-            if para and not para.startswith(("#", "|", "```", "- [")):
-                text = para
-                break
-    text = " ".join(text.split())
-    if len(text) > limit:
-        text = text[:limit - 1].rstrip() + "…"
-    return text or fallback
-
-
-def parse_checklist_sections(card_md: str) -> list[dict]:
-    """Чек-лист карточки как UI-компонент: секции с элементами и прогрессом.
-
-    Секция = «## Заголовок», после которого встречается ≥1 чекбокс. Строка-
-    продолжение (с отступом, до следующего элемента) приклеивается к тексту
-    элемента; обычный абзац после списка — нет.
-    """
-    sections: list[dict] = []
-    current: dict | None = None
-    pending_title = "Чек-лист"
-    last_item: dict | None = None
-    for line in (card_md or "").splitlines():
-        head = re.match(r"^##\s+(.+?)\s*$", line.strip())
-        if head:
-            current = None
-            last_item = None
-            pending_title = head.group(1)
-            continue
-        box = re.match(r"^\s*-\s+\[( |~|x|r|b|f)\]\s*(.*)$", line)
-        if box:
-            if current is None:
-                current = {"title": pending_title, "items": []}
-                sections.append(current)
-            last_item = {"state": STATE_NAMES.get(box.group(1), "todo"),
-                         "text": box.group(2).strip()}
-            current["items"].append(last_item)
-            continue
-        if last_item is not None and line[:1] in (" ", "\t") and line.strip():
-            last_item["text"] += " " + line.strip()
-    for s in sections:
-        s["done"] = sum(1 for i in s["items"] if i["state"] == "done")
-        s["wip"] = sum(1 for i in s["items"]
-                       if i["state"] in ("inprog", "review", "blocked", "failed"))
-        s["total"] = len(s["items"])
-    return sections
-
-
-def _last_session_summary(harness: Path, task_id: str) -> str:
-    """Итог последней сессии задачи: финал result-события её stream-логов."""
-    logs = sorted((harness / ".run").glob(f"{task_id}_*_*.log"),
-                  key=lambda p: p.stat().st_mtime)
+def _last_session_summary(hdir: Path, task_id: str) -> str:
+    """Итог последней сессии: финал result-события stream-логов (файлы .run)."""
+    run_dir = hdir / ".run"
+    logs = sorted(run_dir.glob(f"{task_id}_*_*.log"), key=lambda p: p.stat().st_mtime)
     for log_path in reversed(logs):
         try:
             content = log_path.read_text(encoding="utf-8", errors="replace")
@@ -348,12 +270,7 @@ def _last_session_summary(harness: Path, task_id: str) -> str:
 
 
 def _readable_tail(path: Path, max_events: int = 60) -> str:
-    """Stream-json сессии -> человекочитаемая хроника (то, что видно в UI).
-
-    Сырой JSONL остаётся в файле; в витрину отдаётся расшифровка: тексты
-    агента, его инструменты, финал сессии. Длительность и итог — из события
-    result. Только последние max_events событий.
-    """
+    """Stream-json сессии -> человекочитаемая хроника (как в v3)."""
     try:
         tail = path.read_bytes()[-524288:].decode("utf-8", errors="replace")
     except OSError:
@@ -389,144 +306,44 @@ def _readable_tail(path: Path, max_events: int = 60) -> str:
     return "\n".join(lines[-max_events:]) or "(событий не найдено)"
 
 
-def pid_alive(pid: int) -> bool:
+def comments_as_md(conn, story_id: int, tid: str) -> str:
+    """Журнал задачи в каноне «- [ts | author] text» (контракт фронтенда)."""
+    lines = [f"- [{c['ts']} | {c['author']}] {c['body']}"
+             for c in dbmod.list_comments(conn, story_id, tid)]
+    return "\n".join(lines)
+
+
+def _ask_agent(project_row, fnr: str, task_id: str, session_id: str, question: str) -> None:
+    """Вопрос агенту задачи: claude --resume <sid>; ответ — в comments (БД)."""
+    hdir = harness_dir(project_row, fnr)
+    run_dir = hdir / ".run"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    pending = run_dir / f"{task_id}_ask.pending"
+    pending.write_text(question, encoding="utf-8")
+    story = db_story_by_fnr(project_row, fnr)
+    dbmod.append_comment(STATE["conn"], int(story["id"]), task_id, "human", question)
     try:
-        if os.name == "nt":
-            out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}"],
-                                 capture_output=True, text=True, check=False)
-            return str(pid) in out.stdout
-        os.kill(pid, 0)
-        return True
-    except (OSError, subprocess.SubprocessError):
-        return False
+        fnr_root = hdir.parents[3] if len(hdir.parents) > 3 else hdir.parent
+        if not (fnr_root / ".claude").is_dir():
+            fnr_root = hdir.parent
+        result = subprocess.run(
+            [STATE["claude_bin"], "--resume", session_id, "-p", question],
+            cwd=str(fnr_root), capture_output=True, text=True, timeout=600,
+            stdin=subprocess.DEVNULL)
+        answer = (result.stdout or "").strip() or "(агент не вернул ответ)"
+    except (OSError, subprocess.SubprocessError) as exc:
+        answer = f"(ошибка чата: {exc})"
+    finally:
+        pending.unlink(missing_ok=True)
+    dbmod.append_comment(STATE["conn"], int(story["id"]), task_id, "agent", answer)
 
 
-def _live_status(harness: Path, tid: str) -> dict | None:
-    """Живость стадии: возраст heartbeat и последнее действие агента из stream-лога.
-
-    None — свежих heartbeat нет (стадия не запускалась/давно). last_action —
-    последний tool-вызов или фраза агента (хвост 64 КБ, парсинг без LLM).
-    """
-    run_dir = harness / ".run"
-    if not run_dir.is_dir():
-        return None
-    hbs = sorted(run_dir.glob(f"{tid}_*.hb"), key=lambda p: p.stat().st_mtime)
-    if not hbs:
-        return None
-    newest = hbs[-1]
-    age = int(time.time() - newest.stat().st_mtime)
-    if age > 7200:  # стадия закончилась больше 2ч назад — не «живость», а история
-        return None
-    # честность: живость определяет ПРОЦЕСС (pid-файл), а не свежесть hb —
-    # hb замирает в момент смерти процесса и ещё ~2 мин выглядит «свежим»
-    running = False
-    stage = newest.stem.split("_", 1)[1]
-    pid_file = run_dir / f"{newest.stem.split('_')[0]}_{stage}.pid"
-    if pid_file.exists():
-        try:
-            running = pid_alive(int(pid_file.read_text(encoding="utf-8").strip()))
-        except (OSError, ValueError):
-            running = False
-    out: dict = {"hb_age_s": age, "running": running}
-    logs = sorted(run_dir.glob(f"{tid}_{stage}_*.log"),
-                  key=lambda p: p.stat().st_mtime)
-    if logs:
-        try:
-            tail = logs[-1].read_bytes()[-65536:].decode("utf-8", errors="replace")
-        except OSError:
-            tail = ""
-        last_tool = last_text = None
-        for line in tail.splitlines():
-            try:
-                d = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if d.get("type") == "assistant":
-                for b in d.get("message", {}).get("content", []):
-                    if b.get("type") == "tool_use":
-                        name = b.get("name", "")
-                        inp = b.get("input") or {}
-                        detail = inp.get("description") or inp.get("file_path") or \
-                            str(inp.get("command") or inp.get("pattern") or "")[:60]
-                        last_tool = f"{name}: {str(detail)[:80]}" if detail else name
-                    elif b.get("type") == "text" and b.get("text", "").strip():
-                        last_text = " ".join(b["text"].split())[:100]
-        out["last_action"] = last_tool or last_text
-    return out
-
-
-def checklist_progress(card_md: str) -> dict:
-    """Суммарный прогресс чек-листов карточки (для канбан-карточки)."""
-    sections = parse_checklist_sections(card_md)
-    return {"total": sum(s["total"] for s in sections),
-            "done": sum(s["done"] for s in sections),
-            "in_progress": sum(s["wip"] for s in sections)}
-
-
-def task_actions(task: dict) -> list[str]:
-    """Доступные человеку действия задачи (имена флагов), по машине состояний."""
-    actions: list[str] = []
-    for event in sm.allowed_events({"pipeline": task.get("pipeline")}):
-        flag = ACTION_FLAGS.get(event)
-        if flag:
-            actions.append(f"TASK_{task.get('id')}_{flag}")
-    actions.append(f"TASK_{task.get('id')}_" + ("RESUME_WORK" if task.get("paused") else "PAUSE"))
-    return actions
-
-
-def read_state(harness: Path) -> dict:
-    """Snapshot of manifest + flags; never raises on transient states."""
-    manifest: dict = {}
-    try:
-        manifest = json.loads((harness / "manifest.json").read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        pass
-    flags_dir = harness / ".flags"
-    flags = sorted(p.name for p in flags_dir.glob("*")) if flags_dir.is_dir() else []
-    # отпечаток комментариев: любое дописывание тоже выталкивает SSE-событие
-    comments_dir = harness / "comments"
-    comments_fp = 0
-    if comments_dir.is_dir():
-        for p in comments_dir.glob("*.md"):
-            try:
-                comments_fp += p.stat().st_mtime_ns % 1_000_003
-            except OSError:
-                pass
-    card_cache: dict[str, str] = {}
-    for t in manifest.get("tasks", []):
-        t["actions"] = task_actions(t)
-        t["can_ask"] = bool(t.get("session_id"))
-        tid = t.get("id", "")
-        if tid not in card_cache:
-            card_path, _ = find_task_files(harness, tid)
-            card_cache[tid] = card_path.read_text(encoding="utf-8", errors="replace") \
-                if card_path and card_path.exists() else ""
-        t["checklist"] = checklist_progress(card_cache[tid])
-        t["live"] = _live_status(harness, tid)
-        t["move_targets"] = _move_targets(t.get("pipeline") or "")
-        # единое описание: превью из карточки перекрывает манифест (in-memory)
-        t["description"] = card_preview(card_cache[tid],
-                                        str(t.get("description") or ""))
-        usage = t.get("usage") or {}
-        usage["sessions"] = _session_count(harness, tid)
-        t["usage"] = usage
-    return {"manifest": manifest, "flags": flags, "comments_fp": comments_fp}
-
-
-def find_task_files(harness: Path, task_id: str) -> tuple[Path | None, Path]:
-    """Locate tasks/<id>_*.md and comments/<id>.md for a task id."""
-    comments_path = harness / "comments" / f"{task_id}.md"
-    card = None
-    tasks_dir = harness / "tasks"
-    if tasks_dir.is_dir():
-        for p in sorted(tasks_dir.glob(f"{task_id}_*.md")) or sorted(tasks_dir.glob(f"{task_id}.md")):
-            card = p
-            break
-    return card, harness / "comments" / f"{task_id}.md"
+def db_story_by_fnr(project_row, fnr: str):
+    return dbmod.get_story(STATE["conn"], int(project_row["id"]), fnr)
 
 
 class Handler(BaseHTTPRequestHandler):
-    def log_message(self, *args) -> None:  # keep the console quiet
+    def log_message(self, *args) -> None:
         pass
 
     def _send(self, code: int, body: bytes, ctype: str) -> None:
@@ -544,7 +361,6 @@ class Handler(BaseHTTPRequestHandler):
             return {}
 
     def _serve_static(self, rel: str) -> bool:
-        """Раздать файл из dist; False — файла нет."""
         target = (DIST_DIR / rel).resolve()
         if not str(target).startswith(str(DIST_DIR)) or not target.is_file():
             return False
@@ -556,13 +372,28 @@ class Handler(BaseHTTPRequestHandler):
         path, _, query = self.path.partition("?")
         return path, {k: v[-1] for k, v in parse_qs(query).items()}
 
-    # ── обёртка: любая непойманная ошибка → JSON 500, соединение не рвём
-    # (раньше исключение в обработчике роняло запрос с трейсбеком в stderr)
+    def _project(self, params: dict):
+        """Проект из ?project=; без параметра — единственный/дефолтный."""
+        name = params.get("project") or STATE.get("default_project")
+        if name:
+            row = dbmod.get_project(conn(), name)
+            if row:
+                return row
+        rows = dbmod.list_projects(conn())
+        return rows[0] if len(rows) == 1 else None
+
+    def _story(self, project_row, params: dict):
+        fnr = params.get("fnr")
+        if not fnr:
+            return None
+        return dbmod.get_story(conn(), int(project_row["id"]), fnr)
+
+    # обёртка: любая непойманная ошибка → JSON 500, соединение не рвём
     def _safe(self, method) -> None:
         try:
             method()
         except (BrokenPipeError, ConnectionResetError):
-            pass  # клиент отключился — не шумим
+            pass
         except Exception as exc:
             traceback.print_exc()
             try:
@@ -583,8 +414,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _do_GET(self) -> None:
         path, params = self._route()
-        project = params.get("project")
-        harness = _harness_of(project, params.get("fnr"))
+        project = self._project(params)
+        c = conn()
         if path in ("/", "/index.html"):
             index = DIST_DIR / "index.html"
             if index.is_file():
@@ -592,7 +423,8 @@ class Handler(BaseHTTPRequestHandler):
             elif CLASSIC_HTML.is_file():
                 self._send(200, CLASSIC_HTML.read_bytes(), "text/html; charset=utf-8")
             else:
-                self._send(200, b"<h1>Frontend not built</h1><p>cd frontend && npm ci && npm run build</p>",
+                self._send(200, b"<h1>Frontend not built</h1>"
+                                b"<p>cd frontend &amp;&amp; npm ci &amp;&amp; npm run build</p>",
                            "text/html; charset=utf-8")
         elif path == "/classic":
             if CLASSIC_HTML.is_file():
@@ -603,412 +435,420 @@ class Handler(BaseHTTPRequestHandler):
             return
         elif path == "/favicon.ico" and self._serve_static("favicon.ico"):
             return
-        elif path == "/api/steward/chat":
-            ws = resolve_workspace(project)
-            if ws is None:
-                # нет ?project=/неизвестный проект — иначе _steward_dir(None) падал
-                self._send(400, b'{"error":"need project"}', "application/json")
-                return
-            chat = _steward_dir(ws) / "chat.md"
-            raw = chat.read_text(encoding="utf-8", errors="replace") if chat.exists() else ""
-            messages = []
-            for line in raw.split("\n"):
-                m = re.match(r"^\s*-\s+\[([^\]]+?)\s*\|\s*([^\]]+?)\s*\]\s*(.*)$", line)
-                if m:
-                    messages.append({"ts": m.group(1), "author": m.group(2), "text": m.group(3)})
-                elif messages and line.strip():
-                    messages[-1]["text"] += "\n" + line
-            pending = (_steward_dir(ws) / ".pending").exists()
-            self._send(200, json.dumps({"messages": messages, "pending": pending},
-                                       ensure_ascii=False).encode("utf-8"), "application/json")
-        elif path == "/api/stories":
-            ws = resolve_workspace(project)
-            self._send(200, json.dumps({"stories": list_stories(ws) if ws else []},
-                                       ensure_ascii=False).encode("utf-8"), "application/json")
         elif path == "/api/projects":
-            projects = []
-            for name in STATE["projects"]:
-                ws = resolve_workspace(name)
-                s_list = list_stories(ws) if ws else []
+            out = []
+            for p in dbmod.list_projects(c):
+                pid = int(p["id"])
+                stories = _stories_payload(c, pid)["stories"]
                 usage = {"tokens_in": 0, "tokens_out": 0, "tokens_total": 0, "cost_usd": 0.0}
                 task_count = 0
-                for s in s_list:
+                for s in stories:
                     task_count += s["tasks"]
                     for k in usage:
                         usage[k] = round(usage[k] + float((s.get("usage") or {}).get(k) or 0), 4)
-                projects.append({"name": name, "path": STATE["projects"][name],
-                                 "stories": s_list, "task_count": task_count, "usage": usage})
-            self._send(200, json.dumps({"projects": projects},
-                                       ensure_ascii=False).encode("utf-8"), "application/json")
+                out.append({"name": p["name"], "path": p["path"], "stories": stories,
+                            "task_count": task_count, "usage": usage})
+            self._send(200, json.dumps({"projects": out},
+                       ensure_ascii=False).encode("utf-8"), "application/json")
+        elif path == "/api/stories":
+            if project is None:
+                self._send(200, b'{"stories":[]}', "application/json")
+                return
+            self._send(200, json.dumps(_stories_payload(c, int(project["id"])),
+                       ensure_ascii=False).encode("utf-8"), "application/json")
         elif path == "/api/state":
-            if harness is None or not harness.is_dir():
+            story = self._story(project, params) if project else None
+            if story is None:
                 self._send(404, b'{"error":"no such story"}', "application/json")
                 return
-            self._send(200, json.dumps(read_state(harness), ensure_ascii=False).encode("utf-8"), "application/json")
+            self._send(200, json.dumps(read_state(c, int(story["id"])),
+                       ensure_ascii=False).encode("utf-8"), "application/json")
         elif path.startswith("/api/task/"):
             task_id = path.rsplit("/", 1)[1]
-            if not re.fullmatch(r"T\d+", task_id):
-                self._send(400, b'{"error":"bad task id"}', "application/json")
+            story = self._story(project, params) if project else None
+            if story is None or not TASK_ID_RE.fullmatch(task_id):
+                self._send(404, b'{"error":"no such story"}', "application/json")
                 return
-            card_path, comments_path = find_task_files(harness, task_id)
-            state = read_state(harness) if harness and harness.is_dir() else {"manifest": {}}
-            task = next((t for t in state["manifest"].get("tasks", []) if t.get("id") == task_id), {})
-            card_md = card_path.read_text(encoding="utf-8", errors="replace") \
-                if card_path and card_path.exists() else ""
-            options = None
+            sid = int(story["id"])
+            task = task_view(c, sid, task_id)
+            if task is None:
+                self._send(404, b'{"error":"no such task"}', "application/json")
+                return
+            hdir = harness_dir(project, story["fnr"])
             problem = None
-            if ws := resolve_workspace(project):
-                opt_path = (ws / "sa_documentation" / "harness" / "steward"
-                            / "options" / f"{task_id}.json")
-                try:
-                    options = json.loads(opt_path.read_text(encoding="utf-8"))
-                except (OSError, json.JSONDecodeError):
-                    options = None
-                if task.get("pipeline") in ("BLOCKED", "NEEDS_HUMAN"):
-                    problem = {
-                        "reason": task.get("blocked_reason") or "",
-                        "last_result": _last_session_summary(harness, task_id),
-                        "findings": [f for f in (task.get("findings") or [])
-                                     if f.get("resolution") != "resolved"],
-                        "retries": task.get("retries") or 0,
-                        "review_iterations": task.get("review_iterations") or 0,
-                        "blocked_from": task.get("blocked_from"),
-                    }
+            if task["pipeline"] in ("BLOCKED", "NEEDS_HUMAN"):
+                problem = {
+                    "reason": task.get("blocked_reason") or "",
+                    "last_result": _last_session_summary(hdir, task_id),
+                    "findings": [f for f in task.get("findings", [])
+                                 if f.get("resolution") != "resolved"],
+                    "retries": task.get("retries") or 0,
+                    "review_iterations": task.get("review_iterations") or 0,
+                    "blocked_from": task.get("blocked_from"),
+                }
+            options = dbmod.steward_options_get(c, sid, task_id)
+            run_dir = hdir / ".run"
             doc = {
                 "task": task,
-                "card_md": card_md,
+                "card_md": c.execute("SELECT card_md FROM tasks WHERE story_id=? AND tid=?",
+                                     (sid, task_id)).fetchone()["card_md"] or "",
                 "options": options,
                 "problem": problem,
-                "comments_md": comments_path.read_text(encoding="utf-8", errors="replace") if comments_path.exists() else "",
-                "ask_pending": (_run_dir(harness) / f"{task_id}_ask.pending").exists(),
-                "checklist_sections": parse_checklist_sections(card_md),
+                "comments_md": comments_as_md(c, sid, task_id),
+                "ask_pending": (run_dir / f"{task_id}_ask.pending").exists(),
+                "checklist_sections": cards.parse_checklist_sections(
+                    c.execute("SELECT card_md FROM tasks WHERE story_id=? AND tid=?",
+                              (sid, task_id)).fetchone()["card_md"] or ""),
             }
-            self._send(200, json.dumps(doc, ensure_ascii=False).encode("utf-8"), "application/json")
+            self._send(200, json.dumps(doc, ensure_ascii=False).encode("utf-8"),
+                       "application/json")
         elif path.startswith("/api/timeline/"):
             task_id = path.rsplit("/", 1)[1]
-            if harness is None or not re.fullmatch(r"T\d+", task_id):
+            story = self._story(project, params) if project else None
+            if story is None or not TASK_ID_RE.fullmatch(task_id):
                 self._send(400, b'{"error":"bad task id"}', "application/json")
                 return
-            entries = _timeline_entries(harness, task_id)
+            entries = dbmod.timeline(c, int(story["id"]), task_id)
             self._send(200, json.dumps({"entries": entries},
-                                       ensure_ascii=False).encode("utf-8"), "application/json")
+                       ensure_ascii=False).encode("utf-8"), "application/json")
+        elif path == "/api/attachments":
+            story = self._story(project, params) if project else None
+            task_id = params.get("task", "")
+            if story is None or not TASK_ID_RE.fullmatch(task_id):
+                self._send(400, b'{"error":"bad task id"}', "application/json")
+                return
+            rows = c.execute("SELECT name FROM attachments WHERE story_id=? AND tid=?"
+                             " ORDER BY name", (int(story["id"]), task_id)).fetchall()
+            self._send(200, json.dumps({"files": [r["name"] for r in rows]},
+                       ensure_ascii=False).encode("utf-8"), "application/json")
         elif path.startswith("/api/attachment/"):
-            # GET /api/attachment/<T<k>>/<имя файла>?fnr= — отдать файл
             rest = [unquote(x) for x in path.split("/")[3:]]
-            if harness is None or len(rest) != 2:
+            story = self._story(project, params) if project else None
+            if story is None or len(rest) != 2:
                 self._send(400, b'{"error":"bad attachment path"}', "application/json")
                 return
-            target = (_attachments_dir(harness, rest[0]) / rest[1]).resolve()
-            if not str(target).startswith(str(_attachments_dir(harness, rest[0]).resolve())) \
-                    or not target.is_file():
+            fdir = harness_dir(project, story["fnr"]) / "attachments" / rest[0]
+            target = (fdir / rest[1]).resolve()
+            if not str(target).startswith(str(fdir.resolve())) or not target.is_file():
                 self._send(404, b'{"error":"not found"}', "application/json")
                 return
             ctype = STATIC_TYPES.get(target.suffix, "application/octet-stream")
             self._send(200, target.read_bytes(), ctype)
-        elif path == "/api/attachments" and harness is not None:
-            task_id = params.get("task", "")
-            adir = _attachments_dir(harness, task_id)
-            names = sorted(x.name for x in adir.iterdir()) if adir.is_dir() else []
-            self._send(200, json.dumps({"files": names}, ensure_ascii=False)
-                       .encode("utf-8"), "application/json")
         elif path.startswith("/api/log/"):
             task_id = path.rsplit("/", 1)[1]
-            if not re.fullmatch(r"T\d+", task_id) or harness is None:
+            story = self._story(project, params) if project else None
+            if story is None or not TASK_ID_RE.fullmatch(task_id):
                 self._send(400, b'{"error":"bad task id"}', "application/json")
                 return
-            logs = sorted(_run_dir(harness).glob(f"{task_id}_*_*.log")) if _run_dir(harness).is_dir() else []
             body = {"log": "", "file": None}
-            if logs:
-                body = {"log": _readable_tail(logs[-1]),
-                        "file": logs[-1].name,
-                        "mtime": logs[-1].stat().st_mtime}
+            sess = c.execute(
+                "SELECT log_path FROM sessions WHERE story_id=? AND tid=?"
+                " ORDER BY id DESC LIMIT 1", (int(story["id"]), task_id)).fetchone()
+            log_file = Path(sess["log_path"]) if sess and sess["log_path"] else None
+            if log_file is None:
+                logs = sorted((harness_dir(project, story["fnr"]) / ".run").glob(
+                    f"{task_id}_*_*.log")) if harness_dir(project, story["fnr"]).is_dir() else []
+                log_file = logs[-1] if logs else None
+            if log_file and Path(log_file).is_file():
+                body = {"log": _readable_tail(Path(log_file)),
+                        "file": Path(log_file).name,
+                        "mtime": Path(log_file).stat().st_mtime}
             self._send(200, json.dumps(body, ensure_ascii=False).encode("utf-8"),
                        "application/json")
+        elif path == "/api/steward/chat":
+            prow = dbmod.get_project(c, params.get("project") or "")
+            if prow is None:
+                self._send(400, b'{"error":"need project"}', "application/json")
+                return
+            pid = int(prow["id"])
+            messages = [dict(r) for r in c.execute(
+                "SELECT ts, author, body AS text FROM steward_messages"
+                " WHERE project_id=? ORDER BY id", (pid,))]
+            pending = bool(dbmod.steward_get_state(c, pid).get("pending"))
+            self._send(200, json.dumps({"messages": messages, "pending": pending},
+                       ensure_ascii=False).encode("utf-8"), "application/json")
         elif path == "/events":
-            self.send_response(200)
-            self.send_header("Content-Type", "text/event-stream")
-            self.send_header("Cache-Control", "no-cache")
-            self.end_headers()
-            last: str | None = None
-            try:
-                while True:
-                    # workspace-режим: поток портфеля; ?project= нет — единственный проект
-                    ws = resolve_workspace(project)
-                    if ws is None and len(STATE["projects"]) == 1:
-                        ws = resolve_workspace(next(iter(STATE["projects"])))
-                    if ws is not None:
-                        payload: dict = {"stories": list_stories(ws)}
-                    elif STATE.get("harness") is not None:
-                        payload = read_state(STATE["harness"])
-                    else:
-                        payload = {}
-                    state = json.dumps(payload, ensure_ascii=False)
-                    if state != last:
-                        self.wfile.write(f"data: {state}\n\n".encode("utf-8"))
-                        self.wfile.flush()
-                        last = state
-                    time.sleep(1)
-            except OSError:
-                pass
+            self._sse(project)
         else:
             self._send(404, b'{"error":"not found"}', "application/json")
 
+    def _sse(self, project) -> None:
+        """SSE: пуш при появлении новых событий (курсор events.id)."""
+        c = conn()
+        pid = int(project["id"]) if project is not None else None
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        last_sent: str | None = None
+        last_event = 0
+        try:
+            while True:
+                row = c.execute("SELECT COALESCE(MAX(id),0) m FROM events").fetchone()
+                fresh = int(row["m"])
+                if fresh != last_event or last_sent is None:
+                    last_event = fresh
+                    if pid is not None:
+                        payload = json.dumps(_stories_payload(c, pid), ensure_ascii=False)
+                    else:
+                        payload = json.dumps({"stories": []}, ensure_ascii=False)
+                    if payload != last_sent:
+                        self.wfile.write(f"data: {payload}\n\n".encode("utf-8"))
+                        self.wfile.flush()
+                        last_sent = payload
+                time.sleep(1)
+        except OSError:
+            pass
+
     def _do_POST(self) -> None:
         path, params = self._route()
-        project = params.get("project")
-        harness = _harness_of(project, params.get("fnr"))
-        if path.startswith("/api/task/") and path.endswith("/move") and harness is not None:
+        project = self._project(params)
+        c = conn()
+        if path.startswith("/api/task/") and path.endswith("/move"):
+            story = self._story(project, params) if project else None
             task_id = path.split("/")[3]
-            target = str(self._json_body().get("to") or "").strip()
-            state = read_state(harness)
-            task = next((t for t in state["manifest"].get("tasks", [])
-                         if t.get("id") == task_id), None)
-            frm = pipeline_of(task) if task else ""
-            if task is None:
+            if story is None or not TASK_ID_RE.fullmatch(task_id):
                 self._send(404, b'{"error":"no such task"}', "application/json")
                 return
+            sid = int(story["id"])
+            target = str(self._json_body().get("to") or "").strip()
+            task = dbmod.read_task(c, sid, task_id, with_card=False)
+            frm = pipeline_of(task) if task else ""
             flag_tpl = MOVE_MAP.get((frm, target))
             if not flag_tpl:
                 self._send(400, json.dumps(
                     {"error": f"переход {frm} → {target} недопустим"},
                     ensure_ascii=False).encode("utf-8"), "application/json")
                 return
-            flag = flag_tpl.format(tid=task_id)
-            (harness / ".flags" / flag).touch()
-            log_event(harness, f"{task_id}: человек перемещает {frm} → {target} (флаг {flag})")
+            name = flag_tpl.format(tid=task_id)
+            dbmod.insert_command(c, sid, name, by="human")
+            dbmod.append_event(c, sid, task_id,
+                               f"{task_id}: человек перемещает {frm} → {target} ({name})",
+                               actor="human", kind="flag")
             self._send(200, b'{"ok":true}', "application/json")
-        elif path.startswith("/api/task/") and path.endswith("/card") and harness is not None:
-            # UI пишет карточку напрямую: карточка — «документ людей и агентов»
-            # (дизайн-док §5), манифест не трогаем (инвариант «один писатель»)
+        elif path.startswith("/api/task/") and path.endswith("/card"):
+            story = self._story(project, params) if project else None
             task_id = path.split("/")[3]
-            if not re.fullmatch(r"T\d+", task_id):
-                self._send(400, b'{"error":"bad task id"}', "application/json")
+            if story is None or not TASK_ID_RE.fullmatch(task_id):
+                self._send(404, b'{"error":"no such task"}', "application/json")
                 return
+            sid = int(story["id"])
             body = self._json_body()
             card_md = str(body.get("card_md") or "")
             force = bool(body.get("force"))
+            expect_version = body.get("expect_version")
             if not card_md.strip():
                 self._send(400, '{"error":"нужен card_md"}'.encode("utf-8"),
                            "application/json")
                 return
-            if not force and (_live_status(harness, task_id) or {}).get("running"):
+            if not force and any(s["alive"] for s in dbmod.live_sessions(c, sid)):
                 self._send(409, json.dumps(
                     {"error": "сессия задачи жива — правка карточки может "
                               "затереться агентом; подтвердите силу",
                      "running": True}, ensure_ascii=False)
                     .encode("utf-8"), "application/json")
                 return
-            card_path, _ = find_task_files(harness, task_id)
-            target = card_path or (harness / "tasks" / f"{task_id}.md")
-            target.parent.mkdir(parents=True, exist_ok=True)
-            if not card_md.endswith("\n"):
-                card_md += "\n"
-            target.write_text(card_md, encoding="utf-8")
-            log_event(harness, f"{task_id}: карточка обновлена человеком "
-                               f"({len(card_md)} симв.{', force поверх живой сессии' if force else ''})")
-            ts = time.strftime("%Y-%m-%d %H:%M")
-            comments = harness / "comments" / f"{task_id}.md"
-            comments.parent.mkdir(exist_ok=True)
-            with comments.open("a", encoding="utf-8") as fh:
-                fh.write(f"- [{ts} | human] **Карточка обновлена** через витрину "
-                         f"(описание задачи — единый источник; было/стало: "
-                         f"{len(body.get('card_md') or '')}/{len(card_md)} симв.)\n")
-            self._send(200, json.dumps({"ok": True, "card": target.name},
-                                       ensure_ascii=False).encode("utf-8"),
-                       "application/json")
-        elif path.startswith("/api/attachment/") and harness is not None:
-            # POST /api/attachment/<T<k>>/<имя>?fnr= — сохранить файл (raw body)
+            ok, version = dbmod.task_set_card(
+                c, sid, task_id, card_md,
+                int(expect_version) if expect_version is not None else None)
+            if not ok:
+                self._send(409, json.dumps(
+                    {"error": "карточка изменена кем-то другим — перечитайте",
+                     "card_version": version}, ensure_ascii=False)
+                    .encode("utf-8"), "application/json")
+                return
+            dbmod.append_comment(c, sid, task_id, "human",
+                                 "**Карточка обновлена** через витрину "
+                                 f"(описание задачи — единый источник; стало: {len(card_md)} симв.)")
+            dbmod.append_event(c, sid, task_id, f"{task_id}: карточка обновлена человеком",
+                               actor="human", kind="card")
+            self._send(200, json.dumps({"ok": True, "card_version": version},
+                       ensure_ascii=False).encode("utf-8"), "application/json")
+        elif path.startswith("/api/attachment/") and project is not None:
+            story = self._story(project, params)
             rest = [unquote(x) for x in path.split("/")[3:]]
-            if len(rest) != 2:
+            if story is None or len(rest) != 2:
                 self._send(400, b'{"error":"bad attachment path"}', "application/json")
                 return
             safe = ATTACHMENT_NAME_RE.sub("_", rest[1]).strip("._") or "file.bin"
-            adir = _attachments_dir(harness, rest[0])
+            adir = harness_dir(project, story["fnr"]) / "attachments" / rest[0]
             adir.mkdir(parents=True, exist_ok=True)
             length = int(self.headers.get("Content-Length", 0))
             (adir / safe).write_bytes(self.rfile.read(length))
-            log_event(harness, f"{rest[0]}: вложение добавлено человеком: {safe}")
+            sid = int(story["id"])
+            c.execute("INSERT OR IGNORE INTO attachments(story_id, tid, name, path,"
+                      " created_at) VALUES (?,?,?,?,?)",
+                      (sid, rest[0], safe, str(adir / safe), dbmod.now_iso()))
+            c.commit()
+            dbmod.append_event(c, sid, rest[0], f"{rest[0]}: вложение добавлено: {safe}",
+                               actor="human", kind="attachment")
             self._send(200, b'{"ok":true}', "application/json")
         elif path == "/api/projects":
-            # POST /api/projects — добавить проект (имя + существующий каталог)
             body = self._json_body()
-            ok, info = add_project(str(body.get("name") or "").strip(),
-                                   str(body.get("path") or "").strip())
-            self._send(200 if ok else 400,
-                       json.dumps({"ok": ok, "info": info}, ensure_ascii=False)
-                       .encode("utf-8"), "application/json")
+            name = str(body.get("name") or "").strip()
+            ppath = str(body.get("path") or "").strip()
+            if not name or not Path(ppath).is_dir():
+                self._send(400, '{"ok":false,"error":"нужны имя и существующий каталог"}'.encode("utf-8"),
+                           "application/json")
+                return
+            dbmod.upsert_project(c, name, str(Path(ppath).resolve()))
+            self._send(200, b'{"ok":true}', "application/json")
         elif path == "/api/steward/message":
             body = self._json_body()
             msg = str(body.get("text") or "").strip()
-            ws = resolve_workspace(project)
-            if ws is None or not msg:
+            project = dbmod.get_project(c, params.get("project") or "")
+            if project is None or not msg:
                 self._send(400, b'{"error":"need project and text"}', "application/json")
                 return
-            sdir = _steward_dir(ws)
-            if (sdir / ".pending").exists():
+            pid = int(project["id"])
+            st = dbmod.steward_get_state(c, pid)
+            if st.get("pending"):
                 self._send(429, b'{"error":"steward is thinking"}', "application/json")
                 return
-            _steward_chat_append(ws, "human", msg)
-            threading.Thread(target=_steward_turn,
-                             args=(ws, msg), daemon=True).start()
+            dbmod.steward_append(c, pid, "human", msg)
+            dbmod.steward_set_pending(c, pid, True, msg)
+            threading.Thread(target=_steward_turn, args=(project, msg), daemon=True).start()
             self._send(200, b'{"ok":true,"pending":true}', "application/json")
         elif path == "/api/story":
             body = self._json_body()
-            ws = resolve_workspace(project)
-            ok, info = ("", "") if ws is None else (None, None)
-            if ws is None:
+            if project is None:
                 self._send(400, b'{"error":"need project"}', "application/json")
                 return
-            ok, info = create_story(ws, str(body.get("title") or "").strip(),
-                                    str(body.get("source") or "").strip())
-            self._send(200 if ok else 400,
-                       json.dumps({"ok": ok, "info": info}, ensure_ascii=False).encode("utf-8"),
-                       "application/json")
+            title = str(body.get("title") or "").strip()
+            source = str(body.get("source") or "").strip()
+            if not title or not source:
+                self._send(400, '{"error":"нужны title и source"}'.encode("utf-8"), "application/json")
+                return
+            source_path = Path(source)
+            if source_path.is_file():
+                source_md = source_path.read_text(encoding="utf-8", errors="replace")
+                source_name = source_path.name
+            else:
+                source_md, source_name = source, "system_requirements.md"
+            sid = dbmod.create_story(c, int(project["id"]), None, title,
+                                     source_md, source_name)
+            story = c.execute("SELECT fnr FROM stories WHERE id=?", (sid,)).fetchone()
+            dbmod.append_event(c, sid, None,
+                               f"{story['fnr']}: Story создана человеком — демон построит план",
+                               actor="human", kind="handoff")
+            self._send(200, json.dumps({"ok": True, "info": story["fnr"]},
+                       ensure_ascii=False).encode("utf-8"), "application/json")
         elif path.startswith("/api/story/") and path.endswith("/task"):
-            # ручная Task в Story: UI не пишет манифест — кладёт payload-флаг,
-            # демон создаёт карточку и запись (один писатель)
             fnr = path[len("/api/story/"):-len("/task")]
-            harness = _harness_of(project, fnr)
-            if harness is None or not harness.is_dir():
-                self._send(404, '{"ok":false,"error":"нет такой Story"}'.encode("utf-8"), "application/json")
+            story = dbmod.get_story(c, int(project["id"]), fnr) if project else None
+            if story is None:
+                self._send(404, '{"ok":false,"error":"нет такой Story"}'.encode("utf-8"),
+                           "application/json")
                 return
             body = self._json_body()
-            title = str(body.get("title") or "").strip()
-            if not title:
-                self._send(400, '{"ok":false,"error":"нужен title"}'.encode("utf-8"), "application/json")
+            if not str(body.get("title") or "").strip():
+                self._send(400, '{"ok":false,"error":"нужен title"}'.encode("utf-8"),
+                           "application/json")
                 return
-            flags_dir = harness / ".flags"
-            flags_dir.mkdir(exist_ok=True)
             payload = {k: str(body[k]).strip()
                        for k in ("title", "description", "system") if body.get(k)}
-            (flags_dir / f"TASK_NEW_{int(time.time() * 1000)}.json").write_text(
-                json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            dbmod.insert_command(c, int(story["id"]), "task.new", payload, by="human")
             self._send(200, b'{"ok":true,"queued":true}', "application/json")
         elif path.startswith("/api/flag/"):
             name = path.rsplit("/", 1)[1]
-            if harness is None:
+            story = self._story(project, params) if project else None
+            if story is None:
                 self._send(404, b'{"error":"no story"}', "application/json")
                 return
             if not re.fullmatch(r"[A-Za-z0-9_]+(\.json)?", name):
                 self._send(400, b'{"error":"bad flag name"}', "application/json")
                 return
-            flags_dir = harness / ".flags"
-            flags_dir.mkdir(exist_ok=True)
+            sid = int(story["id"])
             if name.endswith(".json"):
-                # payload-флаг (TASK_EDIT_<id>.json): тело запроса — содержимое
-                body = self._json_body()
-                (flags_dir / name).write_text(
-                    json.dumps(body, ensure_ascii=False), encoding="utf-8")
+                payload = self._json_body()
+                kind = "task.edit_desc" if name.startswith("TASK_EDIT_") else name[:-5]
+                dbmod.insert_command(c, sid, kind, payload, by="human")
+            elif name == "PAUSE":
+                dbmod.story_pause(c, sid, True)
+                dbmod.append_event(c, sid, None, "Story: пауза конвейера (человек)",
+                                   actor="human", kind="flag")
             else:
-                (flags_dir / name).touch()
+                dbmod.insert_command(c, sid, name, by="human")
             self._send(200, b'{"ok":true}', "application/json")
         elif path.startswith("/api/comment/"):
             task_id = path.rsplit("/", 1)[1]
             text = (self._json_body().get("text") or "").strip()
-            if not re.fullmatch(r"T\d+", task_id) or not text or harness is None:
+            story = self._story(project, params) if project else None
+            if story is None or not TASK_ID_RE.fullmatch(task_id) or not text:
                 self._send(400, b'{"error":"need task id and text"}', "application/json")
                 return
-            _, comments_path = find_task_files(harness, task_id)
-            comments_path.parent.mkdir(exist_ok=True)
-            ts = time.strftime("%Y-%m-%d %H:%M")
-            with comments_path.open("a", encoding="utf-8") as fh:
-                fh.write(f"- [{ts} | human] {text}\n")
-            self._send(200, b'{"ok":true}', "application/json")
+            sid = int(story["id"])
+            dbmod.append_comment(c, sid, task_id, "human", text)
+            is_attention = False
+            task = dbmod.read_task(c, sid, task_id, with_card=False)
+            if task and task["pipeline"] in ("NEEDS_HUMAN", "BLOCKED"):
+                is_attention = True
+                dbmod.insert_command(c, sid, f"TASK_{task_id}_RETRY", by="human")
+            elif task and task["pipeline"] == "DONE":
+                dbmod.insert_command(c, sid, f"TASK_{task_id}_REQUEST_CHANGES", by="human")
+            dbmod.append_event(c, sid, task_id, f"{task_id}: комментарий человека",
+                               actor="human", kind="comment")
+            self._send(200, b'{"ok":true,"retried":true}' if is_attention
+                       else b'{"ok":true}', "application/json")
         elif path.startswith("/api/ask/"):
             task_id = path.rsplit("/", 1)[1]
             question = (self._json_body().get("text") or "").strip()
-            if not re.fullmatch(r"T\d+", task_id) or not question:
+            story = self._story(project, params) if project else None
+            if story is None or not TASK_ID_RE.fullmatch(task_id) or not question:
                 self._send(400, b'{"error":"need task id and text"}', "application/json")
                 return
-            if harness is None:
-                self._send(404, b'{"error":"no story"}', "application/json")
-                return
-            task = next((t for t in read_state(harness)["manifest"].get("tasks", [])
-                         if t.get("id") == task_id), {})
-            session_id = task.get("session_id")
+            task = dbmod.read_task(c, int(story["id"]), task_id, with_card=False)
+            session_id = (task or {}).get("session_id")
             if not session_id:
                 self._send(409, b'{"error":"task has no session yet"}', "application/json")
                 return
-            if (_run_dir(harness) / f"{task_id}_ask.pending").exists():
+            hdir = harness_dir(project, story["fnr"])
+            if (hdir / ".run" / f"{task_id}_ask.pending").exists():
                 self._send(429, b'{"error":"question already running"}', "application/json")
                 return
             threading.Thread(target=_ask_agent,
-                             args=(harness, task_id, session_id, question), daemon=True).start()
+                             args=(project, story["fnr"], task_id, session_id, question),
+                             daemon=True).start()
             self._send(200, b'{"ok":true,"pending":true}', "application/json")
         else:
             self._send(404, b'{"error":"not found"}', "application/json")
 
     def _do_DELETE(self) -> None:
         path, params = self._route()
+        c = conn()
         if path.startswith("/api/flag/"):
             name = path.rsplit("/", 1)[1]
-            harness = _harness_of(params.get("project"), params.get("fnr"))
-            if harness is None:
+            story = self._story(self._project(params), params) if self._project(params) else None
+            if story is None:
                 self._send(404, b'{"error":"no story"}', "application/json")
                 return
+            sid = int(story["id"])
             if not re.fullmatch(r"[A-Za-z0-9_]+(\.json)?", name):
                 self._send(400, b'{"error":"bad flag name"}', "application/json")
                 return
-            (harness / ".flags" / name).unlink(missing_ok=True)
+            if name == "PAUSE":
+                dbmod.story_pause(c, sid, False)
+                dbmod.append_event(c, sid, None, "Story: пауза снята (человек)",
+                                   actor="human", kind="flag")
+            else:
+                dbmod.delete_pending_command(c, sid, name)
             self._send(200, b'{"ok":true}', "application/json")
         else:
             self._send(404, b'{"error":"not found"}', "application/json")
 
 
-def _ask_agent(harness: Path, task_id: str, session_id: str, question: str) -> None:
-    """Вопрос агенту задачи: claude --resume <sid>; ответ — в журнал задачи."""
-    run_dir = _run_dir(harness)
-    run_dir.mkdir(exist_ok=True)
-    pending = run_dir / f"{task_id}_ask.pending"
-    pending.write_text(question, encoding="utf-8")
-    ts = time.strftime("%Y-%m-%d %H:%M")
-    comments = harness / "comments" / f"{task_id}.md"
-    comments.parent.mkdir(exist_ok=True)
-    with comments.open("a", encoding="utf-8") as fh:
-        fh.write(f"- [{ts} | human] {question}\n")
-    try:
-        # канон компоновки: <workspace>/sa_documentation/FNR_N/harness →
-        # корень воркспейса (там .claude/commands); при другом раскладе — рядом
-        fnr_root = harness.parents[3] if len(harness.parents) > 3 else harness.parent
-        if not (fnr_root / ".claude").is_dir():
-            fnr_root = harness.parent
-        result = subprocess.run(
-            [STATE["claude_bin"], "--resume", session_id, "-p", question],
-            cwd=str(fnr_root), capture_output=True, text=True, timeout=600,
-            stdin=subprocess.DEVNULL)
-        answer = (result.stdout or "").strip() or "(агент не вернул ответ)"
-    except (OSError, subprocess.SubprocessError) as exc:
-        answer = f"(ошибка чата: {exc})"
-    finally:
-        pending.unlink(missing_ok=True)
-    ts = time.strftime("%Y-%m-%d %H:%M")
-    with comments.open("a", encoding="utf-8") as fh:
-        fh.write(f"- [{ts} | agent] {answer}\n")
-
-
-def _steward_dir(workspace: Path) -> Path:
-    d = workspace / "sa_documentation" / "harness" / "steward"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
-
-
-def _steward_chat_append(workspace: Path, author: str, text: str) -> None:
-    chat = _steward_dir(workspace) / "chat.md"
-    ts = time.strftime("%Y-%m-%d %H:%M")
-    with chat.open("a", encoding="utf-8") as fh:
-        fh.write(f"- [{ts} | {author}] {text}\n")
-
-
-def _steward_turn(workspace: Path, message: str) -> None:
-    """Один ход Steward: /steward <сообщение> (первый ход) или --resume."""
-    sdir = _steward_dir(workspace)
-    pending = sdir / ".pending"
-    pending.write_text(message, encoding="utf-8")
+def _steward_turn(project_row, message: str) -> None:
+    """Один ход Steward: /steward <сообщение> или --resume; ответ в БД."""
+    c = conn()
+    pid = int(project_row["id"])
+    workspace = Path(project_row["path"])
+    sdir = workspace / "sa_documentation" / "harness" / "steward"
+    sdir.mkdir(parents=True, exist_ok=True)
     session_file = sdir / "session"
+    st = dbmod.steward_get_state(c, pid)
     try:
-        if session_file.exists():
-            args = [STATE["claude_bin"], "--resume",
-                    session_file.read_text(encoding="utf-8").strip(),
+        if st.get("session_id"):
+            args = [STATE["claude_bin"], "--resume", st["session_id"],
                     "--output-format", "json", "-p", message]
         else:
             args = [STATE["claude_bin"], "--output-format", "json",
@@ -1019,77 +859,46 @@ def _steward_turn(workspace: Path, message: str) -> None:
         try:
             doc = json.loads(result.stdout or "{}")
             answer = str(doc.get("result") or "").strip()
-            if doc.get("session_id") and not session_file.exists():
-                session_file.write_text(doc["session_id"], encoding="utf-8")
+            if doc.get("session_id") and not st.get("session_id"):
+                dbmod.steward_set_session(c, pid, str(doc["session_id"]))
         except json.JSONDecodeError:
             answer = (result.stdout or "").strip()
         if result.returncode != 0 and not answer:
             answer = f"(ошибка Steward: {result.stderr[:300]})"
-        _steward_chat_append(workspace, "steward",
+        dbmod.steward_append(c, pid, "steward",
                              answer or "(пустой ответ — сессия вернулась без текста)")
     except (OSError, subprocess.SubprocessError) as exc:
-        _steward_chat_append(workspace, "steward", f"(ошибка запуска: {exc})")
+        dbmod.steward_append(c, pid, "steward", f"(ошибка запуска: {exc})")
     finally:
-        pending.unlink(missing_ok=True)
-
-
-def create_story(ws: Path, title: str, source: str) -> tuple[bool, str]:
-    """Новая Story из витрины (порция F): каркас FNR_N + СТ + handoff-флаг.
-
-    План строит демон, запуская /impl-handoff; файлы — единственный интерфейс
-    между витриной и конвейером (UI не пишет манифесты).
-    """
-    if not ws:
-        return False, "не указан проект"
-    if not title or not source:
-        return False, "нужны title и source (текст или путь к СТ)"
-    existing = [int(d.name[4:]) for d in ws.glob("sa_documentation/FNR/FNR_*")
-                if re.fullmatch(r"FNR_\d+", d.name)]
-    fnr = f"FNR_{max(existing, default=0) + 1}"
-    fnr_dir = ws / "sa_documentation" / "FNR" / fnr
-    try:
-        source_path = Path(source)
-        if source_path.is_file():
-            source_text = source_path.read_text(encoding="utf-8", errors="replace")
-            source_name = source_path.name
-        else:
-            source_text, source_name = source, "system_requirements.md"
-        (fnr_dir / "harness" / ".flags").mkdir(parents=True, exist_ok=True)
-        (fnr_dir / source_name).write_text(source_text, encoding="utf-8")
-        (fnr_dir / "harness" / ".flags" / "HANDOFF").write_text(
-            json.dumps({"title": title}, ensure_ascii=False), encoding="utf-8")
-        (fnr_dir / "harness" / ".run").mkdir(exist_ok=True)
-    except OSError as exc:
-        return False, f"не удалось создать Story: {exc}"
-    print(f"Story {fnr} создана: {title} — демон построит план (/impl-handoff)")
-    return True, fnr
+        dbmod.steward_set_pending(c, pid, False)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="AI Harness Live Dashboard (stdlib only)")
-    parser.add_argument("--harness", help="путь к каталогу FNR_N/harness (одна Story)")
-    parser.add_argument("--workspace",
-                        help="корень воркспейса: портфель Stories + /api/story")
+    parser = argparse.ArgumentParser(description="AI Harness dashboard (SQLite)")
+    parser.add_argument("--workspace", help="воркспейс: регистрируется/берётся из БД")
     parser.add_argument("--project-name", default="",
-                        help="имя проекта в портфеле (по умолчанию — имя каталога)")
+                        help="имя проекта для --workspace")
     parser.add_argument("--port", type=int, default=4040)
     parser.add_argument("--bind", default="127.0.0.1",
                         help="адрес привязки (в Docker: 0.0.0.0)")
     parser.add_argument("--claude-bin", default="claude",
                         help="бинарь claude для чата задачи (тесты: заглушка)")
+    parser.add_argument("--db", default=None, help="путь к БД (HARNESS_DB)")
     args = parser.parse_args()
+    STATE["conn"] = dbmod.connect(args.db) if args.db else dbmod.connect()
+    STATE["claude_bin"] = args.claude_bin
     if args.workspace:
         wsp = Path(args.workspace).resolve()
-        STATE["workspace"] = wsp
-        STATE["projects"][args.project_name or wsp.name] = str(wsp)
-    else:
-        for name, path in load_registry().items():
-            STATE["projects"][name] = path
-    if args.harness:
-        STATE["harness"] = Path(args.harness).resolve()
-    STATE["claude_bin"] = args.claude_bin
-    server = ThreadingHTTPServer((args.bind, args.port), Handler)
-    print(f"AI Harness dashboard: http://127.0.0.1:{args.port}  ({STATE['harness']})")
+        name = args.project_name or wsp.name
+        dbmod.upsert_project(STATE["conn"], name, str(wsp))
+        STATE["default_project"] = name
+    print(f"AI Harness dashboard (SQLite): http://127.0.0.1:{args.port}"
+          f"  [{dbmod.db_path()}]")
+    try:
+        server = ThreadingHTTPServer((args.bind, args.port), Handler)
+    except OSError as exc:
+        print(f"не удалось занять порт {args.port}: {exc}")
+        raise SystemExit(1)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

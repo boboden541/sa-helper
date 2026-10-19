@@ -119,20 +119,20 @@ CREATE TABLE IF NOT EXISTS acceptance_criteria(
   FOREIGN KEY(story_id, tid) REFERENCES tasks(story_id, tid) ON DELETE CASCADE
 );
 
-CREATE TABLE task_deps(                                  -- DAG
+CREATE TABLE IF NOT EXISTS task_deps(                                  -- DAG
   story_id INTEGER NOT NULL, tid TEXT NOT NULL, dep_tid TEXT NOT NULL,
   PRIMARY KEY(story_id, tid, dep_tid),
   FOREIGN KEY(story_id, tid) REFERENCES tasks(story_id, tid) ON DELETE CASCADE,
   FOREIGN KEY(story_id, dep_tid) REFERENCES tasks(story_id, tid) ON DELETE CASCADE
 );
 
-CREATE TABLE task_frs(                                   -- fr_ids
+CREATE TABLE IF NOT EXISTS task_frs(                                   -- fr_ids
   story_id INTEGER NOT NULL, tid TEXT NOT NULL, fr_id TEXT NOT NULL,
   PRIMARY KEY(story_id, tid, fr_id),
   FOREIGN KEY(story_id, tid) REFERENCES tasks(story_id, tid) ON delete CASCADE
 );
 
-CREATE TABLE gates(
+CREATE TABLE IF NOT EXISTS gates(
   story_id INTEGER NOT NULL, tid TEXT NOT NULL,
   gate TEXT NOT NULL CHECK(gate IN ('build','test','lint','coverage','review')),
   state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN
@@ -142,7 +142,7 @@ CREATE TABLE gates(
   FOREIGN KEY(story_id, tid) REFERENCES tasks(story_id, tid) ON DELETE CASCADE
 );
 
-CREATE TABLE findings(
+CREATE TABLE IF NOT EXISTS findings(
   story_id INTEGER NOT NULL, tid TEXT NOT NULL, fid TEXT NOT NULL,   -- sha1_12 [D]
   text TEXT NOT NULL, file TEXT,
   resolution TEXT NOT NULL DEFAULT 'open' CHECK(resolution IN ('open','resolved','still_blocking')),
@@ -151,7 +151,7 @@ CREATE TABLE findings(
   FOREIGN KEY(story_id, tid) REFERENCES tasks(story_id, tid) ON DELETE CASCADE
 );
 
-CREATE TABLE review_verdicts(
+CREATE TABLE IF NOT EXISTS review_verdicts(
   id INTEGER PRIMARY KEY,
   story_id INTEGER NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
   tid TEXT NOT NULL,
@@ -275,7 +275,7 @@ def connect(path: str | Path | None = None) -> sqlite3.Connection:
     """Соединение с прагмами и схемой. Один на поток (thread-local у клиента)."""
     p = Path(path) if path else db_path()
     p.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(p), timeout=5.0)
+    conn = sqlite3.connect(str(p), timeout=5.0, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.isolation_level = None   # autocommit; транзакциями управляет только tx()
     conn.execute("PRAGMA journal_mode=WAL")
