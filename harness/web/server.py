@@ -94,11 +94,37 @@ MOVE_MAP = {
     ("BLOCKED", "IMPLEMENTING"): "TASK_{tid}_RETRY",
     ("NEEDS_HUMAN", "IMPLEMENTING"): "TASK_{tid}_RETRY",
     ("REVIEW", "DONE"): "TASK_{tid}_FORCE_APPROVE",
+    # «Остановить задачу» (макет v3, вариант 3 из блока причины):
+    # EV_ABORT легален из любого активного статуса (state_machine.ACTIVE)
+    ("READY", "ABORTED"): "TASK_{tid}_ABORT",
+    ("IMPLEMENTING", "ABORTED"): "TASK_{tid}_ABORT",
+    ("REVIEW", "ABORTED"): "TASK_{tid}_ABORT",
+    ("BLOCKED", "ABORTED"): "TASK_{tid}_ABORT",
+    ("NEEDS_HUMAN", "ABORTED"): "TASK_{tid}_ABORT",
 }
 
 
 def _move_targets(pipeline: str) -> list[str]:
     return sorted({to for (frm, to) in MOVE_MAP if frm == pipeline})
+
+
+# Внутренние v2-статусы → статус конвейера (зеркало pipelineOf в api.ts):
+# сессии v2 пишут status, демон/тень — pipeline; нужен единый ответ для /move.
+_V2_TO_PIPELINE = {
+    "PLANNED": "BACKLOG", "APPROVED": "READY",
+    "TDD_RED": "IMPLEMENTING", "TDD_GREEN": "IMPLEMENTING", "GATES": "IMPLEMENTING",
+    "AGENT_REVIEW": "REVIEW", "ESCALATED_BLOCKED": "NEEDS_HUMAN",
+}
+
+
+def pipeline_of(task: dict) -> str:
+    return task.get("pipeline") or _V2_TO_PIPELINE.get(task.get("status") or "") or "BACKLOG"
+
+
+def _session_count(harness: Path, task_id: str) -> int:
+    """Число сессий задачи = число её stream-логов в .run (показ «N сессий»)."""
+    run_dir = harness / ".run"
+    return len(list(run_dir.glob(f"{task_id}_*_*.log"))) if run_dir.is_dir() else 0
 
 
 TIMELINE_RE = re.compile(r"^\s*-\s+\[([^\]]+?)\s*\|\s*\w+\]\s*(.*)$")
@@ -136,15 +162,6 @@ def _timeline_entries(harness: Path, task_id: str) -> list[dict]:
     return entries
 
 
-def _serve_static(self, rel: str) -> bool:
-    """Раздать файл из dist; False — файла нет."""
-    target = (DIST_DIR / rel).resolve()
-    if not str(target).startswith(str(DIST_DIR)) or not target.is_file():
-        return False
-    ctype = STATIC_TYPES.get(target.suffix, "application/octet-stream")
-    self._send(200, target.read_bytes(), ctype)
-    return True
-
 # события машины состояний → флаги задач (демон забирает .flags/TASK_...)
 ACTION_FLAGS = {
     sm.EV_REQUEST_CHANGES: "REQUEST_CHANGES",
@@ -157,13 +174,6 @@ ACTION_FLAGS = {
 
 def _run_dir(harness: Path | None = None) -> Path:
     return (harness or STATE["harness"]) / ".run"
-
-
-def resolve_workspace(project: str | None) -> Path | None:
-    if STATE.get("projects"):
-        path = STATE["projects"].get(project or "")
-        return Path(path) if path else None
-    return STATE.get("workspace")
 
 
 def _harness_of(project: str | None, fnr: str | None) -> Path | None:
@@ -205,12 +215,16 @@ def list_stories(workspace: Path) -> list[dict]:
                 card_cache[tid] = cp.read_text(encoding="utf-8", errors="replace") \
                     if cp and cp.exists() else ""
             chk = checklist_progress(card_cache[tid])
+            usage = dict(t.get("usage") or {})
+            usage["sessions"] = _session_count(harness, tid)
             task_rows.append({
                 "id": tid, "title": t.get("title", ""),
                 "pipeline": t.get("pipeline") or "",
                 "status": t.get("status", ""), "system": t.get("system", ""),
                 "origin": t.get("origin", "plan"),
-                "usage": t.get("usage"),
+                "branch": t.get("branch", ""), "paused": t.get("paused", False),
+                "phase": t.get("phase", ""),
+                "usage": usage,
                 "plan_done": chk["done"], "plan_total": chk["total"],
                 "live": (_live_status(harness, tid) or {}).get("running")
                         if t.get("pipeline") in ("IMPLEMENTING", "REVIEW") else None,
@@ -463,6 +477,9 @@ def read_state(harness: Path) -> dict:
         t["checklist"] = checklist_progress(card_cache[tid])
         t["live"] = _live_status(harness, tid)
         t["move_targets"] = _move_targets(t.get("pipeline") or "")
+        usage = t.get("usage") or {}
+        usage["sessions"] = _session_count(harness, tid)
+        t["usage"] = usage
     return {"manifest": manifest, "flags": flags, "comments_fp": comments_fp}
 
 
@@ -659,10 +676,17 @@ class Handler(BaseHTTPRequestHandler):
             last: str | None = None
             try:
                 while True:
-                    if STATE.get("workspace"):
-                        state = json.dumps({"stories": list_stories()}, ensure_ascii=False)
+                    # workspace-режим: поток портфеля; ?project= нет — единственный проект
+                    ws = resolve_workspace(project)
+                    if ws is None and len(STATE["projects"]) == 1:
+                        ws = resolve_workspace(next(iter(STATE["projects"])))
+                    if ws is not None:
+                        payload: dict = {"stories": list_stories(ws)}
+                    elif STATE.get("harness") is not None:
+                        payload = read_state(STATE["harness"])
                     else:
-                        state = json.dumps(read_state(STATE["harness"]), ensure_ascii=False)
+                        payload = {}
+                    state = json.dumps(payload, ensure_ascii=False)
                     if state != last:
                         self.wfile.write(f"data: {state}\n\n".encode("utf-8"))
                         self.wfile.flush()
@@ -749,7 +773,7 @@ class Handler(BaseHTTPRequestHandler):
             # ручная Task в Story: UI не пишет манифест — кладёт payload-флаг,
             # демон создаёт карточку и запись (один писатель)
             fnr = path[len("/api/story/"):-len("/task")]
-            harness = _harness_of(fnr)
+            harness = _harness_of(project, fnr)
             if harness is None or not harness.is_dir():
                 self._send(404, '{"ok":false,"error":"нет такой Story"}'.encode("utf-8"), "application/json")
                 return
@@ -760,30 +784,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
             flags_dir = harness / ".flags"
             flags_dir.mkdir(exist_ok=True)
-            payload = {"title": title,
-                       "description": str(body.get("description") or "").strip()}
-            if body.get("system"):
-                payload["system"] = str(body["system"]).strip()
+            payload = {k: str(body[k]).strip()
+                       for k in ("title", "description", "system") if body.get(k)}
             (flags_dir / f"TASK_NEW_{int(time.time() * 1000)}.json").write_text(
                 json.dumps(payload, ensure_ascii=False), encoding="utf-8")
             self._send(200, b'{"ok":true,"queued":true}', "application/json")
-        elif path.startswith("/api/story/") and path.endswith("/task"):
-            fnr = path.split("/")[3]
-            target = _harness_of(fnr)
-            if target is None or not target.is_dir():
-                self._send(404, b'{"error":"no such story"}', "application/json")
-                return
-            body = self._json_body()
-            if not str(body.get("title") or "").strip():
-                self._send(400, b'{"error":"need title"}', "application/json")
-                return
-            flags_dir = target / ".flags"
-            flags_dir.mkdir(exist_ok=True)
-            payload = {k: body[k] for k in ("title", "description", "system",
-                                            "depends_on", "acceptance") if body.get(k)}
-            (flags_dir / f"TASK_NEW_{int(time.time() * 1000)}.json").write_text(
-                json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-            self._send(200, b'{"ok":true}', "application/json")
         elif path.startswith("/api/flag/"):
             name = path.rsplit("/", 1)[1]
             if harness is None:
@@ -839,12 +844,17 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, b'{"error":"not found"}', "application/json")
 
     def do_DELETE(self) -> None:
-        if self.path.startswith("/api/flag/"):
-            name = self.path.rsplit("/", 1)[1]
-            try:
-                (harness / ".flags" / name).unlink()
-            except OSError:
-                pass
+        path, params = self._route()
+        if path.startswith("/api/flag/"):
+            name = path.rsplit("/", 1)[1]
+            harness = _harness_of(params.get("project"), params.get("fnr"))
+            if harness is None:
+                self._send(404, b'{"error":"no story"}', "application/json")
+                return
+            if not re.fullmatch(r"[A-Za-z0-9_]+(\.json)?", name):
+                self._send(400, b'{"error":"bad flag name"}', "application/json")
+                return
+            (harness / ".flags" / name).unlink(missing_ok=True)
             self._send(200, b'{"ok":true}', "application/json")
         else:
             self._send(404, b'{"error":"not found"}', "application/json")
