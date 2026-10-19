@@ -149,18 +149,77 @@ def comment(harness: Path, tid: str, text: str) -> None:
         fh.write(f"- [{ts} | daemon] {text}\n")
 
 
-def _escalation_report(task: dict, reason: str) -> str:
+def _last_session_summary(harness: Path, tid: str) -> str:
+    """Итог последней сессии задачи: финал из stream-лога (человекочитаемо)."""
+    logs = sorted((harness / ".run").glob(f"{tid}_*_*.log"),
+                  key=lambda p: p.stat().st_mtime)
+    for log_path in reversed(logs):
+        try:
+            content = log_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for line in reversed(content.splitlines()):
+            try:
+                d = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if d.get("type") == "result":
+                dur = round(d.get("duration_ms", 0) / 60000, 1)
+                txt = " ".join(str(d.get("result") or "").split())
+                stage = log_path.name.split("_")[1]
+                return f"сессия «{stage}» ({dur} мин): {txt[:400]}" + ("…" if len(txt) > 400 else "")
+    return "итог последней сессии не найден"
+
+
+def _steward_options(harness: Path, task: dict, reason: str) -> None:
+    """Steward предлагает человеку ровно 3 варианта действий (JSON-файл)."""
+    tid = task["id"]
+    ws = harness.parents[3] if len(harness.parents) > 3 else harness.parent
+    options_path = (ws / "sa_documentation" / "harness" / "steward" / "options"
+                    / f"{tid}.json")
+    options_path.parent.mkdir(parents=True, exist_ok=True)
+    sdir = options_path.parent.parent
+    prompt = (
+        f"/steward Задача {tid} остановлена в NEEDS_HUMAN. Причина: {reason}. "
+        f"Итог последней сессии: {_last_session_summary(harness, tid)[:300]}. "
+        f"Прочти при необходимости: {harness}/comments/{tid}.md, "
+        f"{harness}/.run/ (хроники сессий). "
+        f"Предложи человеку РОВНО 3 варианта дальнейших действий. "
+        f"Запиши ответ ТОЛЬКО как JSON в файл: {options_path} — "
+        'формат: {"options": [{"title": "кратко", "explanation": "почему и '
+        '"последствия", "flag": "TASK_' + tid + '_RETRY|TASK_' + tid +
+        '_FORCE_APPROVE|TASK_' + tid + '_ABORT|TASK_' + tid +
+        '_REQUEST_CHANGES|null", "recommended": true|false}]}. '
+        "Ровно один recommended=true. Flag=null — только для варианта "
+        "«разобраться вручную». Ничего, кроме записи файла, не делай."
+    )
+    try:
+        subprocess.run(["claude", "--output-format", "json", "-p", prompt],
+                       cwd=str(ws), capture_output=True, text=True,
+                       timeout=600, stdin=subprocess.DEVNULL)
+        ok = options_path.exists()
+    except (OSError, subprocess.SubprocessError):
+        ok = False
+    log_event(harness, f"{tid}: варианты Steward "
+                       f"{'записаны' if ok else 'не подготовлены (offline/лимиты)'}")
+
+
+def _escalation_report(task: dict, reason: str, harness: Path | None = None) -> str:
     """Подробный отчёт «нужен человек»: что случилось и что делать."""
     tid = task["id"]
     findings = [f for f in (task.get("findings") or [])
                 if f.get("resolution") != "resolved"]
     lines = [
         f"⏸ **Требуется вмешательство человека** — задача остановлена в статусе NEEDS_HUMAN.",
-        f"Причина: {reason}",
+        f"**Формальная причина:** {reason}",
+    ]
+    if harness is not None:
+        lines.append(f"**Итог последней сессии:** {_last_session_summary(harness, task['id'])}")
+    lines.append(
         f"Где остановилась: {task.get('blocked_from') or '—'} · "
         f"итераций ревью: {task.get('review_iterations') or 0}/3 · "
         f"перезапусков: {task.get('retries') or 0}",
-    ]
+    )
     if findings:
         lines.append("Открытые замечания ревью:")
         for f in findings[:10]:
@@ -185,6 +244,14 @@ def apply_transition(harness: Path, doc: dict, task: dict, event: str,
         return False
     task.update(result["patch"])
     task["pipeline_since"] = now_iso()
+    # опции эскалации устаревают, как только задача покидает NEEDS_HUMAN
+    if "pipeline" in result["patch"] and result["patch"]["pipeline"] != sm.NEEDS_HUMAN:
+        try:
+            ws = harness.parents[3] if len(harness.parents) > 3 else harness.parent
+            (ws / "sa_documentation" / "harness" / "steward" / "options"
+             / f"{task.get('id')}.json").unlink(missing_ok=True)
+        except OSError:
+            pass
     doc["updated_at"] = now_iso()
     save_manifest(harness, doc)
     shadow_save(harness, doc)
@@ -192,7 +259,12 @@ def apply_transition(harness: Path, doc: dict, task: dict, event: str,
     log_event(harness, label)
     # мини-отчёт в журнал задачи на каждом переходе; эскалации — подробнее
     if task["pipeline"] == sm.NEEDS_HUMAN:
-        comment(harness, task["id"], _escalation_report(task, reason))
+        comment(harness, task["id"], _escalation_report(task, reason, harness))
+        # Steward готовит человеку три варианта действий (замечание 3):
+        # фоновый ход, результат — steward/options/T<k>.json
+        import threading
+        threading.Thread(target=_steward_options, daemon=True,
+                         args=(harness, task, reason)).start()
     elif task["pipeline"] == sm.BLOCKED:
         wait_min = max(1, round(float(task.get("retry_after_ts") or time.time()) - time.time()) // 60)
         comment(harness, task["id"],

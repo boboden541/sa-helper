@@ -86,6 +86,7 @@ export function TaskPanel({ doc, onClose, onAction }: {
   onAction: () => void;
 }) {
   const [tab, setTab] = useState<Tab | "comments">("comments");
+  const [pendingFlag, setPendingFlag] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [descDraft, setDescDraft] = useState("");
   const [width, setWidth] = useState(() =>
@@ -216,6 +217,32 @@ export function TaskPanel({ doc, onClose, onAction }: {
         <div className="sheet-grid">
           {/* левая колонка: редактируемое */}
           <div className="sheet-col">
+            {(doc.options?.options || []).length > 0 && (
+              <div className="sect">
+                <div className="s-title">Варианты от Steward — выберите один</div>
+                {(doc.options?.options || []).map((o, i) => (
+                  <div key={i} className="pick-option"
+                    style={{ border: o.recommended ? "1px solid var(--ok)"
+                      : "1px solid var(--line2)", borderRadius: 8,
+                      padding: "8px 10px", margin: "6px 0", cursor: "pointer" }}
+                    onClick={() => {
+                      if (o.flag) { setPendingFlag(o.flag);
+                        api.setFlag(o.flag).then(onAction);
+                        api.stewardMessage(`Человек выбрал вариант: «${o.title}»`).catch(() => {});
+                      } else {
+                        api.stewardMessage("Человек выбрал: разобраться вручную").catch(() => {});
+                      }
+                    }}>
+                    <div style={{ fontWeight: 600 }}>
+                      {o.recommended ? "⭐ " : ""}{i + 1}. {o.title}
+                    </div>
+                    {o.explanation && <div className="meta">{o.explanation}</div>}
+                  </div>
+                ))}
+                <div className="hint">Не подошло ни одно — напишите свой вариант
+                  в поле ниже (вкладка «Комментарии»), Steward его увидит.</div>
+              </div>
+            )}
             <div className="sect">
               <div className="s-title">Карточка задачи</div>
               <div className="md" dangerouslySetInnerHTML={{ __html: md(doc.card_md) }} />
@@ -261,14 +288,22 @@ export function TaskPanel({ doc, onClose, onAction }: {
                   const label = key === "RESUME_WORK" ? (t.paused ? "Продолжить" : "Возобновить")
                     : ACTION_LABELS[key];
                   if (!label) return null;
+                  const busy = pendingFlag === flag;
                   return (
-                    <button key={flag}
+                    <button key={flag} disabled={pendingFlag !== null}
                       style={key === "ABORT" ? { color: "var(--bad)" } : undefined}
-                      onClick={() => { api.setFlag(flag).then(onAction); }}>
-                      {label}
+                      title={busy ? "Команда принята — демон применит её на ближайшем тике (до 5 с)"
+                        : "Отправить команду демону"}
+                      onClick={() => { setPendingFlag(flag); api.setFlag(flag).then(onAction); }}>
+                      {busy ? "⟳ принята, ждём демона…" : label}
                     </button>
                   );
                 })}
+                {pendingFlag && (
+                  <span className="meta" style={{ width: "100%" }}>
+                    Команда принята. Доска обновится, как только демон заберёт её (до 5 с).
+                  </span>
+                )}
                 {(t.actions || []).length === 0 && <span className="empty">—</span>}
               </div>
             </div>

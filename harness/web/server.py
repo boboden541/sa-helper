@@ -557,9 +557,18 @@ class Handler(BaseHTTPRequestHandler):
             task = next((t for t in state["manifest"].get("tasks", []) if t.get("id") == task_id), {})
             card_md = card_path.read_text(encoding="utf-8", errors="replace") \
                 if card_path and card_path.exists() else ""
+            options = None
+            if ws := resolve_workspace(project):
+                opt_path = (ws / "sa_documentation" / "harness" / "steward"
+                            / "options" / f"{task_id}.json")
+                try:
+                    options = json.loads(opt_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    options = None
             doc = {
                 "task": task,
                 "card_md": card_md,
+                "options": options,
                 "comments_md": comments_path.read_text(encoding="utf-8", errors="replace") if comments_path.exists() else "",
                 "ask_pending": (_run_dir(harness) / f"{task_id}_ask.pending").exists(),
                 "checklist_sections": parse_checklist_sections(card_md),

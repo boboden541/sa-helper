@@ -110,6 +110,13 @@ export interface ChecklistSection {
   total: number;
 }
 
+export interface EscalationOption {
+  title: string;
+  explanation?: string;
+  flag?: string | null;
+  recommended?: boolean;
+}
+
 export interface TaskDoc {
   task: Task;
   card_md: string;
@@ -117,6 +124,7 @@ export interface TaskDoc {
   ask_pending?: boolean;
   checklist_sections?: ChecklistSection[];
   attachments?: string[];
+  options?: { options: EscalationOption[] } | null;
 }
 
 export interface JournalEntry {
