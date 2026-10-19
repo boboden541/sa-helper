@@ -11,6 +11,24 @@ function timeAgo(iso?: string): string {
   return `${Math.round(s / 60)}м назад`;
 }
 
+/** Переключатель тёмной/светлой темы (макет v3): 🌙/☀, выбор — в localStorage. */
+function ThemeToggle() {
+  const [theme, setTheme] = useState(
+    document.documentElement.dataset.theme === "light" ? "light" : "dark",
+  );
+  const toggle = () => {
+    const next = theme === "dark" ? "light" : "dark";
+    document.documentElement.dataset.theme = next;
+    localStorage.setItem("theme", next);
+    setTheme(next);
+  };
+  return (
+    <button onClick={toggle} title="Переключить тему">
+      {theme === "dark" ? "🌙" : "☀"}
+    </button>
+  );
+}
+
 /** Шапка-пульт: лого, селектор Story (обзор внутри), вид, метрики, действия. */
 export function Header({ fnr, stories, projects, activeProject, state, conn = "…",
   onOpenStory, onOpenProject, onAllStories, onAddProject, onOpenTask,
@@ -112,6 +130,7 @@ export function Header({ fnr, stories, projects, activeProject, state, conn = "�
         <button className={view === "list" ? "active" : ""} onClick={() => setView("list")}>LIST</button>
       </div>
 
+      <ThemeToggle />
       <button onClick={onMetrics} title="Метрики расхода">📊 METRICS</button>
       <div className="story-select">
         <button title="Задачи, требующие вашего участия"

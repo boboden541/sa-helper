@@ -4,6 +4,9 @@ import { api, pipelineOf, PIPE_RU } from "../../api";
 import { inline, md, parseComments } from "../common/ui";
 import { StatusFlowMap } from "../common/StatusFlowMap";
 
+// Канон CSS — .st.block (макет v3); API отдаёт state "blocked".
+const ST_CLASS: Record<string, string> = { blocked: "block" };
+
 function SessionLog({ taskId }: { taskId: string }) {
   const [log, setLog] = useState<{ log: string; file: string | null } | null>(null);
   useEffect(() => {
@@ -322,7 +325,7 @@ export function TaskPanel({ doc, onClose, onAction }: {
                       <span className="box">{it.state === "done" ? "✓" :
                         it.state === "inprog" ? "⟳" : ""}</span>
                       <span className="txt">{it.text}</span>
-                      <span className={`st ${it.state}`}>
+                      <span className={`st ${ST_CLASS[it.state] ?? it.state}`}>
                         {it.state === "done" ? "Done" : it.state === "inprog" ? "InProgress"
                           : it.state === "review" ? "Review"
                           : it.state === "blocked" ? "Blocked"

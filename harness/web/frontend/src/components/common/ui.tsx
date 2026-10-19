@@ -1,4 +1,4 @@
-import type { ChecklistSection, Usage } from "../../types";
+import type { Usage } from "../../types";
 import { PIPE_COLOR, PIPE_RU } from "../../api";
 
 export function esc(s: unknown): string {
@@ -51,9 +51,17 @@ export function md(src: string | null | undefined): string {
     if (/^---+$/.test(line.trim())) { flushList(); html += "<hr>"; i++; continue; }
     const chk = line.match(/^\s*-\s+\[( |~|x|r|b|f)\]\s*(.*)$/);
     if (chk) {
-      const cls = chk[1] === "x" ? "done" : chk[1] === "~" ? "wip" : "todo";
-      const glyph = chk[1] === "x" ? "✓" : chk[1] === "~" ? "⟳" : "☐";
-      html += `<div class="clk-item ${cls}"><span class="box">${glyph}</span><span>${inline(chk[2])}</span></div>`;
+      // канон статусов чек-листа: пробел/~/x/r/b/f (server.STATE_NAMES)
+      const CHK: Record<string, { cls: string; glyph: string }> = {
+        " ": { cls: "todo", glyph: "☐" },
+        "~": { cls: "inprog", glyph: "⟳" },
+        "x": { cls: "done", glyph: "✓" },
+        "r": { cls: "review", glyph: "🔍" },
+        "b": { cls: "block", glyph: "⛔" },
+        "f": { cls: "failed", glyph: "✗" },
+      };
+      const st = CHK[chk[1]] || CHK[" "];
+      html += `<div class="clk-item ${st.cls}"><span class="box">${st.glyph}</span><span>${inline(chk[2])}</span></div>`;
       i++; continue;
     }
     const li = line.match(/^\s*[-*]\s+(.*)$/);
@@ -124,34 +132,4 @@ export function sumUsage(items: Array<{ usage?: Usage }>): Usage {
     acc.cost_usd! += it.usage?.cost_usd ?? 0;
   }
   return acc;
-}
-
-export function ChecklistView({ sections }: { sections: ChecklistSection[] }) {
-  const total = sections.reduce((a, s) => a + s.total, 0);
-  const done = sections.reduce((a, s) => a + s.done, 0);
-  const wip = sections.reduce((a, s) => a + s.wip, 0);
-  return (
-    <div>
-      <div className="clk-total">
-        <span className="meta">
-          {total ? `Всего: ${done}/${total} закрыто${wip ? ` · ${wip} в работе` : ""}`
-            : "чек-лист ещё не заведён (агент создаст на старте задачи)"}
-        </span>
-        <div className="bar"><i style={{ width: total ? `${(100 * done) / total}%` : "0%" }} /></div>
-      </div>
-      {sections.length === 0 && <p className="empty">Разделов с чекбоксами в карточке пока нет.</p>}
-      {sections.map((s) => (
-        <div className="clk-sec" key={s.title}>
-          <h3>{s.title}<span className="secmeta">{s.done}/{s.total} · {s.total ? Math.round((100 * s.done) / s.total) : 0}%</span></h3>
-          {s.items.map((it, i) => (
-            <div className={`clk-item ${it.state}`} key={i}>
-              <span className="box">{it.state === "done" ? "✓" : it.state === "inprog" ? "⟳" : ""}</span>
-              <span>{it.text}</span>
-              <span className={`st ${it.state}`}>{it.state}</span>
-            </div>
-          ))}
-        </div>
-      ))}
-    </div>
-  );
 }
