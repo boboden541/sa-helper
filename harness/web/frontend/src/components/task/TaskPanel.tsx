@@ -3,6 +3,7 @@ import type { Task, TaskDoc } from "../../types";
 import { api, pipelineOf, PIPE_ICON, PIPE_RU } from "../../api";
 import { inline, md, parseComments } from "../common/ui";
 import { StatusFlowMap } from "../common/StatusFlowMap";
+import { CardEditor, cardEditorConfirmClose } from "./CardEditor";
 
 // Канон CSS — .st.block (макет v3); API отдаёт state "blocked".
 const ST_CLASS: Record<string, string> = { blocked: "block" };
@@ -121,7 +122,6 @@ export function TaskPanel({ doc, onClose, onAction }: {
   onAction: () => void;
 }) {
   const [editing, setEditing] = useState(false);
-  const [descDraft, setDescDraft] = useState("");
   const [width, setWidth] = useState(() =>
     Number(localStorage.getItem("sheetWidth")) || 760);
   const [resizeOn, setResizeOn] = useState(false);
@@ -221,14 +221,6 @@ export function TaskPanel({ doc, onClose, onAction }: {
     }).then(() => onAction());
   }, [t, p, onAction]);
 
-  const saveDescription = () => {
-    if (!t) return;
-    api.editTaskDescription(t.id, descDraft).then(() => {
-      setEditing(false);
-      onAction();
-    });
-  };
-
   if (!doc || !t) return null;
 
   const problem = doc.problem;
@@ -237,7 +229,8 @@ export function TaskPanel({ doc, onClose, onAction }: {
 
   return (
     <>
-      <div className="backdrop" onClick={onClose} />
+      <div className="backdrop"
+        onClick={() => { if (cardEditorConfirmClose()) onClose(); }} />
       <div className="sheet" style={{ width: `min(${width}px, 97vw)` }}>
         <div className="sheet-resize" onMouseDown={() => setResizeOn(true)} />
 
@@ -369,28 +362,28 @@ export function TaskPanel({ doc, onClose, onAction }: {
             </div>
           )}
 
-          {/* ── Постановка: первый раздел ── */}
-          <Sect collapsed={!!collapsed.post} onToggle={() => toggleSect("post")}
-            title="Постановка" cnt={<span className="cnt">полная, из СТ</span>}
+          {/* ── Описание: карточка = единый источник (markdown) ── */}
+          <Sect collapsed={!!collapsed.post}
+            onToggle={() => { if (!editing) toggleSect("post"); }}
+            title="Описание" cnt={<span className="cnt">карточка, markdown</span>}
             headExtra={!editing && (
               <button className="ghost" style={{ padding: "0 4px", fontSize: 11 }}
-                onClick={(e) => { e.stopPropagation();
-                  setDescDraft(t.description || ""); setEditing(true); }}>
-                ✎ править краткое
+                onClick={(e) => { e.stopPropagation(); setEditing(true); }}>
+                ✎ Редактировать
               </button>
             )}>
-            <div className="post" dangerouslySetInnerHTML={{ __html: md(doc.card_md) }} />
-            {editing && (
-              <div style={{ marginTop: 8 }}>
-                <textarea value={descDraft} onChange={(e) => setDescDraft(e.target.value)}
-                  style={{ width: "100%", minHeight: 80, background: "var(--chip)",
-                    color: "var(--text)", border: "1px solid var(--line2)",
-                    borderRadius: 6, padding: 8, font: "inherit" }} />
-                <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-                  <button className="primary" onClick={saveDescription}>Сохранить</button>
-                  <button className="ghost" onClick={() => setEditing(false)}>Отмена</button>
-                </div>
-              </div>
+            {editing ? (
+              <CardEditor key={t.id} cardMd={doc.card_md}
+                liveRunning={!!t.live?.running}
+                onSave={(mdText, { force }) => {
+                  api.saveCard(t.id, mdText, force).then((r) => {
+                    if (r.ok) { setEditing(false); onAction(); }
+                    else window.alert(r.error || "не удалось сохранить карточку");
+                  });
+                }}
+                onCancel={() => setEditing(false)} />
+            ) : (
+              <div className="post" dangerouslySetInnerHTML={{ __html: md(doc.card_md) }} />
             )}
           </Sect>
 

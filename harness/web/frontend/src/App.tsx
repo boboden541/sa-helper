@@ -4,6 +4,7 @@ import { api, pipelineOf, setFnr as setApiFnr, setProject as setApiProject, PIPE
 import { Board } from "./components/board/Board";
 import { TaskList } from "./components/board/TaskList";
 import { TaskPanel } from "./components/task/TaskPanel";
+import { cardEditorConfirmClose } from "./components/task/CardEditor";
 import { CreateModal } from "./components/create/CreateModal";
 import { ProjectModal } from "./components/create/ProjectModal";
 import { Header } from "./components/Header";
@@ -114,7 +115,8 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.code === "KeyK") { e.preventDefault(); setPaletteOpen((v) => !v); }
       if ((e.metaKey || e.ctrlKey) && e.code === "KeyN") { e.preventDefault(); setCreateOpen(true); }
-      if (e.key === "Escape") { setPaletteOpen(false); setTaskDoc(null); }
+      if (e.key === "Escape") { setPaletteOpen(false);
+        if (cardEditorConfirmClose()) setTaskDoc(null); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

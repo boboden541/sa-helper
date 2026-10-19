@@ -281,6 +281,26 @@ table.tasks td.mono { font-family: var(--mono); font-size: 11.5px; color: var(--
 .src { color: var(--faint); font-size: 12px; margin-top: 12px;
   border-top: 1px dashed var(--line); padding-top: 8px; }
 
+/* ═══ редактор описания (CardEditor) ═══ */
+.ced { border: 1px solid var(--line2); border-radius: 10px; overflow: hidden;
+  background: var(--surface); }
+.ced-bar { display: flex; flex-wrap: wrap; gap: 3px; align-items: center;
+  padding: 6px 8px; border-bottom: 1px solid var(--line); background: var(--surface2); }
+.ced-btn { border: 0; background: none; color: var(--dim); min-width: 26px; height: 26px;
+  padding: 0 7px; border-radius: 5px; cursor: pointer; font: 650 12px var(--mono); }
+.ced-btn:hover { background: var(--surface3); color: var(--text); }
+.ced-live { color: var(--warn); font: 11px var(--mono); }
+.ced-text { width: 100%; min-height: 320px; border: 0; outline: none; resize: vertical;
+  background: var(--surface); color: var(--text); padding: 14px 16px;
+  font: 12.5px/1.6 var(--mono); box-sizing: border-box; }
+.ced-foot { display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+  border-top: 1px solid var(--line); background: var(--surface2); }
+.ced-modes { display: flex; border: 1px solid var(--line2); border-radius: 7px; overflow: hidden; }
+.ced-tab { border: 0; background: none; color: var(--faint); padding: 4px 11px;
+  cursor: pointer; font: 12px inherit; }
+.ced-tab.on { background: var(--surface3); color: var(--text); }
+.ced-tab:disabled { cursor: default; opacity: .5; }
+
 /* итог последней сессии */
 .sess { margin-top: 12px; padding: 11px 14px; border-radius: 10px;
   background: var(--surface2); border: 1px solid var(--line); font-size: 13.5px; }

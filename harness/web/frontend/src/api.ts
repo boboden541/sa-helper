@@ -111,12 +111,18 @@ export const api = {
   attachmentUrl: (id: string, name: string) =>
     withFnr(`/api/attachment/${id}/${encodeURIComponent(name)}`),
 
-  editTaskDescription: (id: string, description: string) =>
-    fetch(withFnr(`/api/flag/TASK_EDIT_${id}.json`), {
+  /** Сохранить карточку (единое описание). 409 (живая сессия) не бросает —
+   *  возвращается {ok:false, conflict:true} для confirm'а с force. */
+  saveCard: (id: string, cardMd: string, force = false) =>
+    fetch(withFnr(`/api/task/${id}/card`), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ description }),
-    }),
+      body: JSON.stringify({ card_md: cardMd, force }),
+    }).then((r) => r.json().then((b) => ({
+      ok: r.ok && !!(b as { ok?: boolean }).ok,
+      conflict: r.status === 409,
+      error: (b as { error?: string }).error,
+    }))),
 };
 
 export function pipelineOf(t: {
