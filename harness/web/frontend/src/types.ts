@@ -68,6 +68,7 @@ export interface Task {
   usage?: Usage;
   pipeline_since?: string;
   move_targets?: string[];
+  decomposed?: boolean;
 }
 
 export interface Usage {

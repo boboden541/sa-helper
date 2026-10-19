@@ -214,4 +214,5 @@ class TestProposed(unittest.TestCase):
     def test_proposed_only_accept_or_reject(self):
         # из PROPOSED две двери: принять в бэклог или отклонить (abort там не нужен)
         legal = sm.allowed_events({"pipeline": sm.PROPOSED})
-        self.assertEqual(sorted(legal), [sm.EV_PROPOSE_ACCEPT, sm.EV_PROPOSE_REJECT])
+        self.assertEqual(sorted(legal),
+                         [sm.EV_DECOMPOSE_DONE, sm.EV_PROPOSE_ACCEPT, sm.EV_PROPOSE_REJECT])

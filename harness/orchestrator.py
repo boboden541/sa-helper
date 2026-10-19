@@ -50,6 +50,7 @@ STAGE_COMMANDS = {
     "review": "/impl-review {harness} {task}",
     "verify": "/impl-verify {harness}",
     "handoff": "/impl-handoff {source}",
+    "decompose": "/task-decompose {harness} {task}",
 }
 # Флаги задач витрины (порция C): TASK_<ID>_<ДЕЙСТВИЕ> в .flags/
 TASK_FLAG_RE = re.compile(
@@ -459,6 +460,21 @@ def decide(manifest: dict, flags: set[str], state: dict) -> list[tuple]:
                 pipeline = task.get("blocked_from") or sm.IMPLEMENTING  # локально
             # падаем ниже: RETRY вернул задачу в IMPLEMENTING — слот перезапустит стадию
 
+        if pipeline == sm.PROPOSED:
+            # ручная задача: демон сам проводит декомпозицию (origin=manual);
+            # агентские предложения (origin=agent) ждут решения человека
+            if task.get("origin") == "manual" and not task.get("decomposed"):
+                if state.get("orphan_running"):
+                    continue
+                if lane_free and not paused:
+                    decisions.append(("stage", tid, "decompose"))
+                    running = tid
+                continue
+            if task.get("origin") == "manual" and task.get("decomposed"):
+                decisions.append(("event", tid, sm.EV_DECOMPOSE_DONE,
+                                  "декомпозиция завершена → в бэклог"))
+                continue
+
         if pipeline in (sm.IMPLEMENTING, sm.REVIEW):
             done_events = completion_events(task)
             if done_events:
@@ -800,7 +816,8 @@ def create_manual_task(harness: Path, payload: dict) -> tuple[bool, str]:
         "description": str(payload.get("description") or "").strip()[:300],
         "system": system, "phase": "regular",
         "branch": f"{slug}-{tid.lower()}",
-        "status": "PLANNED", "pipeline": sm.BACKLOG,
+        "status": "PLANNED", "pipeline": sm.PROPOSED,
+        "decomposed": False,
         "depends_on": deps, "fr_ids": payload.get("fr_ids") or [],
         "acceptance_criteria": [
             {"id": f"AC-{tid[1:]}.{i}", "desc": str(a).strip()[:200], "status": "PENDING"}
@@ -827,7 +844,8 @@ def create_manual_task(harness: Path, payload: dict) -> tuple[bool, str]:
     comments_dir = harness / "comments"
     comments_dir.mkdir(exist_ok=True)
     comment(harness, tid, f"**Задача добавлена вручную** через витрину Story — "
-                          f"взята в бэклог конвейера (origin: manual).")
+                          f"статус «Предложена»: Steward проведёт декомпозицию "
+                          f"(полная постановка + чек-лист), затем задача попадёт в бэклог.")
     log_event(harness, f"{tid}: создана вручную (TASK_NEW): {title}")
     return True, tid
 

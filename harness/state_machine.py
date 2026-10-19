@@ -66,6 +66,7 @@ EV_VERIFY_PASSED = "verify_passed"              # D: /impl-verify зелёный
 EV_RETRY = "retry"                              # D: backoff истёк (или A: retry)
 EV_BLOCKED_ESCALATED = "blocked_escalated"      # D: retries исчерпаны в BLOCKED
 EV_RESUME_WORK = "resume_work"                  # A: разбор окончен — продолжить
+EV_DECOMPOSE_DONE = "decompose_done"            # D: декомпозиция ручной задачи завершена
 EV_PROPOSE_ACCEPT = "propose_accept"            # A: принять предложенную задачу в бэклог
 EV_PROPOSE_REJECT = "propose_reject"            # A: отклонить предложенную задачу
 EV_ABORT = "abort"                              # A: остановить задачу
@@ -87,6 +88,7 @@ _TRANSITIONS: dict[str, dict] = {
     EV_RETRY: {"from": {BLOCKED}, "to": None},        # to = blocked_from
     EV_BLOCKED_ESCALATED: {"from": {BLOCKED}, "to": NEEDS_HUMAN},
     EV_RESUME_WORK: {"from": {NEEDS_HUMAN}, "to": None},  # to = blocked_from
+    EV_DECOMPOSE_DONE: {"from": {PROPOSED}, "to": BACKLOG},
     EV_PROPOSE_ACCEPT: {"from": {PROPOSED}, "to": BACKLOG},
     EV_PROPOSE_REJECT: {"from": {PROPOSED}, "to": ABORTED},
     EV_ABORT: {"from": ACTIVE, "to": ABORTED},

@@ -64,9 +64,11 @@ function Card({ t, onOpen, onDragStart }: {
         {t.paused && <span className="tag paused">PAUSED</span>}
       </div>
       <div className="tfoot">
-        {t.live?.running
-          ? <><span className="live-dot" />работает</>
-          : <span>{timeAgoShort(t.pipeline_since)}</span>}
+        {t.live?.running && pipelineOf(t) === "PROPOSED"
+          ? <><span className="live-dot" />декомпозиция…</>
+          : t.live?.running
+            ? <><span className="live-dot" />работает</>
+            : <span>{timeAgoShort(t.pipeline_since)}</span>}
         <span className="grow" />
         {t.review_iterations ? <span>ревью:{t.review_iterations}</span> : null}
         <UsageBadge usage={t.usage} />

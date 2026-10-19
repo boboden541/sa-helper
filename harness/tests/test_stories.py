@@ -65,8 +65,8 @@ class TestManualTask(unittest.TestCase):
             doc = json.loads((harness / "manifest.json").read_text(encoding="utf-8"))
             t2 = [t for t in doc["tasks"] if t["id"] == "T2"]
             self.assertEqual(len(t2), 1)
-            self.assertEqual(t2[0]["pipeline"], sm.BACKLOG)
-            self.assertEqual(t2[0]["origin"], "manual")
+            self.assertEqual(t2[0]["pipeline"], sm.PROPOSED)
+  # порция K: Предложена → декомпозиция → Бэклог\n            self.assertEqual(t2[0]["origin"], "manual")
             self.assertEqual(t2[0]["depends_on"], ["T1"])
             self.assertTrue((harness / "tasks" / "T2.md").exists())
             self.assertFalse((harness / ".flags" / "TASK_NEW_1.json").exists())
@@ -315,3 +315,48 @@ class TestShadowAuthority(unittest.TestCase):
             self.assertEqual(doc["tasks"][0]["pipeline"], "BACKLOG")  # истина из тени
             log = (harness / "logs" / "events.log").read_text(encoding="utf-8")
             self.assertIn("восстановлен из тени", log)
+
+
+class TestDecomposeFlow(unittest.TestCase):
+    """Ручная задача → Предложена → декомпозиция → Бэклог."""
+
+    def test_manual_task_lands_in_proposed_and_decomposes(self):
+        import os
+        with tempfile.TemporaryDirectory() as td:
+            ws, harness = sandbox(Path(td), approved=True)
+            (harness / ".flags" / "TASK_NEW_1.json").write_text(json.dumps({
+                "title": "Реестр отчётов", "system": "core",
+                "description": "Добавить таблицу отчётов",
+                "depends_on": ["T1"]}), encoding="utf-8")
+
+            stub_dec = ROOT / "tests" / "fixtures" / "stub_decompose.py"
+            os.chmod(stub_dec, 0o755)
+
+            class Opts:
+                poll_interval = 0
+                stage_timeout = 60
+                heartbeat_timeout = 60
+                max_retries = 3
+                max_turns = 10
+                skip_permissions = True
+                claude_bin = str(stub_dec)
+                dry_run = False
+                verbose = False
+
+            lane = orch.WorkspaceLane(ws)
+            for _ in range(60):
+                orch.process_workspace(lane, Opts)
+                time.sleep(0.02)
+                doc = json.loads((harness / "manifest.json").read_text(encoding="utf-8"))
+                t2 = [t for t in doc["tasks"] if t["id"] == "T2"]
+                if t2 and t2[0].get("pipeline") == "BACKLOG" and t2[0].get("decomposed"):
+                    break
+
+            doc = json.loads((harness / "manifest.json").read_text(encoding="utf-8"))
+            t2 = [t for t in doc["tasks"] if t["id"] == "T2"][0]
+            self.assertEqual(t2["pipeline"], "BACKLOG")
+            self.assertEqual(t2["origin"], "manual")
+            self.assertTrue(t2["decomposed"])
+            card = (harness / "tasks" / "T2.md").read_text(encoding="utf-8")
+            journal = (harness / "comments" / "T2.md").read_text(encoding="utf-8")
+            self.assertIn("Декомпозиция выполнена", journal)
