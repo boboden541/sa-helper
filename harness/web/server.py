@@ -64,6 +64,8 @@ MOVE_MAP = {
     ("BLOCKED", "ABORTED"): "TASK_{tid}_ABORT",
     ("NEEDS_HUMAN", "ABORTED"): "TASK_{tid}_ABORT",
     ("ABORTED", "BACKLOG"): "TASK_{tid}_ACCEPT",   # «разморозка» снятой задачи (v4)
+    ("BLOCKED", "BACKLOG"): "TASK_{tid}_DEFER",    # «отложить в бэклог» (v4)
+    ("NEEDS_HUMAN", "BACKLOG"): "TASK_{tid}_DEFER",
 }
 
 ACTION_FLAGS = {

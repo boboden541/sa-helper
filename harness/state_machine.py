@@ -67,6 +67,7 @@ EV_RETRY = "retry"                              # D: backoff истёк (или 
 EV_BLOCKED_ESCALATED = "blocked_escalated"      # D: retries исчерпаны в BLOCKED
 EV_RESUME_WORK = "resume_work"                  # A: разбор окончен — продолжить
 EV_DECOMPOSE_DONE = "decompose_done"            # D: декомпозиция ручной задачи завершена
+EV_DEFER = "defer"                                    # v4: отложить в бэклог (из Блока/Нужен человек)
 EV_PROPOSE_ACCEPT = "propose_accept"            # A: принять предложенную задачу в бэклог
 EV_PROPOSE_REJECT = "propose_reject"            # A: отклонить предложенную задачу
 EV_ABORT = "abort"                              # A: остановить задачу
@@ -90,6 +91,7 @@ _TRANSITIONS: dict[str, dict] = {
     EV_RESUME_WORK: {"from": {NEEDS_HUMAN}, "to": None},  # to = blocked_from
     EV_DECOMPOSE_DONE: {"from": {PROPOSED}, "to": BACKLOG},
     EV_PROPOSE_ACCEPT: {"from": {PROPOSED, ABORTED}, "to": BACKLOG},   # ABORTED — «разморозка» (v4)
+    EV_DEFER: {"from": {BLOCKED, NEEDS_HUMAN}, "to": BACKLOG},         # «отложить в бэклог» (v4)
     EV_PROPOSE_REJECT: {"from": {PROPOSED}, "to": ABORTED},
     EV_ABORT: {"from": ACTIVE, "to": ABORTED},
 }
@@ -137,6 +139,8 @@ def transition(task_view: dict, event: str, ctx: dict | None = None) -> dict:
 
     if pipeline == ABORTED and event == EV_PROPOSE_ACCEPT:
         patch["v2_status"] = "PLANNED"   # разморозка: v2 согласован с BACKLOG
+    if event == EV_DEFER:
+        patch["v2_status"] = "PLANNED"   # отложено: v2 согласован с BACKLOG
 
     if event == EV_IMPL_PASSED:
         target = DONE if task_view.get("skip_review") else REVIEW

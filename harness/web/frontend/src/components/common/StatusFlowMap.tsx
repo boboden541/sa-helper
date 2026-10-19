@@ -104,7 +104,7 @@ export function StatusFlowMap({ current, onMove }: {
             </text>
             {isBlock && (
               <text x={n.x + n.w / 2} y={n.y + 31} textAnchor="middle"
-                fill="var(--warn)" fontSize="9.5">(retry · force · abort)</text>
+                fill="var(--warn)" fontSize="9.5">(retry · defer · force · abort)</text>
             )}
             {isTarget && onMove && (
               <text x={n.x + n.w / 2} y={n.y + h + 12} textAnchor="middle"

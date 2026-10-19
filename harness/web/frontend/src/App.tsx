@@ -169,7 +169,10 @@ export function App() {
               onAddTask={() => { setCreateType("task"); setCreateOpen(true); }}
               onMove={(id, to) => api.move(id, to)
                 .then(reloadAll)
-                .catch((e) => window.alert(`Перемещение не выполнено: ${e.message || e}`))} />
+                .catch((e) => window.alert(`Перемещение не выполнено: ${e.message || e}`))}
+              onFlag={(_id, flag) => api.setFlag(flag)
+                .then(reloadAll)
+                .catch((e) => window.alert(`Команда не выполнена: ${e.message || e}`))} />
           : <TaskList state={state} onOpenTask={openTask}
               onAddTask={() => { setCreateType("task"); setCreateOpen(true); }} />}
 

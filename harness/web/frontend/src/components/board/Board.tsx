@@ -37,10 +37,11 @@ function timeAgoShort(iso?: string): string {
   return m < 1 ? "только что" : m < 60 ? `${m}м назад` : `${Math.round(m / 60)}ч назад`;
 }
 
-function Card({ t, onOpen, onDragStart }: {
+function Card({ t, onOpen, onDragStart, onFlag }: {
   t: Task;
   onOpen: (id: string) => void;
   onDragStart: (id: string, targets: string[]) => void;
+  onFlag: (id: string, flag: string) => void;
 }) {
   const p = pipelineOf(t);
   const acs = t.acceptance_criteria || [];
@@ -66,7 +67,11 @@ function Card({ t, onOpen, onDragStart }: {
         {t.phase && t.phase !== "regular" && <span className="tag">phase:{t.phase}</span>}
         {t.origin === "agent" && <span className="tag origin-agent">origin:agent</span>}
         {t.origin === "manual" && <span className="tag origin-manual">origin:manual</span>}
-        {t.paused && <span className="tag paused">PAUSED</span>}
+        {t.paused && (
+          <span className="tag paused" title="Снять паузу"
+            onClick={(e) => { e.stopPropagation();
+              onFlag(t.id, `TASK_${t.id}_RESUME_WORK`); }}>PAUSED ✕</span>
+        )}
       </div>
       <div className="tfoot">
         <span>{timeAgoShort(t.pipeline_since)}</span>
@@ -79,11 +84,12 @@ function Card({ t, onOpen, onDragStart }: {
   );
 }
 
-export function Board({ state, onOpenTask, onAddTask, onMove }: {
+export function Board({ state, onOpenTask, onAddTask, onMove, onFlag }: {
   state: BoardState;
   onOpenTask: (id: string) => void;
   onAddTask: () => void;
   onMove: (id: string, to: string) => void;
+  onFlag: (id: string, flag: string) => void;
 }) {
   const [active, setActive] = useState<string[]>([]);
   const [query, setQuery] = useState("");
@@ -177,9 +183,10 @@ export function Board({ state, onOpenTask, onAddTask, onMove }: {
                 <button className="add-task" onClick={onAddTask}>＋ Add task</button>
               )}
               {list.map((t) => (
-                <Card key={t.id} t={t} onOpen={onOpenTask} onDragStart={(id, targets) => {
-                  setDragId(id); setDragTargets(targets);
-                }} />
+                <Card key={t.id} t={t} onOpen={onOpenTask} onFlag={onFlag}
+                  onDragStart={(id, targets) => {
+                    setDragId(id); setDragTargets(targets);
+                  }} />
               ))}
               {list.length === 0 && <div className="empty">—</div>}
             </div>

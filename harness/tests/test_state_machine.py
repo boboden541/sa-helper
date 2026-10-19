@@ -229,3 +229,20 @@ class TestProposed(unittest.TestCase):
         legal = sm.allowed_events({"pipeline": sm.PROPOSED})
         self.assertEqual(sorted(legal),
                          [sm.EV_DECOMPOSE_DONE, sm.EV_PROPOSE_ACCEPT, sm.EV_PROPOSE_REJECT])
+
+
+class TestDefer(unittest.TestCase):
+    """v4: «отложить в бэклог» из Блока/Нужен человек (замечание пользователя)."""
+
+    def test_defer_from_blocked_and_needs_human(self):
+        for pipeline, v2 in ((sm.BLOCKED, "TDD_GREEN"), (sm.NEEDS_HUMAN, "ESCALATED_BLOCKED")):
+            t = task(pipeline, status=v2, blocked_from="IMPLEMENTING",
+                     retries=2, retry_after_ts=9999)
+            r = sm.transition(t, sm.EV_DEFER)
+            self.assertTrue(r["ok"], r.get("error"))
+            self.assertEqual(r["patch"]["pipeline"], sm.BACKLOG)
+            self.assertEqual(r["patch"]["v2_status"], "PLANNED")
+            self.assertIsNone(r["patch"]["blocked_from"])
+
+    def test_defer_illegal_elsewhere(self):
+        self.assertFalse(sm.transition(task(sm.REVIEW), sm.EV_DEFER)["ok"])

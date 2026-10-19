@@ -338,7 +338,7 @@ def cmd_flag(a, conn, pid):
     name = a.name
     import re as _re
     if name != "APPROVE_PLAN" and not _re.fullmatch(
-            r"TASK_T\d+_(REQUEST_CHANGES|FORCE_APPROVE|RETRY|RESUME_WORK|PAUSE|ABORT|SKIP_REVIEW|ACCEPT|REJECT)", name):
+            r"TASK_T\d+_(REQUEST_CHANGES|FORCE_APPROVE|RETRY|RESUME_WORK|PAUSE|ABORT|SKIP_REVIEW|ACCEPT|REJECT|DEFER)", name):
         die("допустимы APPROVE_PLAN и TASK_<id>_<ДЕЙСТВИЕ>")
     payload = json.loads(a.payload) if a.payload else None
     dbmod.insert_command(conn, int(story["id"]), name, payload, by="agent")

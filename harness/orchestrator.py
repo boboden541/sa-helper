@@ -47,7 +47,7 @@ STAGE_COMMANDS = {
     "decompose": "/task-decompose {harness} {task}",
 }
 TASK_FLAG_RE = re.compile(
-    r"^TASK_(T\d+)_(REQUEST_CHANGES|FORCE_APPROVE|RETRY|RESUME_WORK|PAUSE|ABORT|SKIP_REVIEW|ACCEPT|REJECT)$")
+    r"^TASK_(T\d+)_(REQUEST_CHANGES|FORCE_APPROVE|RETRY|RESUME_WORK|PAUSE|ABORT|SKIP_REVIEW|ACCEPT|REJECT|DEFER)$")
 SESSION_ID_RE = re.compile('"session_id":\\s*"([a-f0-9-]+)"')
 
 
@@ -129,6 +129,8 @@ def task_flags_decisions(manifest: dict, flags: set[str]) -> list[tuple]:
             decisions.append(("event", tid, event, f"флаг {name}"))
         elif action == "ACCEPT":
             decisions.append(("event", tid, sm.EV_PROPOSE_ACCEPT, f"флаг {name}"))
+        elif action == "DEFER":
+            decisions.append(("event", tid, sm.EV_DEFER, f"флаг {name}"))
         elif action == "REJECT":
             decisions.append(("event", tid, sm.EV_PROPOSE_REJECT, f"флаг {name}"))
         else:
