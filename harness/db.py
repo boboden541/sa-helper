@@ -617,11 +617,17 @@ def insert_command(conn: sqlite3.Connection, story_id: int, name: str,
 def consume_commands(conn: sqlite3.Connection, story_id: int) -> list[dict]:
     """[D] Атомарно забрать все отложенные команды Story (один писатель тика)."""
     out: list[dict] = []
+    seen: set[str] = set()
     with tx(conn):
         rows = conn.execute(
             "SELECT id, name, payload FROM commands WHERE story_id=? AND consumed_at IS NULL"
             " ORDER BY id", (story_id,)).fetchall()
         for r in rows:
+            if r["name"] in seen:   # дубликаты кликов гасим без исполнения
+                conn.execute("UPDATE commands SET consumed_at=? WHERE id=?",
+                             (now_iso(), r["id"]))
+                continue
+            seen.add(r["name"])
             conn.execute("UPDATE commands SET consumed_at=? WHERE id=?",
                          (now_iso(), r["id"]))
             out.append({"id": r["id"], "name": r["name"],

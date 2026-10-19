@@ -792,6 +792,7 @@ def process_workspace(lane: WorkspaceLane, opts: argparse.Namespace) -> None:
             print(f"  [orphan] {summary}")
 
     # 1. текущая стадия слота: живость, watchdog, завершение
+    lane_busy = False   # слот занят живой стадией
     if lane.proc is not None:
         code = lane.proc.poll()
         quiet_for = _beat_age(conn, lane.session_row, lane.started_at)
@@ -806,73 +807,75 @@ def process_workspace(lane: WorkspaceLane, opts: argparse.Namespace) -> None:
                 _kill_tree(lane.proc)
                 code = lane.proc.wait(timeout=30)
             else:
-                return  # стадия работает (один писатель домена сессии)
-        # стадия завершилась
-        usage = _pick_usage(lane.log_path)
-        csid = _pick_session_id(lane.log_path)
-        dbmod.session_finish(conn, lane.session_row, code,
-                             status="finished" if code == 0 else "killed",
-                             usage=usage, claude_session_id=csid)
-        sid = lane.story_id
-        if lane.task_id and csid:
-            # session_id последней сессии задачи — чат через claude --resume
-            dbmod.task_set_v3(conn, sid, lane.task_id, {"session_id": csid})
-        fnr = lane.fnr
-        if lane.stage == "handoff":
-            n_tasks = conn.execute("SELECT COUNT(*) c FROM tasks WHERE story_id=?",
-                                   (sid,)).fetchone()["c"]
-            story = conn.execute("SELECT status FROM stories WHERE id=?", (sid,)).fetchone()
-            if n_tasks:
-                if story["status"] in ("PENDING_HANDOFF", "PLANNED"):
-                    dbmod.story_set_status(conn, sid, "AWAITING_APPROVAL", by="daemon") \
-                        if story["status"] == "PLANNED" else None
+                # стадия работает: слот занят, но команды ДРУГИХ задач проводим
+                # сразу (management-проход); манифест самой задачи не трогаем
+                lane_busy = True
+        if not lane_busy:
+            usage = _pick_usage(lane.log_path)
+            csid = _pick_session_id(lane.log_path)
+            dbmod.session_finish(conn, lane.session_row, code,
+                                 status="finished" if code == 0 else "killed",
+                                 usage=usage, claude_session_id=csid)
+            sid = lane.story_id
+            if lane.task_id and csid:
+                # session_id последней сессии задачи — чат через claude --resume
+                dbmod.task_set_v3(conn, sid, lane.task_id, {"session_id": csid})
+            fnr = lane.fnr
+            if lane.stage == "handoff":
+                n_tasks = conn.execute("SELECT COUNT(*) c FROM tasks WHERE story_id=?",
+                                       (sid,)).fetchone()["c"]
+                story = conn.execute("SELECT status FROM stories WHERE id=?", (sid,)).fetchone()
+                if n_tasks:
+                    if story["status"] == "PLANNED":
+                        with dbmod.tx(conn):
+                            conn.execute("UPDATE stories SET status='AWAITING_APPROVAL',"
+                                         " updated_at=? WHERE id=? AND status='PLANNED'",
+                                         (now_iso(), sid))
+                    ev(conn, sid, None, "Story готова: план построен, ждёт утверждения "
+                                        "(команда APPROVE_PLAN)")
+                    print(f"  [handoff] {fnr}: план готов — ждёт утверждения")
+                else:
                     with dbmod.tx(conn):
-                        conn.execute("UPDATE stories SET status='AWAITING_APPROVAL',"
-                                     " updated_at=? WHERE id=? AND status='PLANNED'",
-                                     (now_iso(), sid))
-                ev(conn, sid, None, "Story готова: план построен, ждёт утверждения "
-                                    "(команда APPROVE_PLAN)")
-                print(f"  [handoff] {fnr}: план готов — ждёт утверждения")
-            else:
-                with dbmod.tx(conn):
-                    conn.execute(
-                        "INSERT INTO meta(key, value) VALUES (?,?)"
-                        " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                        (f"handoff_failed:{sid}", now_iso()))
-                ev(conn, sid, None, "handoff завершился без плана — gap-report в "
-                                    "handoff_report.md, требуется доработка СТ")
-                print(f"  [handoff] {fnr}: STOP — см. handoff_report")
-        elif lane.stage == "verify":
-            if dbmod.doc_get(conn, sid, "verification_report") is not None:
-                for t in conn.execute("SELECT tid FROM tasks WHERE story_id=?"
-                                      " AND pipeline='DONE'", (sid,)).fetchall():
-                    apply_transition(conn, sid, t["tid"], sm.EV_VERIFY_PASSED,
-                                     "verification_report готов")
-                print(f"  [verify] {fnr}: задачи → VERIFIED")
-            else:
-                with dbmod.tx(conn):
-                    conn.execute(
-                        "INSERT INTO meta(key, value) VALUES (?,?)"
-                        " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                        (f"verify_attempted:{sid}", now_iso()))
-                ev(conn, sid, None, "verify завершился без verification_report")
-        elif lane.task_id:
-            summary = reconcile_after_stage(conn, sid, lane.task_id, code,
-                                            max_retries=opts.max_retries)
-            print(f"  [stage] {summary}")
-        try:
-            if lane.proc and lane.proc.stdout:
-                lane.proc.stdout.close()
-        except OSError:
-            pass
-        lane.proc = lane.session_row = lane.log_path = None
-        lane.story_id = lane.fnr = lane.hdir = lane.task_id = lane.stage = None
-        return
+                        conn.execute(
+                            "INSERT INTO meta(key, value) VALUES (?,?)"
+                            " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                            (f"handoff_failed:{sid}", now_iso()))
+                    ev(conn, sid, None, "handoff завершился без плана — gap-report в "
+                                        "handoff_report.md, требуется доработка СТ")
+                    print(f"  [handoff] {fnr}: STOP — см. handoff_report")
+            elif lane.stage == "verify":
+                if dbmod.doc_get(conn, sid, "verification_report") is not None:
+                    for t in conn.execute("SELECT tid FROM tasks WHERE story_id=?"
+                                          " AND pipeline='DONE'", (sid,)).fetchall():
+                        apply_transition(conn, sid, t["tid"], sm.EV_VERIFY_PASSED,
+                                         "verification_report готов")
+                    print(f"  [verify] {fnr}: задачи → VERIFIED")
+                else:
+                    with dbmod.tx(conn):
+                        conn.execute(
+                            "INSERT INTO meta(key, value) VALUES (?,?)"
+                            " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                            (f"verify_attempted:{sid}", now_iso()))
+                    ev(conn, sid, None, "verify завершился без verification_report")
+            elif lane.task_id:
+                summary = reconcile_after_stage(conn, sid, lane.task_id, code,
+                                                max_retries=opts.max_retries)
+                print(f"  [stage] {summary}")
+            try:
+                if lane.proc and lane.proc.stdout:
+                    lane.proc.stdout.close()
+            except OSError:
+                pass
+            lane.proc = lane.session_row = lane.log_path = None
+            lane.story_id = lane.fnr = lane.hdir = lane.task_id = lane.stage = None
+            return
 
     # 2. Story в ожидании handoff (созданы из витрины)
     for s in conn.execute("SELECT id, fnr FROM stories WHERE project_id=? AND"
                           " status='PENDING_HANDOFF' ORDER BY id",
                           (lane.project_id,)).fetchall():
+        if lane_busy:
+            break  # слот занят — handoff подхватится, когда стадия закончится
         sid, fnr = int(s["id"]), s["fnr"]
         hdir = ws / "sa_documentation" / "FNR" / fnr / "harness"
         if not claim_lock(hdir):
@@ -896,6 +899,8 @@ def process_workspace(lane: WorkspaceLane, opts: argparse.Namespace) -> None:
         hdir = ws / "sa_documentation" / "FNR" / fnr / "harness"
         if not claim_lock(hdir):
             continue
+        if lane_busy and sid == lane.story_id:
+            continue  # живая сессия — единственный писатель этой задачи
 
         # команды тика: атомарное потребление (dry-run — только взгляд)
         if opts.dry_run:
@@ -932,13 +937,13 @@ def process_workspace(lane: WorkspaceLane, opts: argparse.Namespace) -> None:
                                            task.get("blocked_reason") or "требуется решение")).start()
         has_report, verify_attempted = _verify_flags(conn, sid, ws, fnr)
         state = {
-            "lane_free": True,
-            "running_task_id": None,
+            "lane_free": not lane_busy,
+            "running_task_id": lane.task_id if lane_busy else None,
             "now": time.time(),
             "verification_report": has_report,
             "verify_attempted": verify_attempted,
             "max_retries": opts.max_retries,
-            "orphan_running": orphan_running,
+            "orphan_running": orphan_running or lane_busy,
         }
         decisions = decide(manifest_view(conn, sid), flags, state)
 
@@ -968,6 +973,15 @@ def process_workspace(lane: WorkspaceLane, opts: argparse.Namespace) -> None:
                     print(f"  [{fnr}] план утверждён — конвейер запущен")
             elif kind == "event":
                 _, tid, event, reason = d
+                # при занятом слоте проводим только управляющие события
+                # (отложить/остановить/принять/отклонить/вернуть); прогресс
+                # конвейера — при свободном слоте, чтобы не было гонки
+                # «START без сессии → мгновенный completion»
+                if lane_busy and event not in (sm.EV_DEFER, sm.EV_ABORT,
+                                               sm.EV_PROPOSE_ACCEPT,
+                                               sm.EV_PROPOSE_REJECT,
+                                               sm.EV_REQUEST_CHANGES):
+                    continue
                 task = dbmod.read_task(conn, sid, tid, with_card=False)
                 if event in (sm.EV_RETRY, sm.EV_RESUME_WORK) \
                         and task.get("v2_status") == "ESCALATED_BLOCKED":
@@ -990,6 +1004,8 @@ def process_workspace(lane: WorkspaceLane, opts: argparse.Namespace) -> None:
                 apply_transition(conn, sid, tid, event, reason)
             elif kind == "stage":
                 _, tid, stage = d
+                if lane_busy:
+                    continue  # слот занят — решени�� применится в следующем тике
                 if opts.dry_run:
                     print(f"  [dry-run] {fnr}: стадия {stage} для {tid or 'FNR'}")
                     continue
