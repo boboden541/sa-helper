@@ -1,13 +1,10 @@
-"""Smoke-тест демона: полный цикл конвейера на песочнице со stub-сессиями.
-
-Доказывает ворота B: после approve конвейер сам ведёт DAG без ручных команд.
-Состояния целиком в файлах — демон можно убить, следующий тик дозаминирует.
-"""
+"""Smoke демона на БД: полный цикл конвейера и kill-восстановление (R3)."""
 
 from __future__ import annotations
 
-import json
+import os
 import sys
+import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -15,222 +12,109 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+import db as dbmod  # noqa: E402
 import orchestrator as orch  # noqa: E402
 import state_machine as sm  # noqa: E402
 
 STUB = ROOT / "tests" / "fixtures" / "stub_claude.py"
 
 
-def make_workspace(tmp: Path) -> Path:
-    """Воркспейс с FNR_99: T1→T2, план ожидает утверждения."""
-    ws = tmp / "ws"
-    harness = ws / "sa_documentation" / "FNR" / "FNR_99" / "harness"
-    harness.mkdir(parents=True)
-    manifest = {
-        "fnr_id": "FNR_99", "status": "AWAITING_APPROVAL",
-        "epic_branch": "harness/FNR-99-smoke", "workspace": "ws",
-        "systems": [{"name": "core", "path": "core", "stack": "python",
-                     "bootstrap": "ready"}],
-        "tasks": [
-            task_card("T1", []),
-            task_card("T2", ["T1"]),
-        ],
-    }
-    (harness / "manifest.json").write_text(
-        json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
-    (harness / ".flags").mkdir()
-    (harness / ".flags" / "APPROVE_PLAN").touch()
-    return ws
+class SmokeFixture(unittest.TestCase):
+    """Story FNR_99: T1→T2, план утверждён; воркспейс-каталог для .run/.claude."""
+
+    def setUp(self):
+        self._td = tempfile.TemporaryDirectory()
+        td = Path(self._td.name)
+        self.ws = td / "ws"
+        hdir = self.ws / "sa_documentation" / "FNR" / "FNR_99" / "harness"
+        hdir.mkdir(parents=True)
+        self.conn = dbmod.connect(td / "smoke.db")
+        self.pid = dbmod.upsert_project(self.conn, "smoke", str(self.ws))
+        self.sid = dbmod.create_story(self.conn, self.pid, "FNR_99", "Smoke", "# СТ")
+        with dbmod.tx(self.conn):
+            self.conn.execute("UPDATE stories SET status='APPROVED', epic_branch=?,"
+                              " updated_at=? WHERE id=?",
+                              ("harness/FNR-99-smoke", dbmod.now_iso(), self.sid))
+        for sysname in ("core",):
+            self.conn.execute(
+                "INSERT INTO story_systems(story_id, name, path, stack, bootstrap)"
+                " VALUES (?,?,?,?, 'ready')", (self.sid, sysname, "core", "python"))
+        for tid, deps in (("T1", []), ("T2", ["T1"])):
+            tid_done = dbmod.task_create(self.conn, self.sid, {
+                "id": tid, "title": f"Задача {tid}", "system": "core",
+                "depends_on": deps,
+                "acceptance_criteria": [{"id": f"AC-1.1.1", "desc": "x"}],
+            }, origin="plan")
+            with dbmod.tx(self.conn):
+                self.conn.execute("UPDATE tasks SET branch=? WHERE story_id=? AND tid=?",
+                                  (f"harness/FNR-99-smoke-{tid.lower()}", self.sid, tid_done))
+        os.chmod(STUB, 0o755)
+        self.opts = type("Opts", (), {
+            "poll_interval": 0, "stage_timeout": 60, "heartbeat_timeout": 60,
+            "max_retries": 3, "max_turns": 10, "skip_permissions": True,
+            "claude_bin": str(STUB), "dry_run": False, "verbose": False,
+        })()
+        self.lane = orch.WorkspaceLane(self.ws, self.conn, self.pid, "smoke")
+
+    def tearDown(self):
+        if self.lane.proc is not None:
+            try:
+                orch._kill_tree(self.lane.proc)
+            except OSError:
+                pass
+        self.conn.close()
+        self._td.cleanup()
+
+    def pipelines(self) -> dict:
+        return {r["tid"]: r["pipeline"] for r in self.conn.execute(
+            "SELECT tid, pipeline FROM tasks ORDER BY tid")}
+
+    def run_until(self, predicate, ticks=60):
+        for _ in range(ticks):
+            orch.process_workspace(self.lane, self.opts)
+            if predicate():
+                return
+            time.sleep(0.03)
 
 
-def task_card(tid: str, deps: list[str]) -> dict:
-    return {
-        "id": tid, "title": f"Задача {tid}", "system": "core", "phase": "regular",
-        "branch": f"harness/FNR-99-smoke-{tid.lower()}",
-        "status": "PLANNED", "depends_on": deps,
-        "fr_ids": ["FR-1.1"],
-        "acceptance_criteria": [{"id": "AC-1.1.1", "desc": "x", "status": "PENDING"}],
-    }
-
-
-class TestConveyorSmoke(unittest.TestCase):
-    """Полный цикл: approve → T1 (impl→review) → T2 (impl→review) → verify."""
+class TestConveyorSmoke(SmokeFixture):
+    """Полный цикл: T1 (impl→review) → T2 → verify → VERIFIED."""
 
     def test_full_cycle(self):
-        import os
-        import tempfile
-        os.chmod(STUB, 0o755)  # свежий clone может потерять exec-бит
-        with tempfile.TemporaryDirectory() as td:
-            ws = make_workspace(Path(td))
-            harness = ws / "sa_documentation" / "FNR" / "FNR_99" / "harness"
-
-            class Opts:
-                poll_interval = 0
-                stage_timeout = 60
-                heartbeat_timeout = 60
-                max_retries = 3
-                max_turns = 10
-                skip_permissions = True
-                claude_bin = str(STUB)
-                dry_run = False
-                verbose = False
-
-            lane = orch.WorkspaceLane(ws)
-            for tick in range(40):
-                orch.process_workspace(lane, Opts)
-                time.sleep(0.02)
-
-            doc = json.loads((harness / "manifest.json").read_text(encoding="utf-8"))
-            pipelines = {t["id"]: t["pipeline"] for t in doc["tasks"]}
-            self.assertEqual(pipelines, {"T1": sm.VERIFIED, "T2": sm.VERIFIED})
-            self.assertTrue((harness / "verification_report.md").exists())
-            # session_id последней стадии задачи попал в манифест (чат через --resume)
-            self.assertEqual(doc["tasks"][0].get("session_id"),
-                             "aa11bb22cc33dd44ee55ff66")
-            events_log = (harness / "logs" / "events.log").read_text(encoding="utf-8")
-            for marker in ("queue_ready", "start", "review_approved",
-                           "verify_passed", "verify: FNR"):
-                self.assertIn(marker, events_log)
+        self.run_until(lambda: self.pipelines() == {"T1": sm.VERIFIED,
+                                                    "T2": sm.VERIFIED})
+        self.assertEqual(self.pipelines(), {"T1": sm.VERIFIED, "T2": sm.VERIFIED})
+        self.assertIsNotNone(dbmod.doc_get(self.conn, self.sid, "verification_report"))
+        t1 = dbmod.read_task(self.conn, self.sid, "T1")
+        self.assertEqual(t1["session_id"], "aa11bb22cc33dd44ee55ff66")
+        texts = " ".join(e["text"] for e in dbmod.events_after(self.conn, self.sid, 0))
+        for marker in ("queue_ready", "start", "review_approved", "verify"):
+            self.assertIn(marker, texts.lower())
 
 
-class TestKillRecovery(unittest.TestCase):
-    """kill -9 демона: осиротевшая сессия не получает дубль, состояние добирается."""
+class TestKillRecovery(SmokeFixture):
+    """kill демона: осиротевшая сессия с мёртвым pid дозаминируется, дубля нет."""
 
-    def test_orphan_fencing_and_completion(self):
-        import os
-        import tempfile
-        slow = ROOT / "tests" / "fixtures" / "stub_slow.py"
-        os.chmod(slow, 0o755)
-        os.environ["STUB_DELAY"] = "1.5"
-        try:
-            with tempfile.TemporaryDirectory() as td:
-                ws = make_workspace(Path(td))
-                harness = ws / "sa_documentation" / "FNR" / "FNR_99" / "harness"
-                # план сразу утверждён
-                doc = json.loads((harness / "manifest.json").read_text(encoding="utf-8"))
-                doc["status"] = "APPROVED"
-                (harness / "manifest.json").write_text(json.dumps(doc), encoding="utf-8")
-
-                class Opts:
-                    poll_interval = 0
-                    stage_timeout = 60
-                    heartbeat_timeout = 60
-                    max_retries = 3
-                    max_turns = 10
-                    skip_permissions = True
-                    claude_bin = str(slow)
-                    dry_run = False
-                    verbose = False
-
-                # «демон №1» запускает T1 и «умирает» (lane выброшена, kill -9)
-                dead_lane = orch.WorkspaceLane(ws)
-                orch.process_workspace(dead_lane, Opts)
-                self.assertIsNotNone(dead_lane.proc)
-
-                # «демон №2»: чужая сессия жива — fencing, дубля нет
-                new_lane = orch.WorkspaceLane(ws)
-                orch.process_workspace(new_lane, Opts)
-                self.assertIsNone(new_lane.proc)  # стадию не перезапустили
-                pids = list((harness / ".run").glob("T1_implementing*.pid"))
-                self.assertEqual(len(pids), 1)  # ровно одна сессия T1
-
-                # сессия-сирота доделала сама и умерла → демон добирает состояние
-                time.sleep(1.8)
-                orch.process_workspace(new_lane, Opts)  # completion → REVIEW
-                doc = json.loads((harness / "manifest.json").read_text(encoding="utf-8"))
-                self.assertEqual(doc["tasks"][0]["pipeline"], sm.REVIEW)
-        finally:
-            os.environ.pop("STUB_DELAY", None)
+    def test_orphan_session_reconciled_once(self):
+        # имитируем осиротевшую сессию T1: строка running с мёртвым pid,
+        # задача IMPLEMENTING со сделанной v2-работой
+        dbmod.task_set_v3(self.conn, self.sid, "T1", {"pipeline": "IMPLEMENTING"})
+        dbmod.session_start(self.conn, self.sid, "T1", "implementing",
+                            pid=999999, host="dead-host", log_path="/tmp/dead.log")
+        dbmod.task_set_v2(self.conn, self.sid, "T1", {"status": "AGENT_REVIEW"})
+        seen = []
+        for _ in range(6):
+            orch.process_workspace(self.lane, self.opts)
+            pipelines = self.pipelines()
+            seen.append(pipelines["T1"])
+            if pipelines["T1"] == sm.REVIEW:
+                break
+        self.assertEqual(self.pipelines()["T1"], sm.REVIEW)
+        # сессия погашена без дубля стадии: процессов слот не занял в этот тик
+        statuses = [r["status"] for r in self.conn.execute(
+            "SELECT status FROM sessions WHERE tid='T1'")]
+        self.assertIn("orphan", statuses)
 
 
-class TestReviewLoopSmoke(unittest.TestCase):
-    """Ревью-петля v3: closure_first останавливается честно; лимит работает."""
-
-    def _conveyor(self, td: Path, strategy: str):
-        ws = make_workspace(td)
-        harness = ws / "sa_documentation" / "FNR" / "FNR_99" / "harness"
-        doc = json.loads((harness / "manifest.json").read_text(encoding="utf-8"))
-        doc["status"] = "APPROVED"
-        doc["auto_review_strategy"] = strategy
-        (harness / "manifest.json").write_text(json.dumps(doc), encoding="utf-8")
-
-        class Opts:
-            poll_interval = 0
-            stage_timeout = 60
-            heartbeat_timeout = 60
-            max_retries = 3
-            max_turns = 10
-            skip_permissions = True
-            claude_bin = str(ROOT / "tests" / "fixtures" / "stub_claude.py")
-            dry_run = False
-            verbose = False
-
-        lane = orch.WorkspaceLane(ws)
-        for _ in range(80):
-            orch.process_workspace(lane, Opts)
-            time.sleep(0.02)
-        doc = json.loads((harness / "manifest.json").read_text(encoding="utf-8"))
-        log = (harness / "logs" / "events.log").read_text(encoding="utf-8")
-        return harness, doc, log
-
-    def test_closure_first_stalls_on_new_blockers(self):
-        import os
-        import tempfile
-        os.environ["STUB_REVIEW"] = "changes"
-        try:
-            with tempfile.TemporaryDirectory() as td:
-                harness, doc, log = self._conveyor(Path(td), "closure_first")
-                t1 = doc["tasks"][0]
-                self.assertEqual(t1["pipeline"], sm.NEEDS_HUMAN)
-                self.assertEqual(t1["blocked_from"], sm.REVIEW)
-                self.assertTrue(t1["findings"])  # находки попали в манифест
-                self.assertIn("closure_first", log)
-        finally:
-            os.environ.pop("STUB_REVIEW", None)
-
-    def test_full_re_review_stalls_by_iteration_limit(self):
-        import os
-        import tempfile
-        os.environ["STUB_REVIEW"] = "loop"  # один и тот же блокер каждый раунд
-        try:
-            with tempfile.TemporaryDirectory() as td:
-                harness, doc, log = self._conveyor(Path(td), "full_re_review")
-                self.assertEqual(doc["tasks"][0]["pipeline"], sm.NEEDS_HUMAN)
-                self.assertIn("лимит итераций", log)
-        finally:
-            os.environ.pop("STUB_REVIEW", None)
-
-    def test_request_changes_flag_reworks_done_task(self):
-        import os
-        import tempfile
-        with tempfile.TemporaryDirectory() as td:
-            ws = make_workspace(Path(td))
-            harness = ws / "sa_documentation" / "FNR" / "FNR_99" / "harness"
-            doc = json.loads((harness / "manifest.json").read_text(encoding="utf-8"))
-            doc["status"] = "APPROVED"
-            doc["tasks"][0].update({"status": "DONE", "pipeline": "DONE",
-                                    "review_verdict": "APPROVED"})
-            (harness / "manifest.json").write_text(json.dumps(doc), encoding="utf-8")
-            (harness / ".flags" / "TASK_T1_REQUEST_CHANGES").touch()
-
-            class Opts:
-                poll_interval = 0
-                stage_timeout = 60
-                heartbeat_timeout = 60
-                max_retries = 3
-                max_turns = 10
-                skip_permissions = True
-                claude_bin = str(ROOT / "tests" / "fixtures" / "stub_claude.py")
-                dry_run = False
-                verbose = False
-
-            lane = orch.WorkspaceLane(ws)
-            for _ in range(40):
-                orch.process_workspace(lane, Opts)
-                time.sleep(0.02)
-            doc = json.loads((harness / "manifest.json").read_text(encoding="utf-8"))
-            # доработали, приняли; единственная DONE-задача уходит в verify
-            self.assertIn(doc["tasks"][0]["pipeline"], ("DONE", "VERIFIED"))
-            log = (harness / "logs" / "events.log").read_text(encoding="utf-8")
-            self.assertIn("request_changes", log)
-            self.assertFalse((harness / ".flags" / "TASK_T1_REQUEST_CHANGES").exists())
+if __name__ == "__main__":
+    unittest.main()

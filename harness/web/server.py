@@ -761,7 +761,12 @@ class Handler(BaseHTTPRequestHandler):
             sid = int(story["id"])
             if name.endswith(".json"):
                 payload = self._json_body()
-                kind = "task.edit_desc" if name.startswith("TASK_EDIT_") else name[:-5]
+                if name.startswith("TASK_EDIT_"):
+                    kind = "task.edit_desc"
+                    payload = dict(payload)
+                    payload["task_id"] = name[len("TASK_EDIT_"):-len(".json")]
+                else:
+                    kind = name[:-5]
                 dbmod.insert_command(c, sid, kind, payload, by="human")
             elif name == "PAUSE":
                 dbmod.story_pause(c, sid, True)

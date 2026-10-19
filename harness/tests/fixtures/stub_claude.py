@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
-"""Заглушка headless-сессии claude для smoke-теста демона (orchestrator.py).
+"""Заглушка headless-сессии claude для smoke-тестов демона на БД (R3).
 
-Имитирует контракт сессии-исполнителя: обновляет v2-поля манифеста (status,
-review_verdict) по команде стадии, пишет stream-json-подобный вывод в stdout
-(для heartbeat-нити демона). Запуск — только из тестов, на PATH не ставить.
-
-Контракт стадий (как у реальных команд v2):
-  /impl-run   → status: AGENT_REVIEW (задача готова к ревью)
-  /impl-review→ status: DONE + review_verdict: APPROVED
-  /impl-verify→ пишет verification_report.md
+Контракт сессии-исполнителя (через слой db.py; HARNESS_DB из окружения):
+  /impl-run    → v2-статус задачи: AGENT_REVIEW
+  /impl-review → v2 DONE + вердикт APPROVED (STUB_REVIEW=changes|loop — иная ветка)
+  /impl-verify → документ verification_report
+Плюс stream-json-подобный stdout (heartbeat-нить демона).
 """
 
 from __future__ import annotations
@@ -16,62 +13,48 @@ from __future__ import annotations
 import json
 import os
 import sys
-import time
 from pathlib import Path
 
-PROMPT = sys.argv[sys.argv.index("-p") + 1] if "-p" in sys.argv else ""
-CWD = Path.cwd()
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import db as dbmod  # noqa: E402
 
-# stream-json-подобные строки — живость для heartbeat-нити демона
+PROMPT = sys.argv[sys.argv.index("-p") + 1] if "-p" in sys.argv else ""
+
 print(json.dumps({"type": "system", "subtype": "init",
                   "session_id": "aa11bb22cc33dd44ee55ff66"}), flush=True)
-print(json.dumps({"type": "system", "subtype": "stub_start", "prompt": PROMPT[:60]}), flush=True)
 print(json.dumps({"type": "result", "subtype": "stub_done"}), flush=True)
 
+conn = dbmod.connect(os.environ.get("HARNESS_DB"))
+row = conn.execute("SELECT id FROM stories ORDER BY id LIMIT 1").fetchone()
+if not row:
+    sys.exit(0)
+story_id = int(row["id"])
 parts = PROMPT.split()
+
 if len(parts) >= 2 and parts[0] == "/impl-run":
-    harness = CWD / parts[1]
-    task_id = parts[2] if len(parts) > 2 else None
-    mp = harness / "manifest.json"
-    doc = json.loads(mp.read_text(encoding="utf-8"))
-    for t in doc["tasks"]:
-        if t["id"] == task_id:
-            t["status"] = "AGENT_REVIEW"
-    doc["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    mp.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tid = parts[2] if len(parts) > 2 else None
+    tasks = [r["tid"] for r in conn.execute(
+        "SELECT tid FROM tasks WHERE story_id=? ORDER BY tid", (story_id,))]
+    for tid in ([tid] if tid else tasks):
+        if tid:
+            dbmod.task_set_v2(conn, story_id, tid, {"status": "AGENT_REVIEW"})
 
 elif len(parts) >= 2 and parts[0] == "/impl-review":
-    import os
-    harness = CWD / parts[1]
-    task_id = parts[2] if len(parts) > 2 else None
-    mp = harness / "manifest.json"
-    doc = json.loads(mp.read_text(encoding="utf-8"))
+    tid = parts[2] if len(parts) > 2 else None
     mode = os.environ.get("STUB_REVIEW", "approve")
-    for t in doc["tasks"]:
-        if t["id"] != task_id:
-            continue
+    if tid:
         if mode == "approve":
-            t["status"] = "DONE"
-            t["review_verdict"] = "APPROVED"
+            dbmod.task_set_v2(conn, story_id, tid, {"status": "DONE"})
+            dbmod.verdict_add(conn, story_id, tid, 1, "APPROVED", [], [])
         else:
-            # CHANGES_REQUESTED: structured verdict, каждый раунд — НОВЫЙ текст
-            # (loop: один и тот же) — id различаются, closure_first видит новые
-            it = int(t.get("review_iterations") or 0)
-            name = f"same" if mode == "loop" else f"iter{it}"
-            t["review_verdict"] = "CHANGES_REQUESTED"
-            reviews = harness / "reviews"
-            reviews.mkdir(exist_ok=True)
-            (reviews / f"{task_id}_review.md").write_text(
-                "# Ревью " + str(task_id) + "\n\n"
-                "## Verdict (machine-readable)\n"
-                "status: CHANGES_REQUESTED\n"
-                "blocking:\n"
-                f"- | file: src/X.java:1 | text: замечание {name}\n",
-                encoding="utf-8")
-    doc["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    mp.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            it = conn.execute("SELECT review_iterations FROM tasks WHERE story_id=?"
+                              " AND tid=?", (story_id, tid)).fetchone()
+            name = "same" if mode == "loop" else f"iter{it['review_iterations']}"
+            dbmod.task_set_v2(conn, story_id, tid, {"status": "DONE"})
+            dbmod.verdict_add(conn, story_id, tid, max(1, it["review_iterations"]),
+                              "CHANGES_REQUESTED",
+                              [{"file": "src/X.java:1", "text": f"замечание {name}"}], [])
 
 elif len(parts) >= 1 and parts[0] == "/impl-verify":
-    harness = CWD / parts[1]
-    (harness / "verification_report.md").write_text(
-        "# Verification report (stub)\n\nAll gates green.\n", encoding="utf-8")
+    dbmod.doc_set(conn, story_id, "verification_report",
+                  "# Verification report (stub)\n\nAll gates green.\n")

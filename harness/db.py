@@ -313,12 +313,16 @@ def tx(conn: sqlite3.Connection, immediate: bool = True):
 # ─── проекты ────────────────────────────────────────────────────────────────
 
 def upsert_project(conn: sqlite3.Connection, name: str, path: str) -> int:
-    """[H/M] Реестр проектов (поглощает workspaces.json)."""
+    """[H/M] Реестр проектов (поглощает workspaces.json). Ключи — и имя, и путь."""
+    path = str(Path(path).resolve())
     with tx(conn):
         row = conn.execute("SELECT id FROM projects WHERE name=?", (name,)).fetchone()
         if row:
-            conn.execute("UPDATE projects SET path=? WHERE id=?",
-                         (path, row["id"]))
+            conn.execute("UPDATE projects SET path=? WHERE id=?", (path, row["id"]))
+            return int(row["id"])
+        row = conn.execute("SELECT id, name FROM projects WHERE path=?", (path,)).fetchone()
+        if row:
+            conn.execute("UPDATE projects SET name=? WHERE id=?", (name, row["id"]))
             return int(row["id"])
         cur = conn.execute(
             "INSERT INTO projects(name, path, created_at) VALUES (?,?,?)",
@@ -449,6 +453,7 @@ def read_task(conn: sqlite3.Connection, story_id: int, tid: str,
     if not row:
         return None
     t = dict(row)
+    t["status"] = t["v2_status"]   # канон манифеста: v2-статус под именем status
     t["acceptance_criteria"] = [
         dict(r) for r in conn.execute(
             "SELECT ac_id, seq, desc_md AS desc, test, status FROM acceptance_criteria"
@@ -493,7 +498,7 @@ def task_create(conn: sqlite3.Connection, story_id: int, spec: dict,
             (story_id, tid, title, str(spec.get("description") or ""),
              spec.get("system"), str(spec.get("phase") or "regular"),
              str(spec.get("branch") or ""), origin,
-             1 if origin == "manual" else 0, now, now))
+             0, now, now))  # decomposed=False — декомпозирует стадия/сессия
         pipeline = "PROPOSED" if origin == "agent" else "BACKLOG"
         conn.execute("UPDATE tasks SET pipeline=? WHERE story_id=? AND tid=?",
                      (pipeline, story_id, tid))
