@@ -81,12 +81,15 @@ header .logo { color: var(--ok); font-family: var(--mono); font-weight: 700;
 .story-menu .s-item .fnr { font-family: var(--mono); font-size: 11px; color: var(--acc); }
 .story-menu .s-item .bar { flex: 1; height: 4px; border-radius: 2px; background: var(--chip); overflow: hidden; }
 .story-menu .s-item .bar > i { display: block; height: 100%; background: var(--ok); }
-.seg { display: flex; border: 1px solid var(--line2); border-radius: 6px; overflow: hidden; }
-.seg button { border: 0; border-radius: 0; background: none; padding: 5px 10px;
-  color: var(--dim); font-family: var(--mono); font-size: 11px; text-transform: uppercase; }
-.seg button.active { background: var(--surface3); color: var(--text); }
-.kbd { font-family: var(--mono); font-size: 11px; color: var(--dim);
-  border: 1px solid var(--line2); border-radius: 5px; padding: 4px 8px; background: none; }
+.seg { display: flex; border: 1px solid var(--line2); border-radius: 7px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; background: none; padding: 5px 11px;
+  color: var(--faint); font-family: var(--mono); font-size: 11px; text-transform: uppercase; }
+.seg button.on { background: var(--surface3); color: var(--text); }
+.kbd { font-family: var(--mono); font-size: 12.5px; color: var(--text);
+  border: 0; background: none; padding: 0; }
+.story-select > button.crumb-nav { border: 0; background: none; padding: 0; cursor: pointer;
+  font: 12.5px var(--mono); color: var(--dim); }
+.story-select > button.crumb-nav:hover { color: var(--text); border: 0; }
 .conn { font-size: 11px; color: var(--faint); }
 .conn.on { color: var(--ok); }
 .flag-chip { font-size: 11px; padding: 2px 9px; border-radius: 4px;
@@ -95,30 +98,30 @@ header .logo { color: var(--ok); font-family: var(--mono); font-weight: 700;
 
 /* ═══ фильтры ═══ */
 .filterbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
-  margin: 14px 24px 0; padding: 8px 12px; border: 1px solid var(--line);
-  background: var(--surface); }
+  margin: 12px 18px 0; padding: 7px 12px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--surface); }
 .fchip { font-family: var(--mono); font-size: 11px; padding: 3px 10px;
   border-radius: 4px; border: 1px solid var(--line2); background: none; color: var(--dim); }
-.fchip.active { border-color: var(--acc); color: var(--acc); }
+.fchip.on { border-color: var(--acc); color: var(--acc); }
 .filterbar input { background: var(--chip); color: var(--text); border: 1px solid var(--line2);
   border-radius: 4px; padding: 5px 10px; font: 12px var(--mono); width: 200px; }
 
 /* ═══ канбан ═══ */
-.board { display: flex; gap: 14px; padding: 16px 24px 24px; overflow-x: auto; align-items: flex-start; }
-.col { min-width: 292px; width: 292px; flex-shrink: 0; background: var(--surface);
-  border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px 12px; }
+.board { display: flex; gap: 13px; padding: 14px 18px 30px; overflow-x: auto; align-items: flex-start; }
+.col { min-width: 250px; flex: 1; background: var(--surface);
+  border: 1px solid var(--line); border-radius: 12px; padding: 11px; }
 .col.drop-ok { border-color: var(--acc-dim); border-style: dashed; }
 .col.drop-hot { border-color: var(--acc); background: rgba(88,166,255,.05); }
 .col-head { display: flex; align-items: center; gap: 8px; margin: 2px 2px 6px; }
 .col-head .dot { width: 8px; height: 8px; border-radius: 50%; }
-.col-head .name { font-family: var(--mono); font-size: 12.5px; font-weight: 600; }
+.col-head .name { font-family: var(--mono); font-size: 12.5px; font-weight: 650; }
 .col-head .count { margin-left: auto; font-family: var(--mono); font-size: 11px;
-  color: var(--dim); border: 1px solid var(--line2); border-radius: 4px; padding: 0 6px; }
+  color: var(--faint); }
 .col-underline { height: 2px; border-radius: 1px; background: var(--chip); margin: 0 2px 4px; overflow: hidden; }
 .col-underline > i { display: block; height: 100%; }
 .col-mode { font-family: var(--mono); font-size: 10px; display: inline-block;
-  padding: 2px 8px; border-radius: 3px; border: 1px solid; margin: 4px 2px 8px; }
-.mode-ai { color: var(--amber); border-color: var(--amber); background: rgba(210,153,34,.06); }
+  padding: 2px 7px; border-radius: 3px; border: 1px solid; margin: 4px 2px 9px; }
+.mode-ai { color: var(--warn); border-color: var(--warn); }
 .mode-human { color: var(--teal); border-color: var(--teal); background: rgba(88,214,185,.05); }
 .mode-decision { color: var(--ok); border-color: var(--ok); background: rgba(63,185,80,.06); }
 .add-task { width: 100%; border: 1px dashed var(--line2); background: none; color: var(--dim);
@@ -127,20 +130,20 @@ header .logo { color: var(--ok); font-family: var(--mono); font-weight: 700;
 
 /* ═══ карточка на доске ═══ */
 .tcard { background: var(--surface2); border: 1px solid var(--line);
-  border-left: 3px solid var(--edge, var(--line2)); border-radius: 4px;
-  padding: 10px 12px; margin-bottom: 10px; cursor: pointer; transition: border-color .12s; }
+  border-left: 3px solid var(--edge, var(--line2)); border-radius: 9px;
+  padding: 10px 12px; margin-bottom: 9px; cursor: pointer; transition: border-color .12s; }
 .tcard:hover { border-color: var(--faint); }
-.tcard .ttitle { font-family: var(--mono); font-size: 13px; font-weight: 600; margin-bottom: 5px; }
+.tcard .ttitle { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
 .tcard .tdesc { font-size: 12px; color: var(--dim); margin-bottom: 7px;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .tagrow { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
-.tag { font-family: var(--mono); font-size: 10px; color: var(--dim);
-  border: 1px solid var(--line2); border-radius: 3px; padding: 1px 6px; }
+.tag { font-family: var(--mono); font-size: 10px; color: var(--faint);
+  border: 1px solid var(--line2); border-radius: 4px; padding: 1px 6px; }
 .tag.origin-agent { color: var(--purple); border-color: var(--purple); }
 .tag.origin-manual { color: var(--acc); border-color: var(--acc-dim); }
 .tag.paused { color: var(--amber); border-color: var(--amber); }
 .tfoot { display: flex; align-items: center; gap: 8px; font-family: var(--mono);
-  font-size: 10.5px; color: var(--faint); border-top: 1px solid var(--line); padding-top: 6px; }
+  font-size: 10.5px; color: var(--faint); }
 .tfoot .grow { flex: 1; }
 .live-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%;
   background: var(--ok); margin-right: 5px; animation: pulse 1.6s infinite; }

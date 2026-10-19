@@ -24,9 +24,9 @@ const COLUMNS: Array<{ key: string; title: string; also?: string[];
 ];
 
 function edgeOf(p: string): string {
-  return { IMPLEMENTING: "var(--purple)", REVIEW: "var(--pink)", DONE: "var(--ok)",
-    VERIFIED: "var(--ok)", NEEDS_HUMAN: "var(--warn)", BLOCKED: "var(--warn)",
-    PROPOSED: "var(--amber)" }[p] || "var(--line2)";
+  return { READY: "var(--acc)", IMPLEMENTING: "var(--purple)", REVIEW: "var(--pink)",
+    DONE: "var(--ok)", VERIFIED: "var(--ok)", NEEDS_HUMAN: "var(--warn)",
+    BLOCKED: "var(--warn)", PROPOSED: "var(--amber)" }[p] || "var(--line2)";
 }
 
 function timeAgoShort(iso?: string): string {
@@ -58,17 +58,18 @@ function Card({ t, onOpen, onDragStart }: {
       {t.description && <div className="tdesc">{t.description}</div>}
       <div className="tagrow">
         <span className="tag">{t.id}</span>
+        {t.live?.running && (
+          <span className="tag" style={{ color: "var(--ok)", borderColor: "var(--ok)" }}>
+            {p === "PROPOSED" ? "⟳ декомпозиция…" : "⟳ работает"}
+          </span>
+        )}
         {t.phase && t.phase !== "regular" && <span className="tag">phase:{t.phase}</span>}
         {t.origin === "agent" && <span className="tag origin-agent">origin:agent</span>}
         {t.origin === "manual" && <span className="tag origin-manual">origin:manual</span>}
         {t.paused && <span className="tag paused">PAUSED</span>}
       </div>
       <div className="tfoot">
-        {t.live?.running && pipelineOf(t) === "PROPOSED"
-          ? <><span className="live-dot" />декомпозиция…</>
-          : t.live?.running
-            ? <><span className="live-dot" />работает</>
-            : <span>{timeAgoShort(t.pipeline_since)}</span>}
+        <span>{timeAgoShort(t.pipeline_since)}</span>
         <span className="grow" />
         {t.review_iterations ? <span>ревью:{t.review_iterations}</span> : null}
         <UsageBadge usage={t.usage} />
@@ -94,21 +95,20 @@ export function Board({ state, onOpenTask, onAddTask, onMove }: {
   const visible = useMemo(() => tasks.filter((t) => {
     const p = pipelineOf(t);
     for (const key of active) {
-      if (key === "active" && !["IMPLEMENTING", "REVIEW", "READY"].includes(p)) return false;
+      if (key === "active" && !["READY", "IMPLEMENTING", "REVIEW"].includes(p)) return false;
       if (key === "blocked" && !["BLOCKED", "NEEDS_HUMAN"].includes(p)) return false;
-      if (key === "proposed" && p !== "PROPOSED") return false;
       if (key === "manual" && t.origin !== "manual") return false;
-      if (key === "agent" && t.origin !== "agent") return false;
-      if (key === "done" && !["DONE", "VERIFIED"].includes(p)) return false;
+      if (key === "done" && !["DONE", "VERIFIED", "ABORTED"].includes(p)) return false;
     }
     if (query && !`${t.id} ${t.title} ${t.description || ""}`.toLowerCase()
         .includes(query.toLowerCase())) return false;
     return true;
   }), [tasks, active, query]);
 
+  // 4 чипа по макету v3 (макет:227–230)
   const FILTERS: Array<[string, string]> = [
-    ["active", "в работе"], ["blocked", "блок"], ["proposed", "предложены"],
-    ["manual", "ручные"], ["agent", "от агента"], ["done", "закрытые"],
+    ["active", "в работе"], ["blocked", "блок"],
+    ["manual", "ручные"], ["done", "закрытые"],
   ];
 
   return (
@@ -116,7 +116,7 @@ export function Board({ state, onOpenTask, onAddTask, onMove }: {
       <div className="filterbar">
         <span className="mlabel">Фильтры</span>
         {FILTERS.map(([key, label]) => (
-          <button key={key} className={`fchip ${active.includes(key) ? "active" : ""}`}
+          <button key={key} className={`fchip ${active.includes(key) ? "on" : ""}`}
             onClick={() => setActive((prev) =>
               prev.includes(key) ? prev.filter((x) => x !== key) : [...prev, key])}>
             {label}
@@ -145,7 +145,13 @@ export function Board({ state, onOpenTask, onAddTask, onMove }: {
               onDragLeave={() => setDropCol((c) => (c === col.key ? null : c))}
               onDrop={(e) => {
                 e.preventDefault();
-                if (dragId && droppable) onMove(dragId, col.key);
+                if (dragId && droppable) {
+                  // колонка-агрегат («Блок»): уточняем цель из допустимых
+                  // (BLOCKED/NEEDS_HUMAN/ABORTED) — иначе терялся ABORT
+                  const exact = [col.key, ...(col.also || [])]
+                    .find((k) => dragTargets.includes(k));
+                  onMove(dragId, exact ?? col.key);
+                }
                 setDragId(null); setDragTargets([]); setDropCol(null);
               }}>
               <div className="col-head">

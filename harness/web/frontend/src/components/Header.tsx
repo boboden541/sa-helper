@@ -51,12 +51,17 @@ export function Header({ fnr, stories, projects, activeProject, state, conn = "�
   onFlag: (name: string, method?: "POST" | "DELETE") => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [storiesOpen, setStoriesOpen] = useState(false);
   const [bellOpen, setBellOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const storiesRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+      if (storiesRef.current && !storiesRef.current.contains(e.target as Node)) {
+        setStoriesOpen(false);
+      }
     };
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
@@ -71,8 +76,8 @@ export function Header({ fnr, stories, projects, activeProject, state, conn = "�
       <span className="logo">{">"}</span>
 
       <div className="story-select" ref={menuRef}>
-        <button onClick={() => setMenuOpen((v) => !v)}>
-          📋 {fnr ? (stories.find((s) => s.fnr === fnr)?.title || fnr) : "Все Stories"} ▾
+        <button onClick={() => setMenuOpen((v) => !v)} title="Сменить проект">
+          📋 {activeProject || "Все проекты"} ▾
         </button>
         {menuOpen && (
           <div className="story-menu">
@@ -117,7 +122,30 @@ export function Header({ fnr, stories, projects, activeProject, state, conn = "�
       </div>
 
       {fnr && (
-        <span className="meta mono">
+        <div className="story-select" ref={storiesRef}>
+          <button className="crumb-nav" title="Сменить Story" onClick={() => setStoriesOpen((v) => !v)}>
+            / {fnr}
+          </button>
+          {storiesOpen && (
+            <div className="story-menu" style={{ width: 340 }}>
+              <div className="s-head meta">Stories · {activeProject || "—"}</div>
+              {stories.map((s) => (
+                <div className="s-item" key={s.fnr}
+                  onClick={() => { onOpenStory(s.fnr); setStoriesOpen(false); }}>
+                  <span className="fnr">{s.fnr}</span>
+                  <span style={{ flex: 1, minWidth: 0, overflow: "hidden",
+                    textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.title}</span>
+                </div>
+              ))}
+              <div className="s-item" onClick={() => { onAllStories(); setStoriesOpen(false); }}>
+                <span className="meta">📊 Обзор всех проектов и Story</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      {fnr && (
+        <span className="meta mono" title="свежесть живой стадии">
           {timeAgo(state?.manifest.tasks?.find((t) => t.live)?.pipeline_since)}
         </span>
       )}
@@ -125,9 +153,9 @@ export function Header({ fnr, stories, projects, activeProject, state, conn = "�
       <span className="spacer" />
       <span className="kbd">⌘K</span>
 
-      <div className="seg" style={fnr ? undefined : { display: "none" }}>
-        <button className={view === "board" ? "active" : ""} onClick={() => setView("board")}>KANBAN</button>
-        <button className={view === "list" ? "active" : ""} onClick={() => setView("list")}>LIST</button>
+      <div className="seg">
+        <button className={view === "board" ? "on" : ""} onClick={() => setView("board")}>KANBAN</button>
+        <button className={view === "list" ? "on" : ""} onClick={() => setView("list")}>LIST</button>
       </div>
 
       <ThemeToggle />
