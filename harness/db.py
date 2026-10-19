@@ -614,14 +614,20 @@ def insert_command(conn: sqlite3.Connection, story_id: int, name: str,
         return int(cur.lastrowid)
 
 
-def consume_commands(conn: sqlite3.Connection, story_id: int) -> list[dict]:
-    """[D] Атомарно забрать все отложенные команды Story (один писатель тика)."""
+def consume_commands(conn: sqlite3.Connection, story_id: int,
+                     exclude_tid: str | None = None) -> list[dict]:
+    """[D] Атомарно забрать отложенные команды Story.
+
+    exclude_tid — команды этой задачи остаются в очереди (живая сессия
+    сама увидит их через flags и остановится; один писатель её домена).
+    """
     out: list[dict] = []
     seen: set[str] = set()
     with tx(conn):
         rows = conn.execute(
-            "SELECT id, name, payload FROM commands WHERE story_id=? AND consumed_at IS NULL"
-            " ORDER BY id", (story_id,)).fetchall()
+            "SELECT id, name, payload FROM commands WHERE story_id=:sid AND consumed_at IS NULL"
+            " AND (:tid IS NULL OR name NOT GLOB 'TASK_' || :tid || '_*')"
+            " ORDER BY id", {"sid": story_id, "tid": exclude_tid}).fetchall()
         for r in rows:
             if r["name"] in seen:   # дубликаты кликов гасим без исполнения
                 conn.execute("UPDATE commands SET consumed_at=? WHERE id=?",

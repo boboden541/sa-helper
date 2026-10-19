@@ -899,14 +899,15 @@ def process_workspace(lane: WorkspaceLane, opts: argparse.Namespace) -> None:
         hdir = ws / "sa_documentation" / "FNR" / fnr / "harness"
         if not claim_lock(hdir):
             continue
-        if lane_busy and sid == lane.story_id:
-            continue  # живая сессия — единственный писатель этой задачи
+        # команды задачи с живой сессией не потребляем (сессия увидит их
+        # через sahelper flags и остановится сама); остальные — применяем
+        exclude_tid = lane.task_id if (lane_busy and sid == lane.story_id) else None
 
         # команды тика: атомарное потребление (dry-run — только взгляд)
         if opts.dry_run:
             flags = set(dbmod.pending_flags_view(conn, sid))
         else:
-            consumed = dbmod.consume_commands(conn, sid)
+            consumed = dbmod.consume_commands(conn, sid, exclude_tid=exclude_tid)
             flags = set()
             for cmd in consumed:
                 if cmd["name"] == "task.edit_desc":
@@ -973,6 +974,8 @@ def process_workspace(lane: WorkspaceLane, opts: argparse.Namespace) -> None:
                     print(f"  [{fnr}] план утверждён — конвейер запущен")
             elif kind == "event":
                 _, tid, event, reason = d
+                if lane_busy and tid == lane.task_id:
+                    continue  # живая сессия — единственный писатель задачи
                 # при занятом слоте проводим только управляющие события
                 # (отложить/остановить/принять/отклонить/вернуть); прогресс
                 # конвейера — при свободном слоте, чтобы не было гонки
