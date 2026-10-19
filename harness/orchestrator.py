@@ -916,6 +916,18 @@ def process_workspace(lane: WorkspaceLane, opts: argparse.Namespace) -> None:
                 flags.add(cmd["name"])
 
         orphan_running = any(r["alive"] for r in dbmod.live_sessions(conn, sid))
+
+        # self-heal: задача стоит в NEEDS_HUMAN, а вариантов Steward нет
+        # (потеряны при миграции/сбое) — готовим заново
+        if not opts.dry_run:
+            for r in conn.execute("SELECT tid FROM tasks WHERE story_id=? AND"
+                                  " pipeline='NEEDS_HUMAN'", (sid,)).fetchall():
+                if dbmod.steward_options_get(conn, sid, r["tid"]) is None:
+                    task = dbmod.read_task(conn, sid, r["tid"], with_card=False)
+                    task["id"] = r["tid"]
+                    threading.Thread(target=_steward_options, daemon=True,
+                                     args=(conn, sid, r["tid"],
+                                           task.get("blocked_reason") or "требуется решение")).start()
         has_report, verify_attempted = _verify_flags(conn, sid, ws, fnr)
         state = {
             "lane_free": True,
@@ -955,6 +967,14 @@ def process_workspace(lane: WorkspaceLane, opts: argparse.Namespace) -> None:
             elif kind == "event":
                 _, tid, event, reason = d
                 task = dbmod.read_task(conn, sid, tid, with_card=False)
+                if event in (sm.EV_RETRY, sm.EV_RESUME_WORK) \
+                        and task.get("v2_status") == "ESCALATED_BLOCKED":
+                    # человек явно попросил повторить после circuit breaker:
+                    # снимаем v2-эскалацию, иначе completion ре-эскалирует
+                    # до старта новой сессии (кейс T7)
+                    target = task.get("blocked_from") or "IMPLEMENTING"
+                    v2 = "AGENT_REVIEW" if target == "REVIEW" else "APPROVED"
+                    dbmod.task_set_v2(conn, sid, tid, {"status": v2})
                 if event == sm.EV_RETRY:
                     dbmod.task_set_v3(conn, sid, tid, {"retry_after_ts": 0})
                 if event in (sm.EV_REVIEW_CHANGES, sm.EV_REQUEST_CHANGES):
@@ -993,11 +1013,15 @@ def process_workspace(lane: WorkspaceLane, opts: argparse.Namespace) -> None:
 
 # --- точка входа -----------------------------------------------------------
 
-def load_lanes(conn, workspace: str | None) -> list[WorkspaceLane]:
+def load_lanes(conn, workspace: str | None, project_name: str | None = None,
+               update_path: bool = True) -> list[WorkspaceLane]:
     if workspace:
         wsp = Path(workspace).resolve()
-        pid_row = dbmod.upsert_project(conn, wsp.name, str(wsp))
-        return [WorkspaceLane(wsp, conn, int(pid_row), wsp.name)]
+        name = project_name or wsp.name
+        pid_row = dbmod.upsert_project(conn, name, str(wsp), update_path=update_path)
+        row = dbmod.get_project(conn, name)
+        # корень монтирования — то, что передано; канонический путь в БД не трогаем
+        return [WorkspaceLane(wsp, conn, int(row["id"]), name)]
     lanes = []
     for p in dbmod.list_projects(conn):
         lanes.append(WorkspaceLane(Path(p["path"]), conn, int(p["id"]), p["name"]))
@@ -1010,6 +1034,8 @@ def load_lanes(conn, workspace: str | None) -> list[WorkspaceLane]:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Демон-координатор AI Harness v3 (SQLite)")
     parser.add_argument("--workspace", help="корень воркспейса (иначе — проекты из БД)")
+    parser.add_argument("--project-name", default=None,
+                        help="имя проекта (контейнер: канонический путь в БД не меняется)")
     parser.add_argument("--poll-interval", type=int, default=5)
     parser.add_argument("--stage-timeout", type=int, default=7200)
     parser.add_argument("--heartbeat-timeout", type=int, default=1200)
@@ -1024,7 +1050,8 @@ def main() -> int:
     parser.add_argument("--db", default=None, help="путь к БД (HARNESS_DB)")
     opts = parser.parse_args()
     conn = dbmod.connect(opts.db) if opts.db else dbmod.connect()
-    lanes = load_lanes(conn, opts.workspace)
+    lanes = load_lanes(conn, opts.workspace, (opts.project_name or None) or None,
+                       update_path=not opts.workspace)
     print(f"Демон конвейера (SQLite): {len(lanes)} проект(ов), "
           f"poll={opts.poll_interval}с, dry-run={opts.dry_run}")
     try:

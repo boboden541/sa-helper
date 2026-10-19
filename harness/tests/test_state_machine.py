@@ -88,10 +88,13 @@ class TestLegalTransitions(unittest.TestCase):
         self.assertEqual(res["patch"]["pipeline"], sm.IMPLEMENTING)
         self.assertIsNone(res["patch"]["blocked_from"])
 
-    def test_retry_without_blocked_from_rejected(self):
+    def test_retry_without_blocked_from_falls_back_to_implementing(self):
+        # правка v4 (кейс T5): испорченный/пустой blocked_from — честный
+        # фолбэк в реализацию вместо вечного отказа кнопки «Повторить»
         res = sm.transition(task(sm.BLOCKED), sm.EV_RETRY)
-        self.assertFalse(res["ok"])
-        self.assertEqual(res["code"], "missing_field")
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["patch"]["pipeline"], sm.IMPLEMENTING)
+        self.assertIsNone(res["patch"]["blocked_from"])
 
     def test_resume_work_from_needs_human(self):
         res = sm.transition(task(sm.NEEDS_HUMAN, blocked_from=sm.REVIEW), sm.EV_RESUME_WORK)
@@ -109,11 +112,21 @@ class TestLegalTransitions(unittest.TestCase):
 
 class TestIllegalTransitions(unittest.TestCase):
     def test_terminal_have_no_events(self):
-        for status in (sm.VERIFIED, sm.ABORTED):
+        # VERIFIED — терминальный безусловно; ABORTED — разморозка
+        # (propose_accept → BACKLOG, редакция v4) — единственное исключение
+        for status in (sm.VERIFIED,):
             with self.subTest(status=status):
                 for event in sm._TRANSITIONS:
                     with self.subTest(event=event):
                         self.assertFalse(sm.transition(task(status), event)["ok"])
+
+    def test_aborted_unfrozen_by_accept(self):
+        t = task(sm.ABORTED)
+        t["v2_status"] = "APPROVED"
+        r = sm.transition(t, sm.EV_PROPOSE_ACCEPT)
+        self.assertTrue(r["ok"])
+        self.assertEqual(r["patch"]["pipeline"], sm.BACKLOG)
+        self.assertEqual(r["patch"]["v2_status"], "PLANNED")
 
     def test_cannot_skip_queue(self):
         self.assertFalse(sm.transition(task(sm.BACKLOG), sm.EV_START)["ok"])

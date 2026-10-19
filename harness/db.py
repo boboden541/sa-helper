@@ -278,7 +278,9 @@ def connect(path: str | Path | None = None) -> sqlite3.Connection:
     conn = sqlite3.connect(str(p), timeout=5.0, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.isolation_level = None   # autocommit; транзакциями управляет только tx()
-    conn.execute("PRAGMA journal_mode=WAL")
+    # WAL — на локальной ФС хоста; в контейнерах поверх bind-mount WAL даёт
+    # disk I/O error (общая -shm) — там журнальник DELETE (нагрузка мала)
+    conn.execute(f"PRAGMA journal_mode={os.environ.get('HARNESS_JOURNAL', 'wal')}")
     conn.execute("PRAGMA busy_timeout=5000")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("PRAGMA synchronous=NORMAL")
@@ -312,13 +314,19 @@ def tx(conn: sqlite3.Connection, immediate: bool = True):
 
 # ─── проекты ────────────────────────────────────────────────────────────────
 
-def upsert_project(conn: sqlite3.Connection, name: str, path: str) -> int:
-    """[H/M] Реестр проектов (поглощает workspaces.json). Ключи — и имя, и путь."""
+def upsert_project(conn: sqlite3.Connection, name: str, path: str,
+                   update_path: bool = True) -> int:
+    """[H/M] Реестр проектов (поглощает workspaces.json). Ключи — и имя, и путь.
+
+    update_path=False — контейнерный контур: канонический путь в БД остаётся
+    хостовым, монтирование (/work) не затирает его."""
     path = str(Path(path).resolve())
+    name = (name or "").strip() or Path(path).name   # пустое имя — имя каталога
     with tx(conn):
         row = conn.execute("SELECT id FROM projects WHERE name=?", (name,)).fetchone()
         if row:
-            conn.execute("UPDATE projects SET path=? WHERE id=?", (path, row["id"]))
+            if update_path:
+                conn.execute("UPDATE projects SET path=? WHERE id=?", (path, row["id"]))
             return int(row["id"])
         row = conn.execute("SELECT id, name FROM projects WHERE path=?", (path,)).fetchone()
         if row:

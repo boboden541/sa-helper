@@ -48,7 +48,8 @@ STATIC_TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript",
 ATTACHMENT_NAME_RE = re.compile(r"[^A-Za-z0-9._\-Ѐ-ӿ]+")
 TASK_ID_RE = re.compile(r"T\d+")
 
-STATE: dict = {"conn": None, "default_project": None, "claude_bin": "claude"}
+STATE: dict = {"conn": None, "default_project": None, "claude_bin": "claude",
+               "workspace_root": None}  # монтирование воркспейса (контейнер: /work)
 
 # Разрешённые перемещения по колонкам (канон v3; цели через команды демону)
 MOVE_MAP = {
@@ -62,6 +63,7 @@ MOVE_MAP = {
     ("REVIEW", "ABORTED"): "TASK_{tid}_ABORT",
     ("BLOCKED", "ABORTED"): "TASK_{tid}_ABORT",
     ("NEEDS_HUMAN", "ABORTED"): "TASK_{tid}_ABORT",
+    ("ABORTED", "BACKLOG"): "TASK_{tid}_ACCEPT",   # «разморозка» снятой задачи (v4)
 }
 
 ACTION_FLAGS = {
@@ -242,7 +244,10 @@ def _stories_payload(conn, project_id: int) -> dict:
 # ─── пути runtime-артефактов (логи, вложения, pending) ─────────────────────
 
 def harness_dir(project_row, fnr: str) -> Path:
-    return Path(project_row["path"]) / "sa_documentation" / "FNR" / fnr / "harness"
+    root = Path(project_row["path"])
+    if STATE.get("workspace_root") and not root.exists():
+        root = Path(STATE["workspace_root"])  # контейнер: /work при хостовом каноне
+    return root / "sa_documentation" / "FNR" / fnr / "harness"
 
 
 def _last_session_summary(hdir: Path, task_id: str) -> str:
@@ -342,10 +347,17 @@ def db_story_by_fnr(project_row, fnr: str):
 
 
 class Handler(BaseHTTPRequestHandler):
-    def log_message(self, *args) -> None:
-        pass
+    def log_message(self, fmt, *args) -> None:
+        # компактный access-лог в stdout (docker logs)
+        try:
+            print(f"- [{time.strftime('%H:%M:%S')}] {self.command} {self.path.split('?')[0]}"
+                  f" -> {getattr(self, '_code', 200)}", flush=True)
+        except Exception:
+            pass
 
     def _send(self, code: int, body: bytes, ctype: str) -> None:
+        self._code = code
+        self.log_request(code)
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
@@ -887,8 +899,14 @@ def main() -> None:
     if args.workspace:
         wsp = Path(args.workspace).resolve()
         name = args.project_name or wsp.name
-        dbmod.upsert_project(STATE["conn"], name, str(wsp))
+        row = dbmod.get_project(STATE["conn"], name)
+        if row is None:
+            dbmod.upsert_project(STATE["conn"], name, str(wsp))
+        else:
+            dbmod.upsert_project(STATE["conn"], name, str(row["path"]),
+                                 update_path=False)
         STATE["default_project"] = name
+        STATE["workspace_root"] = str(wsp)
     print(f"AI Harness dashboard (SQLite): http://127.0.0.1:{args.port}"
           f"  [{dbmod.db_path()}]")
     try:

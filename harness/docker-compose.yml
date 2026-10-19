@@ -22,13 +22,14 @@ services:
       HARNESS_WORKSPACE: /work
       HARNESS_API: http://127.0.0.1:4040
       SAHELPER_HOME: /root/.sa-helper
+      HARNESS_JOURNAL: delete
       DOCKER_CONFIG: /tmp/dockercfg
     volumes:
       - ${WORKSPACE_DIR:?Укажите WORKSPACE_DIR — путь к воркспейсу}:/work
       - ${HOME}/.claude:/root/.claude
       - ${HOME}/.sa-helper:/root/.sa-helper
       - /var/run/docker.sock:/var/run/docker.sock
-    command: ["python3", "/app/harness/web/server.py", "--workspace", "/work", "--port", "4040", "--bind", "0.0.0.0", "--project-name", "${PROJECT_NAME:-work}"]
+    command: python3 /app/harness/web/server.py --workspace /work --port 4040 --bind 0.0.0.0 --project-name "${PROJECT_NAME:-work}"
     restart: unless-stopped
 
   daemon:
@@ -38,13 +39,14 @@ services:
       HARNESS_WORKSPACE: /work
       HARNESS_API: http://web:4040
       SAHELPER_HOME: /root/.sa-helper
+      HARNESS_JOURNAL: delete
       DOCKER_CONFIG: /tmp/dockercfg
     volumes:
       - ${WORKSPACE_DIR:?Укажите WORKSPACE_DIR}:/work
       - ${HOME}/.claude:/root/.claude
       - ${HOME}/.sa-helper:/root/.sa-helper
       - /var/run/docker.sock:/var/run/docker.sock
-    command: ["python3", "/app/harness/orchestrator.py", "--workspace", "/work"]
+    command: python3 /app/harness/orchestrator.py --workspace /work --project-name "${PROJECT_NAME:-work}"
     depends_on:
       - web
     restart: unless-stopped

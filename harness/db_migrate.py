@@ -276,6 +276,9 @@ def import_workspace(conn, ws: Path, project_name: str | None = None) -> dict:
             for f in flags_dir.iterdir():
                 if f.name == "HANDOFF" or f.name.startswith("HANDOFF"):
                     continue
+                if f.name == "PAUSE":
+                    dbmod.story_pause(conn, sid, True)   # PAUSE — состояние, не команда
+                    continue
                 if f.is_file() and not f.name.endswith(".json"):
                     conn.execute(
                         "INSERT INTO commands(story_id, name, created_by, created_at)"

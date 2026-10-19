@@ -89,10 +89,18 @@ _TRANSITIONS: dict[str, dict] = {
     EV_BLOCKED_ESCALATED: {"from": {BLOCKED}, "to": NEEDS_HUMAN},
     EV_RESUME_WORK: {"from": {NEEDS_HUMAN}, "to": None},  # to = blocked_from
     EV_DECOMPOSE_DONE: {"from": {PROPOSED}, "to": BACKLOG},
-    EV_PROPOSE_ACCEPT: {"from": {PROPOSED}, "to": BACKLOG},
+    EV_PROPOSE_ACCEPT: {"from": {PROPOSED, ABORTED}, "to": BACKLOG},   # ABORTED — «разморозка» (v4)
     EV_PROPOSE_REJECT: {"from": {PROPOSED}, "to": ABORTED},
     EV_ABORT: {"from": ACTIVE, "to": ABORTED},
 }
+
+
+def sm_back_to_fallback(task_view: dict) -> str:
+    """Куда возвращать при RESUME/RETRY, если blocked_from невалиден: если
+    v2-статус указывает на ревью — REVIEW, иначе реализация (канон v4)."""
+    if task_view.get("status") in ("AGENT_REVIEW", "DONE"):
+        return REVIEW
+    return IMPLEMENTING
 
 
 def transition(task_view: dict, event: str, ctx: dict | None = None) -> dict:
@@ -127,18 +135,18 @@ def transition(task_view: dict, event: str, ctx: dict | None = None) -> dict:
 
     patch: dict = {}
 
+    if pipeline == ABORTED and event == EV_PROPOSE_ACCEPT:
+        patch["v2_status"] = "PLANNED"   # разморозка: v2 согласован с BACKLOG
+
     if event == EV_IMPL_PASSED:
         target = DONE if task_view.get("skip_review") else REVIEW
         patch["pipeline"] = target
     elif event in (EV_RETRY, EV_RESUME_WORK):
         back_to = task_view.get("blocked_from") or ctx.get("blocked_from")
         if back_to not in RESUMABLE:
-            return {
-                "ok": False,
-                "code": "missing_field",
-                "error": f"событие '{event}' требует blocked_from ∈ {sorted(RESUMABLE)}, "
-                         f"получено {back_to!r}",
-            }
+            # невалидный/испорченный blocked_from (напр. 'BLOCKED') — честный
+            # фолбэк: retry = новая попытка реализации (правка v4, кейс T5)
+            back_to = sm_back_to_fallback(task_view)
         patch["pipeline"] = back_to
         patch["blocked_from"] = None
     elif event == EV_IMPL_BLOCKED:
