@@ -8,6 +8,7 @@ ui/ui_server.py) — порция П6 закрыла пробел на почи�
 from __future__ import annotations
 
 import json
+import os
 import sys
 import threading
 import unittest
@@ -33,12 +34,14 @@ def build_workspace(tmp: Path) -> Path:
         {"id": "T1", "title": "A", "pipeline": "DONE", "status": "DONE",
          "branch": "harness/fnr-1-a-t1"},
         {"id": "T2", "title": "B", "pipeline": "READY", "status": "APPROVED",
+         "description": "старое краткое из манифеста",
          "usage": {"tokens_in": 10, "tokens_out": 5, "tokens_total": 15,
                    "cost_usd": 0.01}},
     ]}
     (harness / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     (harness / "tasks" / "T2_b.md").write_text(
-        "# T2\n\n## Чек-лист\n\n- [x] раз\n- [b] два\n", encoding="utf-8")
+        "# T2: задача B\n\n## Что сделать\n\nСобрать каталог и опубликовать.\n\n"
+        "## Чек-лист\n\n- [x] раз\n- [b] два\n", encoding="utf-8")
     return ws
 
 
@@ -182,6 +185,94 @@ class TestStewardGuard(WebServerFixture):
     def test_message_without_project_is_400(self):
         code, _ = self.post_expect_error("/api/steward/message", {"text": "привет"})
         self.assertEqual(code, 400)
+
+
+class TestCardEdit(WebServerFixture):
+    """Д1: единое описание — карточка первична. POST /api/task/<id>/card пишет
+    только карточку (+журнал/комментарий), манифест не трогает; live-гейт 409/force;
+    превью description деривируется из карточки."""
+
+    NEW_CARD = ("# T2: задача B\n\n## Что сделать\n\nСделать правильно и с покрытием.\n\n"
+                "## Чек-лист\n\n- [ ] раз\n")
+
+    def _card_path(self) -> Path:
+        return self.ws / "sa_documentation/FNR/FNR_1/harness/tasks/T2_b.md"
+
+    def _harness(self) -> Path:
+        return self.ws / "sa_documentation/FNR/FNR_1/harness"
+
+    def test_card_save_overwrites_existing_file(self):
+        out = self.post(self.q("/api/task/T2/card"), {"card_md": self.NEW_CARD})
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["card"], "T2_b.md")
+        self.assertEqual(self._card_path().read_text(encoding="utf-8"), self.NEW_CARD)
+
+    def test_card_save_appends_comment_and_event(self):
+        self.post(self.q("/api/task/T2/card"), {"card_md": self.NEW_CARD})
+        comments = (self._harness() / "comments" / "T2.md").read_text(encoding="utf-8")
+        self.assertIn("| human", comments)
+        self.assertIn("Карточка обновлена", comments)
+        events = (self._harness() / "logs" / "events.log").read_text(encoding="utf-8")
+        self.assertIn("T2: карточка обновлена человеком", events)
+
+    def test_card_save_conflict_when_live_then_force(self):
+        run = self._harness() / ".run"
+        (run / "T2_impl.hb").write_text("", encoding="utf-8")
+        (run / "T2_impl.pid").write_text(str(os.getpid()), encoding="utf-8")
+        code, body = self.post_expect_error(self.q("/api/task/T2/card"),
+                                            {"card_md": self.NEW_CARD})
+        self.assertEqual(code, 409)
+        self.assertTrue(body.get("running"))
+        self.assertEqual(
+            self._card_path().read_text(encoding="utf-8"),
+            "# T2: задача B\n\n## Что сделать\n\nСобрать каталог и опубликовать.\n\n"
+            "## Чек-лист\n\n- [x] раз\n- [b] два\n")  # файл не тронут без force
+        out = self.post(self.q("/api/task/T2/card"),
+                        {"card_md": self.NEW_CARD, "force": True})
+        self.assertTrue(out["ok"])
+
+    def test_card_save_creates_missing_card(self):
+        out = self.post(self.q("/api/task/T1/card"), {"card_md": "# T1\n\nтекст\n"})
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["card"], "T1.md")
+        self.assertTrue((self._harness() / "tasks" / "T1.md").is_file())
+
+    def test_card_save_does_not_touch_manifest(self):
+        manifest = self._harness() / "manifest.json"
+        before = manifest.read_bytes()
+        self.post(self.q("/api/task/T2/card"), {"card_md": self.NEW_CARD})
+        self.assertEqual(manifest.read_bytes(), before)
+
+    def test_card_save_validation(self):
+        code, _ = self.post_expect_error(self.q("/api/task/TX/card"),
+                                         {"card_md": "# x\n"})
+        self.assertEqual(code, 400)
+        code, _ = self.post_expect_error(self.q("/api/task/T2/card"),
+                                         {"card_md": "   \n  "})
+        self.assertEqual(code, 400)
+
+    def test_state_description_derived_from_card(self):
+        state = self.get(self.q("/api/state"))
+        desc = {t["id"]: t["description"] for t in state["manifest"]["tasks"]}
+        self.assertTrue(desc["T2"].startswith("Собрать каталог и опубликовать"))
+        self.assertLessEqual(len(desc["T2"]), 281)
+        self.assertEqual(desc["T1"], "")  # карточки нет — fallback пуст
+
+    def test_stories_rows_have_preview(self):
+        data = self.get("/api/stories?project=testws")
+        story = next(s for s in data["stories"] if s["fnr"] == "FNR_1")
+        rows = {t["id"]: t for t in story["task_list"]}
+        self.assertTrue(rows["T2"]["description"].startswith("Собрать каталог"))
+
+    def test_preview_fallbacks(self):
+        self.assertEqual(web.card_preview(
+            "## Что сделать\n\nТекст here\n\n## Критерии\n\nx"), "Текст here")
+        self.assertEqual(web.card_preview("просто абзац"), "просто абзац")
+        self.assertEqual(web.card_preview("", "fb"), "fb")
+        long = "слово " * 100
+        out = web.card_preview(long)
+        self.assertEqual(len(out), 280)
+        self.assertTrue(out.endswith("…"))
 
 
 class TestTaskRows(WebServerFixture):

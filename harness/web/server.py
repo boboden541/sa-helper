@@ -225,6 +225,8 @@ def list_stories(workspace: Path) -> list[dict]:
                 "origin": t.get("origin", "plan"),
                 "branch": t.get("branch", ""), "paused": t.get("paused", False),
                 "phase": t.get("phase", ""),
+                "description": card_preview(card_cache[tid],
+                                            str(t.get("description") or "")),
                 "usage": usage,
                 "plan_done": chk["done"], "plan_total": chk["total"],
                 "live": (_live_status(harness, tid) or {}).get("running")
@@ -259,6 +261,30 @@ CHECKBOX_RE = re.compile(r"^\s*-\s+\[( |~|x|r|b|f)\]\s*(.*)$", re.MULTILINE)
 SECTION_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
 STATE_NAMES = {" ": "todo", "~": "inprog", "x": "done",
                "r": "review", "b": "blocked", "f": "failed"}
+
+# Секция «Что сделать» карточки — источник краткого-превью (единое описание
+# задачи: карточка = документ, манифест остаётся как есть)
+CARD_DESC_RE = re.compile(r"^##\s+Что сделать\s*\n\n(.*?)(?=^##\s|\Z)", re.S | re.M)
+
+
+def card_preview(card_md: str, fallback: str = "", limit: int = 280) -> str:
+    """Выжимка карточки для доски/поиска: секция «Что сделать», иначе первый
+    абзац (не заголовок/таблица/код/чекбокс), иначе fallback из манифеста."""
+    src = card_md or ""
+    m = CARD_DESC_RE.search(src)
+    text = ""
+    if m:
+        text = m.group(1)
+    else:
+        for para in re.split(r"\n\s*\n", src):
+            para = para.strip()
+            if para and not para.startswith(("#", "|", "```", "- [")):
+                text = para
+                break
+    text = " ".join(text.split())
+    if len(text) > limit:
+        text = text[:limit - 1].rstrip() + "…"
+    return text or fallback
 
 
 def parse_checklist_sections(card_md: str) -> list[dict]:
@@ -478,6 +504,9 @@ def read_state(harness: Path) -> dict:
         t["checklist"] = checklist_progress(card_cache[tid])
         t["live"] = _live_status(harness, tid)
         t["move_targets"] = _move_targets(t.get("pipeline") or "")
+        # единое описание: превью из карточки перекрывает манифест (in-memory)
+        t["description"] = card_preview(card_cache[tid],
+                                        str(t.get("description") or ""))
         usage = t.get("usage") or {}
         usage["sessions"] = _session_count(harness, tid)
         t["usage"] = usage
@@ -748,6 +777,45 @@ class Handler(BaseHTTPRequestHandler):
             (harness / ".flags" / flag).touch()
             log_event(harness, f"{task_id}: человек перемещает {frm} → {target} (флаг {flag})")
             self._send(200, b'{"ok":true}', "application/json")
+        elif path.startswith("/api/task/") and path.endswith("/card") and harness is not None:
+            # UI пишет карточку напрямую: карточка — «документ людей и агентов»
+            # (дизайн-док §5), манифест не трогаем (инвариант «один писатель»)
+            task_id = path.split("/")[3]
+            if not re.fullmatch(r"T\d+", task_id):
+                self._send(400, b'{"error":"bad task id"}', "application/json")
+                return
+            body = self._json_body()
+            card_md = str(body.get("card_md") or "")
+            force = bool(body.get("force"))
+            if not card_md.strip():
+                self._send(400, '{"error":"нужен card_md"}'.encode("utf-8"),
+                           "application/json")
+                return
+            if not force and (_live_status(harness, task_id) or {}).get("running"):
+                self._send(409, json.dumps(
+                    {"error": "сессия задачи жива — правка карточки может "
+                              "затереться агентом; подтвердите силу",
+                     "running": True}, ensure_ascii=False)
+                    .encode("utf-8"), "application/json")
+                return
+            card_path, _ = find_task_files(harness, task_id)
+            target = card_path or (harness / "tasks" / f"{task_id}.md")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if not card_md.endswith("\n"):
+                card_md += "\n"
+            target.write_text(card_md, encoding="utf-8")
+            log_event(harness, f"{task_id}: карточка обновлена человеком "
+                               f"({len(card_md)} симв.{', force поверх живой сессии' if force else ''})")
+            ts = time.strftime("%Y-%m-%d %H:%M")
+            comments = harness / "comments" / f"{task_id}.md"
+            comments.parent.mkdir(exist_ok=True)
+            with comments.open("a", encoding="utf-8") as fh:
+                fh.write(f"- [{ts} | human] **Карточка обновлена** через витрину "
+                         f"(описание задачи — единый источник; было/стало: "
+                         f"{len(body.get('card_md') or '')}/{len(card_md)} симв.)\n")
+            self._send(200, json.dumps({"ok": True, "card": target.name},
+                                       ensure_ascii=False).encode("utf-8"),
+                       "application/json")
         elif path.startswith("/api/attachment/") and harness is not None:
             # POST /api/attachment/<T<k>>/<имя>?fnr= — сохранить файл (raw body)
             rest = [unquote(x) for x in path.split("/")[3:]]
