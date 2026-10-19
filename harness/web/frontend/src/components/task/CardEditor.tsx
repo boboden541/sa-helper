@@ -276,6 +276,54 @@ export function CardEditor({ cardMd, liveRunning, onSave, onCancel }: {
   const tblRef = useRef<HTMLDivElement>(null);
   const mdRef = useRef(cardMd);   // актуальный md для эффектов переключения режимов
   mdRef.current = text;
+  const lastRangeRef = useRef<Range | null>(null); // каретка редактора (для меню)
+
+  /** Запомнить диапазон каретки, если она внутри редактора (клики по тулбару/
+   *  меню сбрасывают выделение — операции должны знать, куда применяться). */
+  const captureRange = () => {
+    const ed = editRef.current;
+    const sel = window.getSelection();
+    if (!ed || !sel || !sel.rangeCount) return;
+    const r = sel.getRangeAt(0);
+    if (ed.contains(r.commonAncestorContainer)) lastRangeRef.current = r.cloneRange();
+  };
+
+  /** Вернуть каретку в редактор: живую, сохранённую, иначе false (в конец). */
+  const ensureCaret = (): boolean => {
+    const ed = editRef.current;
+    const sel = window.getSelection();
+    if (ed && sel && sel.rangeCount && ed.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+      return true;
+    }
+    if (lastRangeRef.current && ed) {
+      sel?.removeAllRanges();
+      sel?.addRange(lastRangeRef.current);
+      return true;
+    }
+    return false;
+  };
+
+  const caretToEnd = () => {
+    const ed = editRef.current;
+    if (!ed) return;
+    ed.focus();
+    const r = document.createRange();
+    r.selectNodeContents(ed);
+    r.collapse(false); // в конец — вставка «в самом верху» была именно отсюда
+    const s = window.getSelection();
+    s?.removeAllRanges();
+    s?.addRange(r);
+  };
+
+  /** Узел-якорь для операций: живое выделение, иначе запомненная каретка. */
+  const anchorEl = (): Element | null => {
+    const ed = editRef.current;
+    let n: Node | null = window.getSelection()?.anchorNode ?? null;
+    if (!(n && ed?.contains(n)) && lastRangeRef.current) {
+      n = lastRangeRef.current.startContainer;
+    }
+    return n instanceof Element ? n : n?.parentElement ?? null;
+  };
 
   // меню таблиц закрывается кликом вне
   useEffect(() => {
@@ -321,11 +369,12 @@ export function CardEditor({ cardMd, liveRunning, onSave, onCancel }: {
   };
 
   const cmd = (name: string, val?: string) => {
-    editRef.current?.focus();
+    if (!ensureCaret()) caretToEnd();
     try {
       document.execCommand("styleWithCSS", false, "false");
       document.execCommand(name, false, val);
     } catch { /* экзотический браузер — просто не применяем */ }
+    captureRange();
     touch();
   };
 
@@ -381,16 +430,10 @@ export function CardEditor({ cardMd, liveRunning, onSave, onCancel }: {
   };
 
   /* ── операции над таблицами (визуальный режим) ── */
-  const selCell = (): HTMLElement | null => {
-    const n = window.getSelection()?.anchorNode ?? null;
-    const el = n instanceof Element ? n : n?.parentElement ?? null;
-    return el?.closest?.("th,td") as HTMLElement | null ?? null;
-  };
-  const selTable = (): HTMLTableElement | null => {
-    const n = window.getSelection()?.anchorNode ?? null;
-    const el = n instanceof Element ? n : n?.parentElement ?? null;
-    return el?.closest?.("table") as HTMLTableElement | null ?? null;
-  };
+  const selCell = (): HTMLElement | null =>
+    anchorEl()?.closest?.("th,td") as HTMLElement | null ?? null;
+  const selTable = (): HTMLTableElement | null =>
+    anchorEl()?.closest?.("table") as HTMLTableElement | null ?? null;
   const needCell = (): HTMLElement | null => {
     const c = selCell();
     if (!c) window.alert("Поставьте курсор внутрь таблицы");
@@ -398,7 +441,7 @@ export function CardEditor({ cardMd, liveRunning, onSave, onCancel }: {
   };
 
   const tblInsert = () => {
-    editRef.current?.focus();
+    if (!ensureCaret()) caretToEnd();
     cmd("insertHTML",
       '<table class="ced-tbl"><thead><tr><th>Колонка 1</th><th>Колонка 2</th></tr></thead>'
       + '<tbody><tr><td></td><td></td></tr><tr><td></td><td></td></tr></tbody></table><p><br></p>');
@@ -479,6 +522,7 @@ export function CardEditor({ cardMd, liveRunning, onSave, onCancel }: {
 
   // клик по глифу чек-лист-острова: toggle ○/✓ — единственная правка чек-листа в визуале
   const onVisualClick = (e: React.MouseEvent) => {
+    captureRange();
     const t = e.target as HTMLElement;
     if (t.classList?.contains("ced-glyph")) {
       e.preventDefault();
@@ -532,7 +576,7 @@ export function CardEditor({ cardMd, liveRunning, onSave, onCancel }: {
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => setTblOpen((v) => !v)}>▦ Таблица ▾</button>
               {tblOpen && (
-                <div className="ced-menu">
+                <div className="ced-menu" onMouseDown={(e) => e.preventDefault()}>
                   <div onClick={tblInsert}>＋ Вставить таблицу 2×2</div>
                   <div onClick={tblAddRow}>＋ Добавить строку</div>
                   <div onClick={tblAddCol}>＋ Добавить колонку</div>
@@ -565,7 +609,9 @@ export function CardEditor({ cardMd, liveRunning, onSave, onCancel }: {
       {mode === "visual" ? (
         <div ref={editRef} className="ced-visual post" contentEditable
           suppressContentEditableWarning
-          onInput={touch} onClick={onVisualClick} onPaste={pastePlain} />
+          onInput={() => { touch(); captureRange(); }}
+          onKeyUp={captureRange} onMouseUp={captureRange}
+          onClick={onVisualClick} onPaste={pastePlain} />
       ) : (
         <textarea ref={areaRef} className="ced-text" value={text} spellCheck={false}
           onChange={(e) => { setText(e.target.value); touch(); }} />
