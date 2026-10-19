@@ -1,25 +1,23 @@
 #!/usr/bin/env python3
-"""Заглушка декомпозиции: /task-decompose — помечает decomposed=true."""
+"""Заглушка декомпозиции (БД): decomposed=true + описание + комментарий."""
 from __future__ import annotations
-import json, sys, time
+import json, os, sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import db as dbmod  # noqa: E402
 
 PROMPT = sys.argv[sys.argv.index("-p") + 1] if "-p" in sys.argv else ""
 parts = PROMPT.split()
-CWD = Path.cwd()
 if len(parts) >= 3 and parts[0] == "/task-decompose":
-    harness = CWD / parts[1]
-    mp = harness / "manifest.json"
-    doc = json.loads(mp.read_text(encoding="utf-8"))
-    for t in doc["tasks"]:
-        if t["id"] == parts[2]:
-            t["decomposed"] = True
-            t["description"] = "Полная постановка (после декомпозиции)"
-    cdir = harness / "comments"
-    cdir.mkdir(exist_ok=True)
-    ts = time.strftime("%Y-%m-%d %H:%M")
-    with (cdir / (parts[2] + ".md")).open("a", encoding="utf-8") as fh:
-        fh.write(f"- [{ts} | agent] Декомпозиция выполнена: чек-лист и постановка готовы\n")
-    doc["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    mp.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print("decomposed", parts[2])
+    conn = dbmod.connect(os.environ.get("HARNESS_DB"))
+    row = conn.execute("SELECT id FROM stories ORDER BY id LIMIT 1").fetchone()
+    sid = int(row["id"])
+    tid = parts[2]
+    dbmod.task_set_v2(conn, sid, tid, {"status": "PLANNED"})
+    with dbmod.tx(conn):
+        conn.execute("UPDATE tasks SET decomposed=1, description=? WHERE story_id=? AND tid=?",
+                     ("Полная постановка (после декомпозиции)", sid, tid))
+    dbmod.append_comment(conn, sid, tid, "agent",
+                         "Декомпозиция выполнена: чек-лист и постановка готовы")
+    print("decomposed", tid)

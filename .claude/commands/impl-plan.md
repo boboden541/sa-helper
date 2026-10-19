@@ -1,5 +1,10 @@
 ---
-description: AI Harness — план реализации: досье, DAG задач, manifest.json и шлюз утверждения человеком
+description: AI Harness — план реализации: досье, DAG задач, Story в БД и шлюз утверждения человеком
+---
+**ХРАНИЛИЩЕ (важно):** состояние Story/задач — в БД витрины (~/.sa-helper/harness.db).
+Доступ ТОЛЬКО через адаптер: `python3 harness/sahelper.py <команда>` (JSON на stdout;
+exit 3 — конфликт версии карточки). Файлы `harness/` (manifest.json, tasks/, comments/,
+.flags/) НЕ читать и НЕ создавать. Allowlist: `Bash(python3 harness/sahelper.py:*)`.
 ---
 
 ## Использование
@@ -84,38 +89,45 @@ description: AI Harness — план реализации: досье, DAG за�
 5. **Контракты**: для мульти-системной задачи — что связывает системы, владелец, где фиксируется
    (`resources/contract_first.md`). Интерфейсы не меняются → «не применимо».
 
-### Этап 4: План работ (`harness/execution_plan.md` + `harness/tasks/T*.md`)
+### Этап 3а: Регистрация Story в БД
+
+`python3 harness/sahelper.py story-init --title "<название Story>" --status-planned`
+→ получишь FNR (адаптер генерирует номер атомарно). Дальше везде используй его.
+
+### Этап 4: План работ
 
 1. Разложи задачи СТ на атомарные T<номер> (одна карточка = одна система).
 2. Фазы по `resources/contract_first.md`: контрактная задача — первой (никакой бизнес-логики,
    только спецификация взаимодействия); characterization — первой в репо без тестов;
    producers/consumers — после контракта.
-3. Построй DAG (`depends_on`) и нарисуй его в `execution_plan.md` (PlantUML).
-4. Карточки задач — по `examples/ideal_task_card.md`: пересказ требований, AC из СТ, Golden
-   Reference из досье, границы («не трогать» — из impact-среза), команды гейтов из реестра.
-5. **Комментарии задач**: создай `harness/comments/` и в каждый `comments/T<k>.md` — стартовый
-   комментарий `- [<дата> | agent] План принят; задача <k> (<фаза>): <суть в одной строке>`.
-   В манифест каждой задачи добавь `description` — **полную и понятную постановку задачи**:
-   контекст (зачем), что именно сделать, критерии приёмки списком, ссылки на разделы СТ.
-   Читатель — человек, не видевший ни СТ, ни карточки; он должен понять работу по одному
-   description (канон comment-writing применим и здесь).
+3. Создай досье и план: `sahelper doc-set FNR --kind dossier --file <файл>` и
+   `sahelper doc-set FNR --kind execution_plan --file <файл>` (по шаблонам
+   `examples/ideal_dossier.md`; DAG — PlantUML в execution_plan).
+4. Создай задачи: `sahelper task-create FNR '<json>'` — spec:
+   `{"title", "system", "phase", "branch": "harness/FNR-<N>-<slug>-t<k>", "depends_on": [],
+   "fr_ids": [], "acceptance_criteria": [{"id": "AC-...", "desc": "...", "test": "имя теста"}],
+   "description": "<полная постановка: контекст → что сделать → критерии>"}`. Ответ даст id (T1, T2…).
+5. Карточка каждой задачи: подготовь markdown по `examples/ideal_task_card.md` (пересказ
+   требований, AC, Golden Reference из досье, границы) и сохрани:
+   `sahelper card-set FNR <T<k>> --file <файл>` (конфликт версии — exit 3: перечитай
+   `sahelper card FNR <T<k>>` и повтори).
+6. **Комментарии задач**: `sahelper comment-add FNR <T<k>> --author agent --text
+   "План принят; задача <k> (<фаза>): <суть>"`. `description` — полная постановка
+   (задаётся полем `description` в task-create): человек должен понять работу по одному
+   описанию (канон comment-writing применим и здесь).
 
-### Этап 5: Манифест (`harness/manifest.json`)
+### Этап 5: Валидация
 
-1. Заполни по канону `resources/manifest_schema.md`: системы (с `bootstrap`-статусом из
-   реестра), задачи (id, fr_ids, system, phase, branch `harness/FNR-<N>-<slug>-t<k>`,
-   depends_on, AC c `test`-именами), `status: "AWAITING_APPROVAL"`.
-2. Проверь механически: `python3 harness/manifest_check.py --file <путь>` — валидно или исправь.
-   Запись атомарная (tmp + rename), один writer.
+`sahelper validate FNR` — `{"valid": true}` или исправь по errors (DAG, системы, канон).
 
 ### Этап 6: Шлюз утверждения
 
 1. Покажи человеку сводку: задачи (id, система, фаза, AC), DAG, объём. Кратко, без стен текста.
-2. Создай каталог `harness/.flags/`. Скажи человеку: «План ждёт утверждения. Для согласования —
-   `touch harness/.flags/APPROVE_PLAN` (или кнопка в UI, если запущен). Для правок — напиши
-   замечания, я перегенерирую план».
-3. Проверять флаг в цикле НЕ нужно: следующая команда (`/impl-run`) сама проверит его наличие.
+2. Переведи Story на шлюз: `sahelper story-status FNR AWAITING_APPROVAL`.
+   Скажите человеку: «План ждёт утверждения — кнопка «✓ План» в витрине (или команда
+   `sahelper flag FNR APPROVE_PLAN`). Для правок напишите замечания, я перегенерирую план».
+3. Проверять команду в цикле НЕ нужно: следующая команда (`/impl-run`) сама проверит её.
 
-Завершение: выведи пути артефактов и литеральную подсказку:
+Завершение: выведи FNR и литеральную подсказку:
 «План FNR_<N> готов и ждёт утверждения. Следующий шаг: /impl-run <путь к harness> (после
-touch harness/.flags/APPROVE_PLAN)».
+утверждения плана в витрине)».

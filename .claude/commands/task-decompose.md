@@ -1,6 +1,10 @@
 ---
 description: AI Harness v4 — декомпозиция сырой задачи: полная постановка, критерии, чек-лист, границы
 ---
+**ХРАНИЛИЩЕ:** состояние — в БД; доступ только через `python3 harness/sahelper.py`
+(task/card/docs для чтения; task-set --description/--decomposed, ac-set, checklist-set,
+card-set для записи). Файлы manifest.json/tasks/ не читать и не писать.
+---
 
 ## Использование
 
@@ -28,7 +32,7 @@ description: AI Harness v4 — декомпозиция сырой задачи:
 
 ## Инструкция для LLM
 
-1. Прочитай: карточку задачи (`tasks/T<k>_*.md`), описание в `manifest.json`,
+1. Прочитай: `sahelper task FNR T<k>` (карточка + описание) и `docs FNR --kind dossier`,
    СТ Story (`system_requirements*.md`), досье (`dossier.md`), соответствующий
    доменный код (как в /impl-run, Этап «доменный срез»).
 2. **Полная постановка** — обнови `description` задачи в манифесте и карточку:
@@ -41,7 +45,9 @@ description: AI Harness v4 — декомпозиция сырой задачи:
    с `origin: agent`, `pipeline: PROPOSED` — человек их примет или отклонит.
 6. Обнови манифест: `decomposed: true`; в карточку — запись в журнал
    (канон comment-writing): «Декомпозиция выполнена: N шагов, M критериев».
-7. Проверь манифест: `python3 harness/manifest_check.py --file <manifest>`.
+7. Зафиксируй результат: `sahelper task-set FNR T<k> --description "<полная постановка>"
+   --decomposed`, AC — `ac-set` (id/desc/status), чек-лист — `checklist-set --section
+   "План работ (чек-лист)"`. Проверь: `sahelper validate FNR`.
 
 Завершение: краткий отчёт — что добавлено, сколько шагов чек-листа, есть ли
 открытые вопросы и предложения разбиения.

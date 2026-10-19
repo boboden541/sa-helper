@@ -1,5 +1,9 @@
 ---
-description: AI Harness v3 — передача утверждённых СТ в автономный конвейер: шлюз готовности СТ + план + manifest v3
+description: AI Harness v3 — передача утверждённых СТ в автономный конвейер: шлюз готовности СТ + план + Story в БД
+---
+**ХРАНИЛИЩЕ (важно):** состояние Story/задач — в БД витрины. Доступ ТОЛЬКО через
+`python3 harness/sahelper.py <команда>`; файлы harness/ не читать/не создавать
+(кроме логов runner). Планируя план, следуй /impl-plan (канон тот же).
 ---
 
 ## Использование
@@ -73,23 +77,22 @@ description: AI Harness v3 — передача утверждённых СТ в
 ### Этап 2: План работ (по канону /impl-plan)
 
 1. Прочитай `.claude/commands/impl-plan.md` и выполни её этапы 2–6 с этим СТ (этап 1 — шлюз
-   пробелов — уже сделан выше, не дублируй): реестр систем → досье → план → манифест →
-   шлюз утверждения. Артефакты те же: `harness/dossier.md`, `execution_plan.md`,
-   `tasks/T*.md`, `comments/`, `manifest.json`.
+   пробелов — уже сделан выше, не дублируй): `story-init --status-planned` → досье/план
+   (doc-set) → task-create → card-set → comment-add → validate → story-status
+   AWAITING_APPROVAL.
 2. Отличия от /impl-plan только два:
-   - манифест получает поля конвейера v3: верхний уровень `"auto_mode": true`,
-     `"created_by": "impl-handoff"`; каждая задача — `"pipeline": "BACKLOG"`,
-     `"skip_review": false`;
-   - в `execution_plan.md` добавь раздел «Автономный прогон»: как конвейер поведёт задачи
+   - Story получает поля конвейера v3: `sahelper story-set FNR --auto-mode 1
+     --auto-review-strategy closure_first` (владелец поля — impl-handoff);
+   - в execution_plan добавь раздел «Автономный прогон»: как конвейер поведёт задачи
      (порядок DAG, где человек увидит паузы/эскалации), команда запуска демона.
 
 ### Этап 3: Журнал и завершение
 
-1. Добавь в `harness/comments/` стартовый комментарий: `- [<дата> | agent] СТ передана в
-   конвейер (/impl-handoff): <N> задач, DAG <кратко>. План ждёт утверждения`.
-2. Выведи пути артефактов и литеральную подсказку:
+1. `sahelper comment-add FNR <T<k>> --author agent --text "СТ передана в конвейер
+   (/impl-handoff): <N> задач, DAG <кратко>. План ждёт утверждения"` — в каждую задачу.
+2. Выведи FNR и литеральную подсказку:
 
-«СТ передана в конвейер. Следующие шаги: 1) утвердите план — `touch harness/.flags/APPROVE_PLAN`
-(или кнопка Approve в витрине); 2) запустите конвейер: `python3 harness/orchestrator.py
---workspace <корень воркспейса>` — конвейер сам проведёт задачи по DAG до PR-заготовок; управление —
-в витрине (`python3 harness/ui/ui_server.py --harness <путь к FNR_N/harness>`)».
+«СТ передана в конвейер. Следующие шаги: 1) утвердите план — кнопка «✓ План» в витрине
+(или `sahelper flag FNR APPROVE_PLAN`); 2) запустите конвейер: `python3 harness/orchestrator.py
+--workspace <корень воркспейса>` — конвейер сам проведёт задачи по DAG до PR-заготовок;
+управление — в витрине (http://127.0.0.1:4040)».
