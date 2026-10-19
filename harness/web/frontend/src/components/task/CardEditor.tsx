@@ -67,13 +67,16 @@ export function mdToEditorHtml(src: string): string {
       out.push(`<pre class="ced-island" contenteditable="false"><code data-lang="${esc(lang)}">${esc(buf.join("\n"))}</code></pre>`);
       continue;
     }
-    if (/^\s*\|/.test(line.trim())) {              // таблица → остров
+    if (/^\s*\|/.test(line.trim())) {              // таблица (редактируемая)
       const rows: string[] = [];
       while (i < lines.length && /^\s*\|/.test(lines[i].trim())) rows.push(lines[i++].trim());
-      const cells = (r: string) => r.replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+      // ячейки: разделитель «|», но не экранированный «\|»
+      const cells = (r: string) => r.replace(/^\||\|$/g, "")
+        .replace(/\\\|/g, "\u0001")
+        .split("|").map((c) => c.trim().replace(/\u0001/g, "|"));
       if (rows.length >= 2) {
         const body = rows.filter((r) => !/^\|?\s*:?-{2,}/.test(r));
-        out.push(`<table class="ced-island" contenteditable="false"><thead><tr>${
+        out.push(`<table class="ced-tbl"><thead><tr>${
           cells(body[0]).map((c) => `<th>${inlineHtml(c)}</th>`).join("")}</tr></thead><tbody>${
           body.slice(1).map((r) => `<tr>${cells(r).map((c) => `<td>${inlineHtml(c)}</td>`).join("")}</tr>`).join("")
         }</tbody></table>`);
@@ -231,7 +234,7 @@ export function domToMarkdown(root: HTMLElement): string {
         const rows = Array.from(e.querySelectorAll("tr"));
         const cellsOf = (tr: HTMLElement) =>
           Array.from(tr.querySelectorAll("th,td"))
-            .map((c) => (c.textContent || "").trim().replace(/\|/g, "\\|").replace(/\n/g, " "));
+            .map((c) => inlineOf(c).trim().replace(/\|/g, "\\|").replace(/\n/g, " "));
         if (rows.length) {
           const head = cellsOf(rows[0] as HTMLElement);
           blocks.push(`| ${head.join(" | ")} |\n|${head.map(() => "---").join("|")}|`
@@ -267,10 +270,22 @@ export function CardEditor({ cardMd, liveRunning, onSave, onCancel }: {
   const [mode, setModeState] = useState<"visual" | "text">("visual");
   const [text, setText] = useState(cardMd);
   const [dirty, setDirty] = useState(false);
+  const [tblOpen, setTblOpen] = useState(false);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const editRef = useRef<HTMLDivElement>(null);
+  const tblRef = useRef<HTMLDivElement>(null);
   const mdRef = useRef(cardMd);   // актуальный md для эффектов переключения режимов
   mdRef.current = text;
+
+  // меню таблиц закрывается кликом вне
+  useEffect(() => {
+    if (!tblOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (tblRef.current && !tblRef.current.contains(e.target as Node)) setTblOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [tblOpen]);
 
   useEffect(() => {
     dirtyGuard = () => {
@@ -365,6 +380,82 @@ export function CardEditor({ cardMd, liveRunning, onSave, onCancel }: {
       `<pre class="ced-island" contenteditable="false"><code data-lang="">${esc(sel)}</code></pre><p><br></p>`);
   };
 
+  /* ── операции над таблицами (визуальный режим) ── */
+  const selCell = (): HTMLElement | null => {
+    const n = window.getSelection()?.anchorNode ?? null;
+    const el = n instanceof Element ? n : n?.parentElement ?? null;
+    return el?.closest?.("th,td") as HTMLElement | null ?? null;
+  };
+  const selTable = (): HTMLTableElement | null => {
+    const n = window.getSelection()?.anchorNode ?? null;
+    const el = n instanceof Element ? n : n?.parentElement ?? null;
+    return el?.closest?.("table") as HTMLTableElement | null ?? null;
+  };
+  const needCell = (): HTMLElement | null => {
+    const c = selCell();
+    if (!c) window.alert("Поставьте курсор внутрь таблицы");
+    return c;
+  };
+
+  const tblInsert = () => {
+    editRef.current?.focus();
+    cmd("insertHTML",
+      '<table class="ced-tbl"><thead><tr><th>Колонка 1</th><th>Колонка 2</th></tr></thead>'
+      + '<tbody><tr><td></td><td></td></tr><tr><td></td><td></td></tr></tbody></table><p><br></p>');
+    setTblOpen(false);
+  };
+  const tblAddRow = () => {
+    const t = selTable();
+    if (!t) { setTblOpen(false); return void needCell(); }
+    const tbody = t.querySelector("tbody") || t;
+    const cols = (tbody.querySelector("tr:last-child") || t.querySelector("tr"))?.children.length || 2;
+    const tr = document.createElement("tr");
+    for (let i = 0; i < cols; i++) tr.appendChild(document.createElement("td"));
+    tbody.appendChild(tr);
+    touch(); setTblOpen(false);
+  };
+  const tblAddCol = () => {
+    const t = selTable();
+    if (!t) { setTblOpen(false); return void needCell(); }
+    t.querySelectorAll("tr").forEach((tr, ri) => {
+      const cell = document.createElement(ri === 0 ? "th" : "td");
+      cell.textContent = ri === 0 ? "Новая" : "";
+      tr.appendChild(cell);
+    });
+    touch(); setTblOpen(false);
+  };
+  const tblDelRow = () => {
+    const c = needCell();
+    if (!c) { setTblOpen(false); return; }
+    const tr = c.closest("tr");
+    if (tr?.parentElement?.tagName === "THEAD") {
+      window.alert("Строку заголовка удалить нельзя — правьте текст ячеек или удалите таблицу целиком");
+      setTblOpen(false);
+      return;
+    }
+    tr?.remove();
+    const t = selTable();
+    if (t && !t.querySelector("tbody tr")) t.remove(); // таблица выродилась
+    touch(); setTblOpen(false);
+  };
+  const tblDelCol = () => {
+    const c = needCell();
+    if (!c) { setTblOpen(false); return; }
+    const t = selTable();
+    const row = c.closest("tr");
+    if (!t || !row) { setTblOpen(false); return; }
+    const idx = Array.from(row.children).indexOf(c);
+    t.querySelectorAll("tr").forEach((tr) => tr.children[idx]?.remove());
+    if (!t.querySelector("tr:first-child > *")) t.remove();
+    touch(); setTblOpen(false);
+  };
+  const tblDel = () => {
+    const t = selTable();
+    if (!t) { setTblOpen(false); return void needCell(); }
+    t.remove();
+    touch(); setTblOpen(false);
+  };
+
   const cancel = () => {
     if (!dirty || window.confirm("Отменить несохранённые правки описания?")) onCancel();
   };
@@ -436,6 +527,21 @@ export function CardEditor({ cardMd, liveRunning, onSave, onCancel }: {
               onClick={addInlineCode}>&lt;&gt;</button>
             <button className="ced-btn" title="Блок кода" onMouseDown={(e) => e.preventDefault()}
               onClick={addCodeBlock}>▤</button>
+            <div className="ced-tmenu" ref={tblRef}>
+              <button className="ced-btn ced-tbtn" title="Таблица"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setTblOpen((v) => !v)}>▦ Таблица ▾</button>
+              {tblOpen && (
+                <div className="ced-menu">
+                  <div onClick={tblInsert}>＋ Вставить таблицу 2×2</div>
+                  <div onClick={tblAddRow}>＋ Добавить строку</div>
+                  <div onClick={tblAddCol}>＋ Добавить колонку</div>
+                  <div className="danger" onClick={tblDelRow}>✕ Удалить строку</div>
+                  <div className="danger" onClick={tblDelCol}>✕ Удалить колонку</div>
+                  <div className="danger" onClick={tblDel}>✕ Удалить таблицу</div>
+                </div>
+              )}
+            </div>
           </>
         ) : (
           <>

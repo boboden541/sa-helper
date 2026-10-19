@@ -315,13 +315,30 @@ table.tasks td.mono { font-family: var(--mono); font-size: 11.5px; color: var(--
   justify-content: center; border: 1px solid var(--line2); border-radius: 5px;
   background: var(--surface); margin-right: 6px; cursor: pointer; font-size: 11px; }
 .ced-glyph:hover { border-color: var(--acc); }
-.ced-island::after { content: "только просмотр — правьте в «Тексте»";
+.ced-island::after { content: "правьте в «Тексте»";
   position: absolute; top: 4px; right: 8px; font: 9.5px var(--mono);
   color: var(--faint); text-transform: uppercase; letter-spacing: .5px; }
+.ced-island[data-kind="checklist"]::after { content: "чек-лист: глифы кликабельны, текст пунктов — в «Тексте»"; }
 .ced-island[data-kind="checklist"] li .ced-glyph { cursor: pointer; }
-.ced-island table { border-collapse: collapse; width: 100%; font-size: 12px; }
-.ced-island th, .ced-island td { border: 1px solid var(--line2); padding: 4px 8px;
-  text-align: left; }
+
+/* таблицы — редактируемые */
+.ced-tbl { border-collapse: collapse; width: 100%; font-size: 12.5px; margin: 10px 0; }
+.ced-tbl th, .ced-tbl td { border: 1px solid var(--line2); padding: 5px 9px;
+  text-align: left; min-width: 60px; }
+.ced-tbl th { color: var(--dim); background: var(--surface2); }
+.ced-tbl:focus-within { outline: 2px solid rgba(88,166,255,.35); outline-offset: 2px; }
+
+/* меню таблиц в тулбаре */
+.ced-tmenu { position: relative; }
+.ced-tbtn { color: var(--text); font-weight: 500; }
+.ced-menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 30;
+  min-width: 200px; background: var(--surface2); border: 1px solid var(--line2);
+  border-radius: 8px; box-shadow: var(--pop); overflow: hidden; }
+.ced-menu div { padding: 7px 12px; cursor: pointer; font-size: 12.5px;
+  border-bottom: 1px solid var(--line); }
+.ced-menu div:last-child { border-bottom: 0; }
+.ced-menu div:hover { background: var(--surface3); }
+.ced-menu div.danger { color: var(--bad); }
 
 /* итог последней сессии */
 .sess { margin-top: 12px; padding: 11px 14px; border-radius: 10px;
