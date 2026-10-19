@@ -49,6 +49,7 @@ export interface Task {
   system?: string;
   phase?: string;
   branch?: string;
+  worktree?: string;
   status?: V2Status;
   pipeline?: PipelineStatus;
   paused?: boolean;

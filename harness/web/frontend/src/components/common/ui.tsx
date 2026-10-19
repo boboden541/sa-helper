@@ -8,7 +8,9 @@ export function esc(s: unknown): string {
 export function inline(s: string): string {
   return esc(s)
     .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+    // AC-идентификаторы — моно-синие (макет .ac)
+    .replace(/\bAC-\d+(?:\.\d+)*\b/g, '<span class="ac">$&</span>');
 }
 
 /** Мини-markdown: заголовки, списки, таблицы, код, чекбоксы. */
@@ -66,6 +68,12 @@ export function md(src: string | null | undefined): string {
     }
     const li = line.match(/^\s*[-*]\s+(.*)$/);
     if (li) { listBuf.push(li[1]); i++; continue; }
+    if (line.trim().startsWith("Источник:")) {
+      // источник постановки — приглушённый блок с пунктиром (макет .src)
+      flushList();
+      html += `<p class="src">${inline(line.trim())}</p>`;
+      i++; continue;
+    }
     if (line.trim() === "") { flushList(); i++; continue; }
     flushList();
     html += `<p>${inline(line)}</p>`;

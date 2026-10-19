@@ -188,6 +188,7 @@ table.tasks td.mono { font-family: var(--mono); font-size: 11.5px; color: var(--
 .backdrop { position: fixed; inset: 0; background: rgba(3,6,10,.55); z-index: 20; }
 [data-theme="light"] .backdrop { background: rgba(30,40,60,.25); }
 .sheet { position: fixed; top: 0; right: 0; bottom: 0; z-index: 21;
+  width: min(760px, 96vw); min-width: 460px;
   background: var(--surface); border-left: 1px solid var(--line2);
   display: flex; flex-direction: column; box-shadow: var(--shadow); }
 .sheet-resize { position: absolute; left: -3px; top: 0; bottom: 0; width: 8px;
@@ -272,9 +273,13 @@ table.tasks td.mono { font-family: var(--mono); font-size: 11.5px; color: var(--
 .sect.collapsed .caret { transform: rotate(-90deg); }
 
 /* ═══ постановка (карточка СТ) ═══ */
-.post h3 { font-size: 14px; margin: 14px 0 6px; }
+.post h3 { font-size: 13.5px; margin: 12px 0 4px; }
 .post ul { margin: 6px 0; padding-left: 20px; }
+.post li { margin: 3px 0; }
 .post p { margin: 6px 0; }
+.ac { font-family: var(--mono); font-size: 12.5px; color: var(--acc); }
+.src { color: var(--faint); font-size: 12px; margin-top: 12px;
+  border-top: 1px dashed var(--line); padding-top: 8px; }
 
 /* итог последней сессии */
 .sess { margin-top: 12px; padding: 11px 14px; border-radius: 10px;

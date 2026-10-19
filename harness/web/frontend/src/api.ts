@@ -137,6 +137,12 @@ export const PIPE_RU: Record<string, string> = {
   ABORTED: "Снята",
 };
 
+// иконка статуса для крупного чипа в шапке карточки (макет:279 «⏸ Нужен человек ▾»)
+export const PIPE_ICON: Record<string, string> = {
+  PROPOSED: "✎", BACKLOG: "🗒", READY: "⏳", IMPLEMENTING: "▶", REVIEW: "🔍",
+  DONE: "✔", VERIFIED: "✅", BLOCKED: "⛔", NEEDS_HUMAN: "⏸", ABORTED: "✖",
+};
+
 export const PIPE_COLOR: Record<string, string> = {
   DONE: "ok", VERIFIED: "ok", NEEDS_HUMAN: "bad", BLOCKED: "warn",
   IMPLEMENTING: "acc", REVIEW: "acc", PROPOSED: "warn",

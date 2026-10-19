@@ -14,9 +14,9 @@ const NODES: Array<{ key: string; x: number; y: number; w: number }> = [
 ];
 
 const LABEL_RU: Record<string, string> = {
-  PROPOSED: "Предложены", BACKLOG: "Бэклог", READY: "Готов к запуску",
+  PROPOSED: "Предложены", BACKLOG: "Бэклог", READY: "Готова к запуску",
   IMPLEMENTING: "В работе", REVIEW: "Ревью", DONE: "Готовы",
-  VERIFIED: "Проверены", BLOCKED: "Заблокирована",
+  VERIFIED: "Проверены", BLOCKED: "Блок / Нужен человек",
   NEEDS_HUMAN: "Нужен человек", ABORTED: "Снята",
 };
 
@@ -40,8 +40,8 @@ const POS: Record<string, { cx: number; cy: number }> = {
   PROPOSED: { cx: 62, cy: 49 }, BACKLOG: { cx: 183, cy: 49 },
   READY: { cx: 298, cy: 49 }, IMPLEMENTING: { cx: 422, cy: 49 },
   REVIEW: { cx: 542, cy: 49 }, DONE: { cx: 522, cy: 145 },
-  VERIFIED: { cx: 642, cy: 145 }, BLOCKED: { cx: 440, cy: 167 },
-  NEEDS_HUMAN: { cx: 440, cy: 167 }, ABORTED: { cx: 440, cy: 210 },
+  VERIFIED: { cx: 642, cy: 145 }, BLOCKED: { cx: 440, cy: 170 },
+  NEEDS_HUMAN: { cx: 440, cy: 170 }, ABORTED: { cx: 440, cy: 215 },
 };
 
 export function StatusFlowMap({ current, onMove }: {
@@ -60,7 +60,8 @@ export function StatusFlowMap({ current, onMove }: {
       {EDGES.map(([f, t, label], i) => {
         const a = posOf(f), b = posOf(t);
         const fromCurrent = f === current;
-        const stroke = fromCurrent ? "var(--acc)" : "var(--line2)";
+        // макет: доступные переходы — сплошные acc, недоступные — пунктир faint
+        const stroke = fromCurrent ? "var(--acc)" : "var(--faint)";
         const dash = fromCurrent ? undefined : "4 3";
         const width = fromCurrent ? 1.8 : 1;
         // кривая, чтобы стрелки туда-обратно не слипались
@@ -84,18 +85,29 @@ export function StatusFlowMap({ current, onMove }: {
         const isCurrent = n.key === current ||
           (current === "NEEDS_HUMAN" && n.key === "BLOCKED");
         const isTarget = allowed.has(n.key) && n.key !== current;
+        const isBlock = n.key === "BLOCKED"; // семантика Блока — всегда warn (макет:508)
+        const h = isBlock ? 40 : 30;
         return (
           <g key={n.key} onClick={() => isTarget && onMove?.(n.key)}
             style={isTarget ? { cursor: "pointer" } : undefined}>
-            <rect x={n.x} y={n.y} width={n.w} height={30} rx={8}
-              fill={isCurrent ? "rgba(210,153,34,.1)" : "var(--surface)"}
-              stroke={isCurrent ? "var(--warn)" : isTarget ? "var(--acc)" : "var(--line2)"} />
-            <text x={n.x + n.w / 2} y={n.y + 19} textAnchor="middle"
-              fill={isCurrent ? "var(--warn)" : "var(--text)"}>
+            <rect x={n.x} y={n.y} width={n.w} height={h} rx={8}
+              fill={isBlock ? "rgba(210,153,34,.08)"
+                : isCurrent ? "rgba(88,166,255,.08)" : "var(--surface)"}
+              stroke={isBlock ? "var(--warn)"
+                : isCurrent ? "var(--acc)" : isTarget ? "var(--acc)" : "var(--line2)"}
+              strokeWidth={isBlock ? (isCurrent ? 2.2 : 1.8) : isCurrent ? 1.6 : 1}
+              strokeDasharray={n.key === "PROPOSED" && !isCurrent ? "4 3" : undefined} />
+            <text x={n.x + n.w / 2} y={isBlock ? n.y + 17 : n.y + 19} textAnchor="middle"
+              fontWeight={isBlock || isCurrent ? 650 : undefined}
+              fill={isBlock ? "var(--warn)" : isCurrent ? "var(--acc)" : "var(--text)"}>
               {LABEL_RU[n.key] || n.key}
             </text>
+            {isBlock && (
+              <text x={n.x + n.w / 2} y={n.y + 31} textAnchor="middle"
+                fill="var(--warn)" fontSize="9.5">(retry · force · abort)</text>
+            )}
             {isTarget && onMove && (
-              <text x={n.x + n.w / 2} y={n.y + 42} textAnchor="middle"
+              <text x={n.x + n.w / 2} y={n.y + h + 12} textAnchor="middle"
                 fill="var(--acc)" fontSize="9">клик — перевести</text>
             )}
           </g>

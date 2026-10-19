@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Task, TaskDoc } from "../../types";
-import { api, pipelineOf, PIPE_RU } from "../../api";
+import { api, pipelineOf, PIPE_ICON, PIPE_RU } from "../../api";
 import { inline, md, parseComments } from "../common/ui";
 import { StatusFlowMap } from "../common/StatusFlowMap";
 
@@ -123,9 +123,10 @@ export function TaskPanel({ doc, onClose, onAction }: {
   const [editing, setEditing] = useState(false);
   const [descDraft, setDescDraft] = useState("");
   const [width, setWidth] = useState(() =>
-    Number(localStorage.getItem("sheetWidth")) || 1020);
+    Number(localStorage.getItem("sheetWidth")) || 760);
   const [resizeOn, setResizeOn] = useState(false);
-  const [flowOpen, setFlowOpen] = useState(false);
+  // карта переходов: позиция у кликнутого статуса (макет:549–556)
+  const [flowAt, setFlowAt] = useState<{ left: number; top: number } | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   // свёртывание секций (макет: Хроники/Ревью/Мета по умолчанию свернуты)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
@@ -147,10 +148,19 @@ export function TaskPanel({ doc, onClose, onAction }: {
       const el = e.target as Node;
       if (moreWrapRef.current && !moreWrapRef.current.contains(el)) setMoreOpen(false);
       if (flowRef.current && !flowRef.current.contains(el)
-          && stbigRef.current && !stbigRef.current.contains(el)) setFlowOpen(false);
+          && stbigRef.current && !stbigRef.current.contains(el)) setFlowAt(null);
     };
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+
+  // карта у кликнутого .stbig: clamp по краям окна (макет:553–554)
+  const openFlow = useCallback(() => {
+    const r = stbigRef.current?.getBoundingClientRect();
+    setFlowAt(r
+      ? { left: Math.max(8, Math.min(window.innerWidth - 672, r.left - 40)),
+          top: Math.max(8, r.bottom + 8) }
+      : { left: Math.max(8, window.innerWidth / 2 - 330), top: 90 });
   }, []);
 
   const toggleSect = useCallback(
@@ -161,6 +171,13 @@ export function TaskPanel({ doc, onClose, onAction }: {
     setMoreOpen(false);
     window.setTimeout(() => ref.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
   }, []);
+  const sessionsLabel = (n?: number) => {
+    const v = n ?? 0;
+    const m10 = v % 10, m100 = v % 100;
+    const word = m10 === 1 && m100 !== 11 ? "сессия"
+      : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? "сессии" : "сессий";
+    return `${v} ${word}`;
+  };
 
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
@@ -229,9 +246,10 @@ export function TaskPanel({ doc, onClose, onAction }: {
           <div className="crumb">vitrina / FNR_8 / {t.id}</div>
           <div className="r1">
             <span className="bignum">{t.id}</span>
-            <span className="stbig" ref={stbigRef} onClick={() => setFlowOpen((v) => !v)}
+            <span className="stbig" ref={stbigRef}
+              onClick={() => (flowAt ? setFlowAt(null) : openFlow())}
               title="Нажмите — карта возможных переходов">
-              {PIPE_RU[p] || p} ▾
+              {PIPE_ICON[p] ? `${PIPE_ICON[p]} ` : ""}{PIPE_RU[p] || p} ▾
             </span>
             <span className="meta">{t.system}</span>
             <span className="actions">
@@ -250,7 +268,7 @@ export function TaskPanel({ doc, onClose, onAction }: {
                     <div onClick={() => reveal("chronicles", historyRef)}>🕘 История (таймлайн)</div>
                     <div onClick={() => reveal("chronicles", logRef)}>📜 Хроники сессий</div>
                     <div onClick={() => reveal("meta", attachRef)}>📎 Вложения</div>
-                    <div onClick={() => { setFlowOpen(true); setMoreOpen(false); }}>🗺 Карта переходов</div>
+                    <div onClick={() => { openFlow(); setMoreOpen(false); }}>🗺 Карта переходов</div>
                     <div onClick={() => {
                       navigator.clipboard?.writeText(t.branch || ""); setMoreOpen(false);
                     }}>⧉ Скопировать ветку</div>
@@ -268,19 +286,21 @@ export function TaskPanel({ doc, onClose, onAction }: {
           </div>
           <h1>{t.title}</h1>
           <div className="usage">
-            <span>🪙 {fmtTok(t.usage?.tokens_total)}</span>
+            <span>🪙 {fmtTok(t.usage?.tokens_total)} токенов</span>
             <span>{fmtUsd(t.usage?.cost_usd)}</span>
-            <span>{t.usage?.sessions ?? 0} сессий</span>
+            <span>{sessionsLabel(t.usage?.sessions)}</span>
             <span>ветка: {t.branch || "—"}</span>
             {t.checklist && t.checklist.total > 0 &&
               <span>чек-лист: {t.checklist.done}/{t.checklist.total}</span>}
           </div>
         </div>
 
-        {/* ── карта переходов (поповер по клику на статус) ── */}
-        {flowOpen && (
-          <div className="flowpop" ref={flowRef} onClick={(e) => e.stopPropagation()}>
-            <div className="ft">Карта статусов — допустимые переходы подсвечены</div>
+        {/* ── карта переходов: поповер у кликнутого статуса ── */}
+        {flowAt && (
+          <div className="flowpop" ref={flowRef}
+            style={{ left: flowAt.left, top: flowAt.top }}
+            onClick={(e) => e.stopPropagation()}>
+            <div className="ft">Карта статусов — единая схема возможных переходов</div>
             <StatusFlowMap current={p} onMove={(to) => {
               const flagMap: Record<string, string> = {
                 BACKLOG: `TASK_${t.id}_ACCEPT`,
@@ -289,22 +309,23 @@ export function TaskPanel({ doc, onClose, onAction }: {
               };
               const flag = flagMap[to];
               if (flag) applyFlag(flag); else api.move(t.id, to).then(onAction);
-              setFlowOpen(false);
+              setFlowAt(null);
             }} />
-            <div className="legend">
-              <span className="l-acc">сплошная стрелка — допустимый переход</span>
-              <span className="l-dim">пунктир — недоступен сейчас</span>
+            <div className="legend" style={{ padding: "4px 0 10px" }}>
+              <span className="l-acc">— допустимый переход</span>
+              <span className="l-dim">- - недоступен сейчас</span>
+              <span>подсвеченный контур — где задача сейчас</span>
             </div>
           </div>
         )}
 
         <div className="sh-body">
-          {/* ── блок причины: только Блок/Нужен человек ── */}
+          {/* ── блок причины: только Блок/Нужен человек; варианты Steward
+              внутри (макет:303–346) ── */}
           {isAttention && (
             <div className="alert">
               <div className="a-head">
-                <div className="t">{p === "BLOCKED" ? "⛔ Почему задача заблокирована"
-                  : "⏸ Почему задача требует вашего участия"}</div>
+                <div className="t">⏸ Почему задача остановлена</div>
               </div>
               <div className="a-body">
                 <div className="a-cause">
@@ -318,8 +339,32 @@ export function TaskPanel({ doc, onClose, onAction }: {
                   <div className="step">Лимиты: перезапусков {problem?.retries ?? 0},
                     итераций ревью {problem?.review_iterations ?? 0}/3</div>
                 </div>
-                <div className="a-hint">Кнопка «Вернуть в работу» в шапке вернёт задачу
-                  с места остановки; свободный текст — в «Обсуждении» ниже.</div>
+                {options.length > 0 && (
+                  <>
+                    <hr className="a-sep" />
+                    <div className="a-opt-t">Steward предлагает варианты — выберите один
+                      или напишите свой</div>
+                    {options.map((o, i) => (
+                      <div key={i} className={`a-opt ${o.recommended ? "rec" : ""}`}
+                        onClick={() => {
+                          if (o.flag) { applyFlag(o.flag);
+                            api.stewardMessage(`Человек выбрал вариант: «${o.title}»`).catch(() => {});
+                          }
+                        }}>
+                        <span className="num">{i + 1}</span>
+                        <span style={{ flex: 1 }}>
+                          <span className="ot">{o.title}</span>
+                          {o.recommended && <span className="orec">рекомендую</span>}
+                          {o.explanation && <div className="oe">{o.explanation}</div>}
+                        </span>
+                      </div>
+                    ))}
+                  </>
+                )}
+                <div className="a-hint">Не подошло — напишите свободный текст
+                  в «Обсуждении» (внизу страницы), Steward выполнит его как поручение. ·{" "}
+                  <span className="flow-link" onClick={openFlow}>Единая карта статусов ↗</span>
+                </div>
               </div>
             </div>
           )}
@@ -334,7 +379,7 @@ export function TaskPanel({ doc, onClose, onAction }: {
                 ✎ править краткое
               </button>
             )}>
-            <div className="md" dangerouslySetInnerHTML={{ __html: md(doc.card_md) }} />
+            <div className="post" dangerouslySetInnerHTML={{ __html: md(doc.card_md) }} />
             {editing && (
               <div style={{ marginTop: 8 }}>
                 <textarea value={descDraft} onChange={(e) => setDescDraft(e.target.value)}
@@ -348,28 +393,6 @@ export function TaskPanel({ doc, onClose, onAction }: {
               </div>
             )}
           </Sect>
-
-          {/* ── Варианты Steward (при эскалации; в П5 переедут внутрь alert) ── */}
-          {options.length > 0 && (
-            <Sect collapsed={!!collapsed.options} onToggle={() => toggleSect("options")}
-              title="Варианты от Steward">
-              {options.map((o, i) => (
-                <div key={i} className="a-opt" style={o.recommended
-                  ? { borderColor: "var(--ok)", background: "rgba(63,185,80,.05)" } : undefined}
-                  onClick={() => {
-                    if (o.flag) { applyFlag(o.flag);
-                      api.stewardMessage(`Человек выбрал вариант: «${o.title}»`).catch(() => {});
-                    }
-                  }}>
-                  <span className="num">{o.recommended ? "⭐" : i + 1}</span>
-                  <span style={{ flex: 1 }}>
-                    <span className="ot">{o.title}</span>
-                    {o.explanation && <div className="oe">{o.explanation}</div>}
-                  </span>
-                </div>
-              ))}
-            </Sect>
-          )}
 
           {/* ── Чек-лист ── */}
           <Sect collapsed={!!collapsed.checklist} onToggle={() => toggleSect("checklist")}
@@ -434,8 +457,9 @@ export function TaskPanel({ doc, onClose, onAction }: {
           <Sect collapsed={!!collapsed.meta} onToggle={() => toggleSect("meta")}
             title="Мета">
             <p style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--dim)" }}>
-              система: {t.system} · ветка: {t.branch} · origin: {t.origin} ·
-              сессия: {t.session_id || "—"}</p>
+              система: {t.system} · ветка: {t.branch || "—"} ·
+              worktree: {t.worktree || "—"} · origin: {t.origin} ·
+              steward-сессия: {t.session_id || "—"}</p>
             <div ref={attachRef}>
               <Attachments taskId={t.id} />
             </div>
