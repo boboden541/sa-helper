@@ -25,6 +25,7 @@ import re
 import subprocess
 import threading
 import time
+import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote
 from pathlib import Path
@@ -526,7 +527,32 @@ class Handler(BaseHTTPRequestHandler):
         path, _, query = self.path.partition("?")
         return path, {k: v[-1] for k, v in parse_qs(query).items()}
 
+    # ── обёртка: любая непойманная ошибка → JSON 500, соединение не рвём
+    # (раньше исключение в обработчике роняло запрос с трейсбеком в stderr)
+    def _safe(self, method) -> None:
+        try:
+            method()
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # клиент отключился — не шумим
+        except Exception as exc:
+            traceback.print_exc()
+            try:
+                self._send(500, json.dumps(
+                    {"error": f"внутренняя ошибка сервера: {exc}"},
+                    ensure_ascii=False).encode("utf-8"), "application/json")
+            except Exception:
+                pass
+
     def do_GET(self) -> None:
+        self._safe(self._do_GET)
+
+    def do_POST(self) -> None:
+        self._safe(self._do_POST)
+
+    def do_DELETE(self) -> None:
+        self._safe(self._do_DELETE)
+
+    def _do_GET(self) -> None:
         path, params = self._route()
         project = params.get("project")
         harness = _harness_of(project, params.get("fnr"))
@@ -549,10 +575,11 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/favicon.ico" and self._serve_static("favicon.ico"):
             return
         elif path == "/api/steward/chat":
-            if STATE.get("workspace") is None:
-                self._send(400, b'{"error":"need workspace"}', "application/json")
-                return
             ws = resolve_workspace(project)
+            if ws is None:
+                # нет ?project=/неизвестный проект — иначе _steward_dir(None) падал
+                self._send(400, b'{"error":"need project"}', "application/json")
+                return
             chat = _steward_dir(ws) / "chat.md"
             raw = chat.read_text(encoding="utf-8", errors="replace") if chat.exists() else ""
             messages = []
@@ -697,7 +724,7 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._send(404, b'{"error":"not found"}', "application/json")
 
-    def do_POST(self) -> None:
+    def _do_POST(self) -> None:
         path, params = self._route()
         project = params.get("project")
         harness = _harness_of(project, params.get("fnr"))
@@ -745,10 +772,10 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/steward/message":
             body = self._json_body()
             msg = str(body.get("text") or "").strip()
-            if STATE.get("workspace") is None or not msg:
-                self._send(400, b'{"error":"need workspace and text"}', "application/json")
-                return
             ws = resolve_workspace(project)
+            if ws is None or not msg:
+                self._send(400, b'{"error":"need project and text"}', "application/json")
+                return
             sdir = _steward_dir(ws)
             if (sdir / ".pending").exists():
                 self._send(429, b'{"error":"steward is thinking"}', "application/json")
@@ -843,7 +870,7 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._send(404, b'{"error":"not found"}', "application/json")
 
-    def do_DELETE(self) -> None:
+    def _do_DELETE(self) -> None:
         path, params = self._route()
         if path.startswith("/api/flag/"):
             name = path.rsplit("/", 1)[1]

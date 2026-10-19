@@ -160,6 +160,30 @@ class TestManualTask(WebServerFixture):
         self.assertEqual(code, 404)
 
 
+class TestStewardGuard(WebServerFixture):
+    """/api/steward/* без ?project= (или с неизвестным) — 400, не TypeError
+    (живой инцидент: _steward_dir(None) ронял запрос с трейсбеком)."""
+
+    def test_chat_without_project_is_400(self):
+        try:
+            urllib.request.urlopen(f"{self.base}/api/steward/chat", timeout=5)
+            raise AssertionError("ожидали 400")
+        except urllib.error.HTTPError as e:
+            self.assertEqual(e.code, 400)
+
+    def test_chat_unknown_project_is_400(self):
+        try:
+            urllib.request.urlopen(f"{self.base}/api/steward/chat?project=nope",
+                                   timeout=5)
+            raise AssertionError("ожидали 400")
+        except urllib.error.HTTPError as e:
+            self.assertEqual(e.code, 400)
+
+    def test_message_without_project_is_400(self):
+        code, _ = self.post_expect_error("/api/steward/message", {"text": "привет"})
+        self.assertEqual(code, 400)
+
+
 class TestTaskRows(WebServerFixture):
     def test_rows_have_branch_paused_sessions(self):
         # П2: branch/paused/phase + usage.sessions в task_rows
