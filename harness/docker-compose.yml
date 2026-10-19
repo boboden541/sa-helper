@@ -34,6 +34,7 @@ services:
   daemon:
     image: sa-helper-harness
     environment:
+      PYTHONUNBUFFERED: "1"
       HARNESS_WORKSPACE: /work
       HARNESS_API: http://web:4040
       SAHELPER_HOME: /root/.sa-helper
