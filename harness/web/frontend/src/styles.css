@@ -213,7 +213,7 @@ table.tasks td.mono { font-family: var(--mono); font-size: 11.5px; color: var(--
   border-bottom: 1px solid var(--line); }
 .more-menu div:last-child { border-bottom: 0; }
 .more-menu div:hover { background: var(--surface); }
-.sh-body { flex: 1; overflow-y: auto; padding: 0 26px; }
+.sh-body { flex: 1; overflow-y: auto; padding: 14px 26px 26px; }
 
 /* ═══ блок причины (+ варианты Steward внутри) ═══ */
 .alert { margin: 14px 0 16px; border: 1.5px solid var(--warn);

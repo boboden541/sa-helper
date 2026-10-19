@@ -49,8 +49,8 @@ function Attachments({ taskId }: { taskId: string }) {
     api.attachments(taskId).then((d) => setFiles(d.files)).catch(() => {}), [taskId]);
   useEffect(() => { load(); }, [load]);
   return (
-    <div className="sect">
-      <div className="s-title">Вложения</div>
+    <div>
+      <div className="meta" style={{ margin: "10px 0 4px" }}>Вложения</div>
       {(files || []).length === 0 && <p className="empty">вложений нет</p>}
       {(files || []).map((f) => (
         <div key={f} style={{ padding: "2px 0" }}>
@@ -86,6 +86,32 @@ function renderComments(list: Array<{ ts: string; author: string; text: string }
   );
 }
 
+/** Секция панели по канону макета (.sect-h: caret + заголовок + cnt + свернуть).
+ *  Без своих хуков; содержимое монтируется только в раскрытом состоянии,
+ *  поэтому хуки детей (SessionLog/History/Attachments) не нарушают порядок. */
+function Sect({ collapsed, onToggle, title, cnt, headExtra, bodyClass, children }: {
+  collapsed: boolean;
+  onToggle: () => void;
+  title: string;
+  cnt?: React.ReactNode;
+  headExtra?: React.ReactNode;
+  bodyClass?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className={`sect ${collapsed ? "collapsed" : ""}`}>
+      <div className="sect-h" onClick={onToggle}>
+        <span className="caret">▾</span>
+        <span className="t">{title}</span>
+        {cnt}
+        {headExtra}
+        <span className="tog">{collapsed ? "развернуть" : "свернуть"}</span>
+      </div>
+      {!collapsed && <div className={`sect-b ${bodyClass || ""}`}>{children}</div>}
+    </div>
+  );
+}
+
 /** Панель задачи — по макету v3: статус крупно и кликабелен (карта переходов),
  *  блок причины сверху только для Блок/Нужен человек, одна колонка
  *  сворачиваемых секций (Постановка первая), Обсуждение — последний, всегда раскрыт. */
@@ -101,9 +127,40 @@ export function TaskPanel({ doc, onClose, onAction }: {
   const [resizeOn, setResizeOn] = useState(false);
   const [flowOpen, setFlowOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  // свёртывание секций (макет: Хроники/Ревью/Мета по умолчанию свернуты)
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
+    review: true, chronicles: true, meta: true,
+  });
   const cInputRef = useRef<HTMLInputElement>(null);
+  const moreWrapRef = useRef<HTMLDivElement>(null);
+  const flowRef = useRef<HTMLDivElement>(null);
+  const stbigRef = useRef<HTMLSpanElement>(null);
+  const logRef = useRef<HTMLDivElement>(null);
+  const historyRef = useRef<HTMLDivElement>(null);
+  const attachRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { setEditing(false); }, [doc?.task?.id]);
+
+  // закрытие more-menu и карты переходов по клику вне (макет:557–560)
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      const el = e.target as Node;
+      if (moreWrapRef.current && !moreWrapRef.current.contains(el)) setMoreOpen(false);
+      if (flowRef.current && !flowRef.current.contains(el)
+          && stbigRef.current && !stbigRef.current.contains(el)) setFlowOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+
+  const toggleSect = useCallback(
+    (k: string) => setCollapsed((c) => ({ ...c, [k]: !c[k] })), []);
+  // пункт меню → раскрыть секцию и доскроллить до блока
+  const reveal = useCallback((sect: string, ref: React.RefObject<HTMLDivElement | null>) => {
+    setCollapsed((c) => ({ ...c, [sect]: false }));
+    setMoreOpen(false);
+    window.setTimeout(() => ref.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
+  }, []);
 
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
@@ -172,7 +229,7 @@ export function TaskPanel({ doc, onClose, onAction }: {
           <div className="crumb">vitrina / FNR_8 / {t.id}</div>
           <div className="r1">
             <span className="bignum">{t.id}</span>
-            <span className="stbig" onClick={() => setFlowOpen((v) => !v)}
+            <span className="stbig" ref={stbigRef} onClick={() => setFlowOpen((v) => !v)}
               title="Нажмите — карта возможных переходов">
               {PIPE_RU[p] || p} ▾
             </span>
@@ -186,10 +243,13 @@ export function TaskPanel({ doc, onClose, onAction }: {
                 <button className="primary"
                   onClick={() => applyFlag(`TASK_${t.id}_REQUEST_CHANGES`)}>Вернуть на доработку</button>
               )}
-              <div className="more-wrap">
+              <div className="more-wrap" ref={moreWrapRef}>
                 <button className="ghost" onClick={() => setMoreOpen((v) => !v)}>Ещё ▾</button>
                 {moreOpen && (
                   <div className="more-menu">
+                    <div onClick={() => reveal("chronicles", historyRef)}>🕘 История (таймлайн)</div>
+                    <div onClick={() => reveal("chronicles", logRef)}>📜 Хроники сессий</div>
+                    <div onClick={() => reveal("meta", attachRef)}>📎 Вложения</div>
                     <div onClick={() => { setFlowOpen(true); setMoreOpen(false); }}>🗺 Карта переходов</div>
                     <div onClick={() => {
                       navigator.clipboard?.writeText(t.branch || ""); setMoreOpen(false);
@@ -219,7 +279,7 @@ export function TaskPanel({ doc, onClose, onAction }: {
 
         {/* ── карта переходов (поповер по клику на статус) ── */}
         {flowOpen && (
-          <div className="flowpop" onClick={(e) => e.stopPropagation()}>
+          <div className="flowpop" ref={flowRef} onClick={(e) => e.stopPropagation()}>
             <div className="ft">Карта статусов — допустимые переходы подсвечены</div>
             <StatusFlowMap current={p} onMove={(to) => {
               const flagMap: Record<string, string> = {
@@ -265,15 +325,15 @@ export function TaskPanel({ doc, onClose, onAction }: {
           )}
 
           {/* ── Постановка: первый раздел ── */}
-          <div className="sect">
-            <div className="s-title">Постановка — полная, из СТ
-              {!editing && (
-                <button className="ghost" style={{ marginLeft: "auto", padding: "0 4px" }}
-                  onClick={() => { setDescDraft(t.description || ""); setEditing(true); }}>
-                  ✎ править краткое
-                </button>
-              )}
-            </div>
+          <Sect collapsed={!!collapsed.post} onToggle={() => toggleSect("post")}
+            title="Постановка" cnt={<span className="cnt">полная, из СТ</span>}
+            headExtra={!editing && (
+              <button className="ghost" style={{ padding: "0 4px", fontSize: 11 }}
+                onClick={(e) => { e.stopPropagation();
+                  setDescDraft(t.description || ""); setEditing(true); }}>
+                ✎ править краткое
+              </button>
+            )}>
             <div className="md" dangerouslySetInnerHTML={{ __html: md(doc.card_md) }} />
             {editing && (
               <div style={{ marginTop: 8 }}>
@@ -287,12 +347,12 @@ export function TaskPanel({ doc, onClose, onAction }: {
                 </div>
               </div>
             )}
-          </div>
+          </Sect>
 
-          {/* ── Варианты Steward (при эскалации) ── */}
+          {/* ── Варианты Steward (при эскалации; в П5 переедут внутрь alert) ── */}
           {options.length > 0 && (
-            <div className="sect">
-              <div className="s-title">Варианты от Steward</div>
+            <Sect collapsed={!!collapsed.options} onToggle={() => toggleSect("options")}
+              title="Варианты от Steward">
               {options.map((o, i) => (
                 <div key={i} className="a-opt" style={o.recommended
                   ? { borderColor: "var(--ok)", background: "rgba(63,185,80,.05)" } : undefined}
@@ -308,116 +368,116 @@ export function TaskPanel({ doc, onClose, onAction }: {
                   </span>
                 </div>
               ))}
-            </div>
+            </Sect>
           )}
 
           {/* ── Чек-лист ── */}
-          <div className="sect">
-            <div className="s-title">Чек-лист
-              {t.checklist && t.checklist.total > 0 &&
-                <span className="cnt">{t.checklist.done}/{t.checklist.total}</span>}
-            </div>
-            <div>
-              {(doc.checklist_sections || []).map((s, si) => (
-                <div key={si}>
-                  {(s.items || []).map((it, ii) => (
-                    <div key={ii} className={`check ${it.state === "done" ? "done" : ""}`}>
-                      <span className="box">{it.state === "done" ? "✓" :
-                        it.state === "inprog" ? "⟳" : ""}</span>
-                      <span className="txt">{it.text}</span>
-                      <span className={`st ${ST_CLASS[it.state] ?? it.state}`}>
-                        {it.state === "done" ? "Done" : it.state === "inprog" ? "InProgress"
-                          : it.state === "review" ? "Review"
-                          : it.state === "blocked" ? "Blocked"
-                          : it.state === "failed" ? "Failed" : "Todo"}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </div>
+          <Sect collapsed={!!collapsed.checklist} onToggle={() => toggleSect("checklist")}
+            title="Чек-лист"
+            cnt={t.checklist && t.checklist.total > 0 &&
+              <span className="cnt">{t.checklist.done}/{t.checklist.total}</span>}>
+            {(doc.checklist_sections || []).map((s, si) => (
+              <div key={si}>
+                {(s.items || []).map((it, ii) => (
+                  <div key={ii} className={`check ${it.state === "done" ? "done" : ""}`}>
+                    <span className="box">{it.state === "done" ? "✓" :
+                      it.state === "inprog" ? "⟳" : ""}</span>
+                    <span className="txt">{it.text}</span>
+                    <span className={`st ${ST_CLASS[it.state] ?? it.state}`}>
+                      {it.state === "done" ? "Done" : it.state === "inprog" ? "InProgress"
+                        : it.state === "review" ? "Review"
+                        : it.state === "blocked" ? "Blocked"
+                        : it.state === "failed" ? "Failed" : "Todo"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ))}
             <div className="sess">
               <div className="l">итог последней сессии</div>
               {problem?.last_result || "сессий ещё не было"}
             </div>
-          </div>
+          </Sect>
 
-          {/* ── Ревью ── */}
-          <div className="sect collapsed">
-            <div className="s-title">Ревью
-              {!!t.review_iterations && <span className="cnt">{t.review_iterations}/3</span>}
-            </div>
-            <div className="sect-b post">
-              <p><b>Вердикт:</b> {t.review_verdict || "ещё не проводилось"}</p>
-              <ul>
-                {(t.findings || []).map((f) => (
-                  <li key={f.id}>{f.text} {f.file && <span className="mono">({f.file})</span>}
-                    — <i>{f.resolution}</i></li>
-                ))}
-              </ul>
-              {renderComments(reviewComments)}
-            </div>
-          </div>
+          {/* ── Ревью ──
+              отклонение от макета: severity замечаний в данных нет
+              (Finding без поля severity), поэтому cnt = «N открыто»,
+              а не «x существенно · y nit» */}
+          <Sect collapsed={!!collapsed.review} onToggle={() => toggleSect("review")}
+            title="Ревью"
+            cnt={(t.findings || []).length > 0 && <span className="cnt">
+              {(t.findings || []).filter((f) => f.resolution !== "resolved").length} открыто</span>}>
+            <p><b>Вердикт:</b> {t.review_verdict || "ещё не проводилось"}</p>
+            <ul>
+              {(t.findings || []).map((f) => (
+                <li key={f.id}>{f.text} {f.file && <span className="mono">({f.file})</span>}
+                  — <i>{f.resolution}</i></li>
+              ))}
+            </ul>
+            {renderComments(reviewComments)}
+          </Sect>
 
           {/* ── Хроники ── */}
-          <div className="sect collapsed">
-            <div className="s-title">Хроники</div>
-            <div className="s-title" style={{ textTransform: "none", letterSpacing: 0,
-              fontSize: 12.5, color: "var(--text)" }}>Лог реализации</div>
-            <SessionLog taskId={t.id} />
-            <div className="s-title" style={{ textTransform: "none", letterSpacing: 0,
-              fontSize: 12.5, color: "var(--text)", marginTop: 10 }}>История (таймлайн)</div>
-            <History taskId={t.id} />
-          </div>
+          <Sect collapsed={!!collapsed.chronicles} onToggle={() => toggleSect("chronicles")}
+            title="Хроники">
+            <div ref={logRef}>
+              <div className="meta" style={{ marginBottom: 6 }}>Лог реализации</div>
+              <SessionLog taskId={t.id} />
+            </div>
+            <div ref={historyRef} style={{ marginTop: 12 }}>
+              <div className="meta" style={{ marginBottom: 6 }}>История (таймлайн)</div>
+              <History taskId={t.id} />
+            </div>
+          </Sect>
 
           {/* ── Мета ── */}
-          <div className="sect collapsed">
-            <div className="s-title">Мета</div>
-            <div className="post">
-              <p style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--dim)" }}>
-                система: {t.system} · ветка: {t.branch} · origin: {t.origin} ·
-                сессия: {t.session_id || "—"}</p>
+          <Sect collapsed={!!collapsed.meta} onToggle={() => toggleSect("meta")}
+            title="Мета">
+            <p style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--dim)" }}>
+              система: {t.system} · ветка: {t.branch} · origin: {t.origin} ·
+              сессия: {t.session_id || "—"}</p>
+            <div ref={attachRef}>
+              <Attachments taskId={t.id} />
             </div>
-            <Attachments taskId={t.id} />
-          </div>
-        </div>
+          </Sect>
 
-        {/* ── Обсуждение: последний, всегда раскрыт ── */}
-        <div className="discuss">
-          <div className="d-head">
-            <div className="t">💬 Обсуждение</div>
-            <div className="s">Человек, Steward, агенты, демон. При блокировке свободный
-              текст = четвёртый вариант действий.</div>
-          </div>
-          <div className="d-list">
-            {humanComments.length === 0 && <p className="empty" style={{ padding: "4px 16px" }}>
-              записей нет</p>}
-            {humanComments.map((c, i) => (
-              <div key={i} className={`cmt ${c.author}`}>
-                <div className="who">{c.ts} · {c.author}</div>
-                <div dangerouslySetInnerHTML={{ __html: inline(c.text).replace(/\n/g, "<br>") }} />
-              </div>
-            ))}
-          </div>
-          <div className="d-input">
-            <input ref={cInputRef} placeholder="Напишите Steward или команде…"
-              onKeyDown={(e) => { if (e.key === "Enter") send(); }} />
-            <button className={
-              isAttentionState(p) || p === "DONE" ? "primary" : ""} onClick={send}>
-              {isAttentionState(p) ? "Ответить и вернуть в работу"
-                : p === "DONE" ? "Вернуть на доработку" : "Отправить"}
-            </button>
-            {t.can_ask && (
-              <button className="quiet" title="Уйдёт в сессию задачи"
-                onClick={() => {
-                  const text = cInputRef.current?.value.trim();
-                  if (!text) return;
-                  api.ask(t.id, text).then(() => {
-                    if (cInputRef.current) cInputRef.current.value = "";
-                    onAction();
-                  });
-                }}>спросить агента</button>
-            )}
+          {/* ── Обсуждение: последний, всегда раскрыт (в скролле sh-body) ── */}
+          <div className="discuss">
+            <div className="d-head">
+              <div className="t">💬 Обсуждение</div>
+              <div className="s">Человек, Steward, агенты, демон. При блокировке свободный
+                текст = четвёртый вариант действий.</div>
+            </div>
+            <div className="d-list">
+              {humanComments.length === 0 && <p className="empty" style={{ padding: "4px 16px" }}>
+                записей нет</p>}
+              {humanComments.map((c, i) => (
+                <div key={i} className={`cmt ${c.author}`}>
+                  <div className="who">{c.ts} · {c.author}</div>
+                  <div dangerouslySetInnerHTML={{ __html: inline(c.text).replace(/\n/g, "<br>") }} />
+                </div>
+              ))}
+            </div>
+            <div className="d-input">
+              <input ref={cInputRef} placeholder="Напишите Steward или команде…"
+                onKeyDown={(e) => { if (e.key === "Enter") send(); }} />
+              <button className={
+                isAttentionState(p) || p === "DONE" ? "primary" : ""} onClick={send}>
+                {isAttentionState(p) ? "Ответить и вернуть в работу"
+                  : p === "DONE" ? "Вернуть на доработку" : "Отправить"}
+              </button>
+              {t.can_ask && (
+                <button className="quiet" title="Уйдёт в сессию задачи"
+                  onClick={() => {
+                    const text = cInputRef.current?.value.trim();
+                    if (!text) return;
+                    api.ask(t.id, text).then(() => {
+                      if (cInputRef.current) cInputRef.current.value = "";
+                      onAction();
+                    });
+                  }}>спросить агента</button>
+              )}
+            </div>
           </div>
         </div>
       </div>
