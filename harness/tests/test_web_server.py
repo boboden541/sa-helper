@@ -226,3 +226,38 @@ class TestComments(WebServerFixture):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSessionDiagnosis(unittest.TestCase):
+    """Диагноз последней сессии: пермиссии/API-ошибка видны в problem-блоке."""
+
+    def test_permission_denied_detected(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            hdir = Path(td)
+            run = hdir / ".run"
+            run.mkdir()
+            lines = [
+                json.dumps({"type": "system", "subtype": "init", "session_id": "x"}),
+                json.dumps({"type": "system", "subtype": "permission_denied",
+                            "tool_name": "Bash",
+                            "message": "The following part requires approval: python3 -V"}),
+            ]
+            (run / "T5_implementing_1.log").write_text("\n".join(lines), encoding="utf-8")
+            d = web._session_diagnosis(hdir, "T5")
+            self.assertIn("отказ пермиссий", d)
+            self.assertIn("python3 -V", d)
+
+    def test_no_diagnosis_for_healthy_log(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            hdir = Path(td)
+            run = hdir / ".run"
+            run.mkdir()
+            (run / "T1_implementing_1.log").write_text(
+                json.dumps({"type": "result", "result": "готово"}), encoding="utf-8")
+            self.assertIsNone(web._session_diagnosis(hdir, "T1"))
+
+
+if __name__ == "__main__":
+    unittest.main()

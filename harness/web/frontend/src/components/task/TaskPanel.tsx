@@ -254,6 +254,10 @@ export function TaskPanel({ doc, onClose, onAction }: {
                 <button className="primary"
                   onClick={() => applyFlag(`TASK_${t.id}_REQUEST_CHANGES`)}>Вернуть на доработку</button>
               )}
+              {t.paused && (
+                <button className="primary"
+                  onClick={() => applyFlag(`TASK_${t.id}_RESUME_WORK`)}>▶ Снять паузу</button>
+              )}
               <div className="more-wrap" ref={moreWrapRef}>
                 <button className="ghost" onClick={() => setMoreOpen((v) => !v)}>Ещё ▾</button>
                 {moreOpen && (
@@ -327,6 +331,8 @@ export function TaskPanel({ doc, onClose, onAction }: {
                     : <div className="step">Причина уточняется — см. итог последней сессии ниже</div>}
                   {problem?.last_result &&
                     <div className="step">Итог последней сессии: {problem.last_result.slice(0, 300)}</div>}
+                  {problem?.diagnosis &&
+                    <div className="step">Диагностика сессии: {problem.diagnosis}</div>}
                   <div className="step">Незакрытые замечания ревью: {
                     (problem?.findings || []).length || "нет"}</div>
                   <div className="step">Лимиты: перезапусков {problem?.retries ?? 0},

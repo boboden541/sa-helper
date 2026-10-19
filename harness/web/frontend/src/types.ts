@@ -132,6 +132,7 @@ export interface TaskDoc {
   options?: { options: EscalationOption[] } | null;
   problem?: {
     reason: string;
+    diagnosis?: string | null;
     last_result: string;
     findings: Finding[];
     retries: number;

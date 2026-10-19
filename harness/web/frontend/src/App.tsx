@@ -167,7 +167,9 @@ export function App() {
         : view === "board"
           ? <Board state={state} onOpenTask={openTask}
               onAddTask={() => { setCreateType("task"); setCreateOpen(true); }}
-              onMove={(id, to) => api.move(id, to).then(reloadAll)} />
+              onMove={(id, to) => api.move(id, to)
+                .then(reloadAll)
+                .catch((e) => window.alert(`Перемещение не выполнено: ${e.message || e}`))} />
           : <TaskList state={state} onOpenTask={openTask}
               onAddTask={() => { setCreateType("task"); setCreateOpen(true); }} />}
 

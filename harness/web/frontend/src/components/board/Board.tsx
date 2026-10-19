@@ -126,6 +126,19 @@ export function Board({ state, onOpenTask, onAddTask, onMove }: {
         <input placeholder="поиск по задачам…" value={query}
           onChange={(e) => setQuery(e.target.value)} />
       </div>
+      {dragId && (
+        <div className="drophint">
+          {(() => {
+            const titles = COLUMNS
+              .filter((c) => dragTargets.includes(c.key) ||
+                             (c.also || []).some((k) => dragTargets.includes(k)))
+              .map((c) => c.title);
+            return titles.length
+              ? <>Перетащите в допустимую колонку: <b>{titles.join(" · ")}</b></>
+              : <>Для этой задачи в текущем статусе перемещений нет</>;
+          })()}
+        </div>
+      )}
       <div className="board">
         {COLUMNS.map((col) => {
           const list = visible.filter((t) => pipelineOf(t) === col.key ||

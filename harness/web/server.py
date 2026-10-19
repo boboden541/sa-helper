@@ -273,6 +273,44 @@ def _last_session_summary(hdir: Path, task_id: str) -> str:
     return "итог последней сессии не найден"
 
 
+def _session_diagnosis(hdir: Path, task_id: str) -> str | None:
+    """Диагноз последней сессии по stream-логу: почему она не довела работу.
+
+    Ищем (в порядке приоритета): отказ пермиссий, API-ошибку/сеть,
+    терминальную причину. None — диагноза нет.
+    """
+    run_dir = hdir / ".run"
+    logs = sorted(run_dir.glob(f"{task_id}_*_*.log"), key=lambda p: p.stat().st_mtime)
+    if not logs:
+        return None
+    try:
+        tail = logs[-1].read_bytes()[-131072:].decode("utf-8", errors="replace")
+    except OSError:
+        return None
+    perm = api = terminal = None
+    for raw in tail.splitlines():
+        try:
+            d = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if d.get("type") == "system" and d.get("subtype") == "permission_denied":
+            msg = str(d.get("message") or "")
+            tool = d.get("tool_name") or "инструмент"
+            if "requires approval" in msg:
+                perm = f"отказ пермиссий headless-сессии на {tool} («{msg.split(':')[-1].strip()[:120]}»)"
+            else:
+                perm = f"отказ пермиссий: {msg[:140]}"
+        elif d.get("is_api_error_message") and d.get("error") == "server_error":
+            content = d.get("message", {}).get("content", [])
+            txt = " ".join(c.get("text", "") for c in content
+                           if isinstance(c, dict) and c.get("type") == "text")
+            if txt:
+                api = "API/сеть: " + txt[:160]
+        elif d.get("type") == "result" and d.get("terminal_reason"):
+            terminal = f"сессия завершилась аварийно ({d.get('terminal_reason')})"
+    return perm or api or terminal
+
+
 def _readable_tail(path: Path, max_events: int = 60) -> str:
     """Stream-json сессии -> человекочитаемая хроника (как в v3)."""
     try:
@@ -483,6 +521,7 @@ class Handler(BaseHTTPRequestHandler):
             if task["pipeline"] in ("BLOCKED", "NEEDS_HUMAN"):
                 problem = {
                     "reason": task.get("blocked_reason") or "",
+                    "diagnosis": _session_diagnosis(hdir, task_id),
                     "last_result": _last_session_summary(hdir, task_id),
                     "findings": [f for f in task.get("findings", [])
                                  if f.get("resolution") != "resolved"],

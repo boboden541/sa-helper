@@ -110,8 +110,17 @@ header .logo { color: var(--ok); font-family: var(--mono); font-weight: 700;
 .board { display: flex; gap: 13px; padding: 14px 18px 30px; overflow-x: auto; align-items: flex-start; }
 .col { min-width: 250px; flex: 1; background: var(--surface);
   border: 1px solid var(--line); border-radius: 12px; padding: 11px; }
-.col.drop-ok { border-color: var(--acc-dim); border-style: dashed; }
-.col.drop-hot { border-color: var(--acc); background: rgba(88,166,255,.05); }
+.col.drop-ok { border-color: var(--acc); border-style: dashed; border-width: 2px;
+  background: rgba(88,166,255,.06); box-shadow: inset 0 0 0 1px rgba(88,166,255,.25); }
+.col.drop-ok::after { content: "сюда"; position: absolute; top: 8px; right: 10px;
+  font: 650 9.5px var(--mono); color: var(--acc); text-transform: uppercase;
+  letter-spacing: .6px; }
+.col { position: relative; }
+.col.drop-hot { border-color: var(--acc); border-width: 2px;
+  background: rgba(88,166,255,.12); }
+.drophint { margin: 0 18px 4px; padding: 6px 12px; border: 1px dashed var(--acc-dim);
+  border-radius: 8px; font: 12px var(--mono); color: var(--dim);
+  background: var(--surface); }
 .col-head { display: flex; align-items: center; gap: 8px; margin: 2px 2px 6px; }
 .col-head .dot { width: 8px; height: 8px; border-radius: 50%; }
 .col-head .name { font-family: var(--mono); font-size: 12.5px; font-weight: 650; }
