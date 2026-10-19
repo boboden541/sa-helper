@@ -10,6 +10,14 @@ if [ -d "$WORK" ]; then
   for f in steward_api.py sahelper.py db.py cards.py state_machine.py review_gate.py; do
     [ -f "/app/harness/$f" ] && cp "/app/harness/$f" "$WORK/harness/" 2>/dev/null || true
   done
+  # адаптер нужен и в harness-каталоге каждой Story (промпты ссылаются на него
+  # относительно пути задачи)
+  for hd in "$WORK"/sa_documentation/FNR/FNR_*/harness; do
+    [ -d "$hd" ] || continue
+    for f in sahelper.py db.py cards.py state_machine.py review_gate.py; do
+      [ -f "/app/harness/$f" ] && cp "/app/harness/$f" "$hd/" 2>/dev/null || true
+    done
+  done
   for f in /opt/harness-commands/impl-*.md /opt/harness-commands/steward.md; do
     [ -f "$f" ] && cp "$f" "$WORK/.claude/commands/" 2>/dev/null || true
   done

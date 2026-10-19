@@ -36,6 +36,7 @@ services:
     image: sa-helper-harness
     environment:
       PYTHONUNBUFFERED: "1"
+      IS_SANDBOX: "1"   # root-контейнер: разрешает --skip-permissions у сессий
       HARNESS_WORKSPACE: /work
       HARNESS_API: http://web:4040
       SAHELPER_HOME: /root/.sa-helper
@@ -46,7 +47,7 @@ services:
       - ${HOME}/.claude:/root/.claude
       - ${HOME}/.sa-helper:/root/.sa-helper
       - /var/run/docker.sock:/var/run/docker.sock
-    command: python3 /app/harness/orchestrator.py --workspace /work --project-name "${PROJECT_NAME:-work}"
+    command: python3 /app/harness/orchestrator.py --workspace /work --project-name "${PROJECT_NAME:-work}" --skip-permissions
     depends_on:
       - web
     restart: unless-stopped
