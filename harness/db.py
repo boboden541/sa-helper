@@ -1151,7 +1151,29 @@ def section_add(conn: sqlite3.Connection, task_id: int, title: str,
 
 
 def section_delete(conn: sqlite3.Connection, section_id: int) -> None:
+    """Удалить заголовок секции, ПЕРЕНЕСЯ её пункты в предыдущую секцию
+    (или создав «Чек-лист» для сирот). Пункты не теряются."""
     with tx(conn):
+        row = conn.execute("SELECT task_id, seq FROM checklist_sections WHERE id=?",
+                           (section_id,)).fetchone()
+        if not row:
+            return
+        task_id, seq = int(row["task_id"]), int(row["seq"])
+        # предыдущая секция (по seq) того же task_id
+        prev = conn.execute(
+            "SELECT id FROM checklist_sections WHERE task_id=? AND seq<?"
+            " ORDER BY seq DESC LIMIT 1", (task_id, seq)).fetchone()
+        if prev:
+            target = int(prev["id"])
+        else:
+            # нет предыдущей — создаём «Чек-лист» для сирот
+            cur = conn.execute(
+                "INSERT INTO checklist_sections(task_id, title, kind, seq, updated_at)"
+                " VALUES (?,?,?,?,?)",
+                (task_id, "Чек-лист", "custom", 99, now_iso()))
+            target = int(cur.lastrowid)
+        conn.execute("UPDATE checklist_items SET section_id=?, updated_at=?"
+                     " WHERE section_id=?", (target, now_iso(), section_id))
         conn.execute("DELETE FROM checklist_sections WHERE id=?", (section_id,))
 
 
