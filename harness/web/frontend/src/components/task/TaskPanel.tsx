@@ -4,9 +4,8 @@ import { api, pipelineOf, PIPE_ICON, PIPE_RU } from "../../api";
 import { inline, md, parseComments } from "../common/ui";
 import { StatusFlowMap } from "../common/StatusFlowMap";
 import { CardEditor, cardEditorConfirmClose } from "./CardEditor";
+import { ChecklistEditor } from "./ChecklistEditor";
 
-// Канон CSS — .st.block (макет v3); API отдаёт state "blocked".
-const ST_CLASS: Record<string, string> = { blocked: "block" };
 
 function SessionLog({ taskId }: { taskId: string }) {
   const [log, setLog] = useState<{ log: string; file: string | null } | null>(null);
@@ -393,28 +392,13 @@ export function TaskPanel({ doc, onClose, onAction }: {
             )}
           </Sect>
 
-          {/* ── Чек-лист ── */}
+          {/* ── Чек-лист: модель БД, редактор ── */}
           <Sect collapsed={!!collapsed.checklist} onToggle={() => toggleSect("checklist")}
             title="Чек-лист"
             cnt={t.checklist && t.checklist.total > 0 &&
               <span className="cnt">{t.checklist.done}/{t.checklist.total}</span>}>
-            {(doc.checklist_sections || []).map((s, si) => (
-              <div key={si}>
-                {(s.items || []).map((it, ii) => (
-                  <div key={ii} className={`check ${it.state === "done" ? "done" : ""}`}>
-                    <span className="box">{it.state === "done" ? "✓" :
-                      it.state === "inprog" ? "⟳" : ""}</span>
-                    <span className="txt">{it.text}</span>
-                    <span className={`st ${ST_CLASS[it.state] ?? it.state}`}>
-                      {it.state === "done" ? "Done" : it.state === "inprog" ? "InProgress"
-                        : it.state === "review" ? "Review"
-                        : it.state === "blocked" ? "Blocked"
-                        : it.state === "failed" ? "Failed" : "Todo"}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ))}
+            <ChecklistEditor tid={t.id} checklist={doc.checklist || []}
+              onChange={onAction} />
             <div className="sess">
               <div className="l">итог последней сессии</div>
               {problem?.last_result || "сессий ещё не было"}

@@ -290,6 +290,57 @@ table.tasks td.mono { font-family: var(--mono); font-size: 11.5px; color: var(--
 .src { color: var(--faint); font-size: 12px; margin-top: 12px;
   border-top: 1px dashed var(--line); padding-top: 8px; }
 
+/* ═══ редактор чек-листа (ChecklistEditor) ═══ */
+.cl-progress { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.cl-bar { flex: 1; height: 6px; border-radius: 3px; background: var(--chip);
+  border: 1px solid var(--line); overflow: hidden; }
+.cl-bar > i { display: block; height: 100%; background: var(--acc); border-radius: 3px; }
+.cl-count { font: 650 13px var(--mono); color: var(--acc); white-space: nowrap; }
+.cl-sec { margin-top: 14px; }
+.cl-sec-h { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.cl-sec-t { font-weight: 700; font-size: 15px; color: var(--text); }
+.cl-kind { font: 600 9px var(--mono); text-transform: uppercase; letter-spacing: .6px;
+  color: var(--faint); background: var(--surface2); padding: 1px 6px; border-radius: 3px; }
+.cl-kind-plan { color: var(--acc); }
+.cl-kind-review { color: var(--pink); }
+.cl-item { display: flex; gap: 8px; padding: 5px 4px; align-items: center;
+  border-radius: 5px; transition: background .1s; }
+.cl-item:hover { background: var(--surface2); }
+.cl-item.cl-done .cl-text { text-decoration: line-through; color: var(--faint); }
+.cl-box { display: inline-flex; width: 18px; height: 18px; align-items: center;
+  justify-content: center; border: 1.5px solid var(--line2); border-radius: 4px;
+  background: var(--surface); cursor: pointer; font-size: 11px; flex-shrink: 0;
+  color: var(--ok); transition: border-color .1s; }
+.cl-box:hover { border-color: var(--acc); }
+.cl-box.done { background: var(--acc); border-color: var(--acc); color: #fff; }
+.cl-text { flex: 1; font-size: 13px; cursor: default; min-width: 0; }
+.cl-mand { color: var(--warn); font: 700 13px var(--mono); margin-left: 2px; }
+.cl-dots { cursor: pointer; color: var(--faint); padding: 0 3px; font-size: 15px;
+  opacity: 0; transition: opacity .1s; }
+.cl-item:hover .cl-dots { opacity: 1; }
+.cl-dots:hover { color: var(--text); }
+.cl-menu { position: absolute; right: 4px; z-index: 35; background: var(--surface2);
+  border: 1px solid var(--line2); border-radius: 8px; box-shadow: var(--pop);
+  overflow: hidden; min-width: 160px; }
+.cl-menu div { padding: 6px 12px; cursor: pointer; font-size: 12px;
+  border-bottom: 1px solid var(--line); }
+.cl-menu div:last-child { border-bottom: 0; }
+.cl-menu div:hover { background: var(--surface3); }
+.cl-menu div.cl-danger { color: var(--bad); }
+.cl-edit { flex: 1; background: var(--surface); color: var(--text);
+  border: 1px solid var(--acc); border-radius: 4px; padding: 3px 6px;
+  font: inherit; outline: none; }
+.cl-additem { display: flex; gap: 4px; margin-top: 4px; }
+.cl-additem input { flex: 1; background: none; color: var(--faint);
+  border: 1px dashed var(--line2); border-radius: 4px; padding: 4px 8px;
+  font: inherit; outline: none; }
+.cl-additem input:focus { color: var(--text); border-color: var(--acc); }
+.cl-addsec { margin-top: 10px; }
+.cl-secinput { background: var(--chip); color: var(--text); border: 1px solid var(--line2);
+  border-radius: 5px; padding: 4px 8px; font: inherit; outline: none; }
+.st.skipped { color: var(--faint); border-color: var(--faint); }
+.st.failed { color: var(--bad); border-color: var(--bad); }
+
 /* ═══ редактор описания (CardEditor) ═══ */
 .ced { border: 1px solid var(--line2); border-radius: 10px; overflow: hidden;
   background: var(--surface); }

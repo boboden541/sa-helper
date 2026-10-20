@@ -113,6 +113,39 @@ export const api = {
 
   /** Сохранить карточку (единое описание). 409 (живая сессия) не бросает —
    *  возвращается {ok:false, conflict:true} для confirm'а с force. */
+  checklistSectionAdd: (tid: string, title: string, kind = "custom") =>
+    fetch(withFnr(`/api/checklist/${tid}/section`), {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title, kind }),
+    }).then((r) => r.json()),
+
+  checklistItemAdd: (tid: string, sectionId: number, text: string,
+                     state = "todo", mandatory = false) =>
+    fetch(withFnr(`/api/checklist/${tid}/item`), {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ section_id: sectionId, text, state, mandatory }),
+    }).then((r) => r.json()),
+
+  checklistItemPatch: (itemId: number, patch: Record<string, unknown>) =>
+    fetch(withFnr(`/api/checklist/item/${itemId}`), {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    }).then((r) => r.json()),
+
+  checklistItemDelete: (itemId: number) =>
+    fetch(withFnr(`/api/checklist/item/${itemId}`), { method: "DELETE" })
+      .then((r) => r.json()),
+
+  checklistSectionDelete: (sectionId: number) =>
+    fetch(withFnr(`/api/checklist/section/${sectionId}`), { method: "DELETE" })
+      .then((r) => r.json()),
+
+  checklistImport: (tid: string, text: string) =>
+    fetch(withFnr(`/api/checklist/${tid}/import`), {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    }).then((r) => r.json()),
+
   saveCard: (id: string, cardMd: string, force = false) =>
     fetch(withFnr(`/api/task/${id}/card`), {
       method: "POST",

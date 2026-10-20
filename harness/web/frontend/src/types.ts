@@ -139,6 +139,25 @@ export interface TaskDoc {
     review_iterations: number;
     blocked_from: string | null;
   } | null;
+  checklist?: ChecklistSectionModel[];
+}
+
+export interface ChecklistItemModel {
+  id: number;
+  seq: number;
+  text: string;
+  state: "todo" | "inprog" | "done" | "review" | "blocked" | "failed" | "skipped";
+  mandatory: number;
+  updated_at: string;
+}
+
+export interface ChecklistSectionModel {
+  id: number;
+  title: string;
+  kind: "plan" | "review" | "custom";
+  seq: number;
+  note: string | null;
+  items: ChecklistItemModel[];
 }
 
 export interface JournalEntry {

@@ -463,6 +463,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_DELETE(self) -> None:
         self._safe(self._do_DELETE)
 
+    def do_PATCH(self) -> None:
+        self._safe(self._do_PATCH)
+
     def _do_GET(self) -> None:
         path, params = self._route()
         project = self._project(params)
@@ -518,6 +521,8 @@ class Handler(BaseHTTPRequestHandler):
             if task is None:
                 self._send(404, b'{"error":"no such task"}', "application/json")
                 return
+            task_row_id = c.execute("SELECT id FROM tasks WHERE story_id=? AND tid=?",
+                                    (sid, task_id)).fetchone()["id"]
             hdir = harness_dir(project, story["fnr"])
             problem = None
             if task["pipeline"] in ("BLOCKED", "NEEDS_HUMAN"):
@@ -541,7 +546,7 @@ class Handler(BaseHTTPRequestHandler):
                 "problem": problem,
                 "comments_md": comments_as_md(c, sid, task_id),
                 "ask_pending": (run_dir / f"{task_id}_ask.pending").exists(),
-                "checklist": dbmod.checklist_get(c, task["id"]),
+                "checklist": dbmod.checklist_get(c, task_row_id),
             }
             self._send(200, json.dumps(doc, ensure_ascii=False).encode("utf-8"),
                        "application/json")
@@ -642,6 +647,18 @@ class Handler(BaseHTTPRequestHandler):
                 time.sleep(1)
         except OSError:
             pass
+
+    def _checklist_ctx(self, params: dict, tid: str):
+        """(conn, story, task_id) для операций чек-листа; None — нет задачи."""
+        project = self._project(params)
+        story = self._story(project, params) if project else None
+        if story is None or not TASK_ID_RE.fullmatch(tid):
+            return None
+        row = conn().execute("SELECT id FROM tasks WHERE story_id=? AND tid=?",
+                             (int(story["id"]), tid)).fetchone()
+        if row is None:
+            return None
+        return conn(), story, int(row["id"])
 
     def _do_POST(self) -> None:
         path, params = self._route()
@@ -864,13 +881,124 @@ class Handler(BaseHTTPRequestHandler):
                              args=(project, story["fnr"], task_id, session_id, question),
                              daemon=True).start()
             self._send(200, b'{"ok":true,"pending":true}', "application/json")
+        elif path.startswith("/api/checklist/") and "/section" in path:
+            # POST /api/checklist/<T<k>>/section {title, kind} — новая секция
+            tid = path.split("/")[3]
+            ctx = self._checklist_ctx(params, tid)
+            if ctx is None:
+                self._send(404, b'{"error":"no such task"}', "application/json")
+                return
+            c, story, task_id = ctx
+            body = self._json_body()
+            try:
+                sec_id = dbmod.section_add(c, task_id, str(body.get("title") or ""),
+                                           kind=str(body.get("kind") or "custom"))
+            except ValueError as exc:
+                self._send(400, json.dumps({"error": str(exc)},
+                           ensure_ascii=False).encode("utf-8"), "application/json")
+                return
+            dbmod.append_event(c, int(story["id"]), tid,
+                               f"{tid}: секция чек-листа «{body.get('title')}» добавлена",
+                               actor="human", kind="checklist")
+            self._send(200, json.dumps({"ok": True, "section_id": sec_id},
+                       ensure_ascii=False).encode("utf-8"), "application/json")
+        elif path.startswith("/api/checklist/") and path.endswith("/item"):
+            # POST /api/checklist/<T<k>>/item {section_id, text, state?, mandatory?}
+            tid = path.split("/")[3]
+            ctx = self._checklist_ctx(params, tid)
+            if ctx is None:
+                self._send(404, b'{"error":"no such task"}', "application/json")
+                return
+            c, story, task_id = ctx
+            body = self._json_body()
+            try:
+                item_id = dbmod.item_add(c, int(body.get("section_id") or 0),
+                                         str(body.get("text") or ""),
+                                         state=str(body.get("state") or "todo"),
+                                         mandatory=bool(body.get("mandatory")))
+            except ValueError as exc:
+                self._send(400, json.dumps({"error": str(exc)},
+                           ensure_ascii=False).encode("utf-8"), "application/json")
+                return
+            dbmod.append_event(c, int(story["id"]), tid,
+                               f"{tid}: пункт чек-листа добавлен человеком",
+                               actor="human", kind="checklist")
+            self._send(200, json.dumps({"ok": True, "item_id": item_id},
+                       ensure_ascii=False).encode("utf-8"), "application/json")
+        elif path.startswith("/api/checklist/") and path.endswith("/import"):
+            # POST /api/checklist/<T<k>>/import {text} — Checkvist-замена всего
+            tid = path.split("/")[3]
+            ctx = self._checklist_ctx(params, tid)
+            if ctx is None:
+                self._send(404, b'{"error":"no such task"}', "application/json")
+                return
+            c, story, task_id = ctx
+            text = str(self._json_body().get("text") or "")
+            sections = dbmod.parse_checkvist(text)
+            if not sections:
+                self._send(400, '{"error":"текст не содержит пунктов"}'.encode("utf-8"),
+                           "application/json")
+                return
+            dbmod.checklist_replace(c, task_id, sections)
+            n_items = sum(len(x["items"]) for x in sections)
+            dbmod.append_event(c, int(story["id"]), tid,
+                               f"{tid}: чек-лист импортирован из текста "
+                               f"({len(sections)} секций, {n_items} пунктов)",
+                               actor="human", kind="checklist")
+            self._send(200, json.dumps({"ok": True, "sections": len(sections),
+                                        "items": n_items},
+                       ensure_ascii=False).encode("utf-8"), "application/json")
         else:
             self._send(404, b'{"error":"not found"}', "application/json")
+
+    def _do_PATCH(self) -> None:
+        path, params = self._route()
+        if path.startswith("/api/checklist/item/"):
+            item_id = path.rsplit("/", 1)[1]
+            if not item_id.isdigit():
+                self._send(400, b'{"error":"bad item id"}', "application/json")
+                return
+            row = conn().execute(
+                "SELECT cs.task_id FROM checklist_items ci"
+                " JOIN checklist_sections cs ON cs.id=ci.section_id WHERE ci.id=?",
+                (int(item_id),)).fetchone()
+            if row is None:
+                self._send(404, b'{"error":"no such item"}', "application/json")
+                return
+            body = self._json_body()
+            try:
+                ok = dbmod.item_update(conn(), int(item_id),
+                                       text=body.get("text"),
+                                       state=body.get("state"),
+                                       mandatory=body.get("mandatory"))
+            except ValueError as exc:
+                self._send(400, json.dumps({"error": str(exc)},
+                           ensure_ascii=False).encode("utf-8"), "application/json")
+                return
+            dbmod.append_event(conn(), row["task_id"], None,
+                               f"пункт чек-листа обновлён человеком",
+                               actor="human", kind="checklist")
+            self._send(200, b'{"ok":true}', "application/json")
+        else:
+            self._send(404, b'{"error":"not found"}', "application/json")
+
+    def _do_DELETE_impl(self) -> None:  # overridden below by wrapper
+        pass
 
     def _do_DELETE(self) -> None:
         path, params = self._route()
         c = conn()
-        if path.startswith("/api/flag/"):
+        if path.startswith("/api/checklist/item/"):
+            item_id = path.rsplit("/", 1)[1]
+            if not item_id.isdigit():
+                self._send(400, b'{"error":"bad item id"}', "application/json")
+                return
+            dbmod.item_delete(c, int(item_id))
+            self._send(200, b'{"ok":true}', "application/json")
+        elif path.startswith("/api/checklist/section/"):
+            dbmod.section_delete(c, int(path.rsplit("/", 1)[1]))
+            self._send(200, b'{"ok":true}', "application/json")
+        elif path.startswith("/api/flag/"):
             name = path.rsplit("/", 1)[1]
             story = self._story(self._project(params), params) if self._project(params) else None
             if story is None:
