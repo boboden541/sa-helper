@@ -26,7 +26,7 @@ export function ChecklistEditor({ tid, checklist, onChange }: {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const [menuId, setMenuId] = useState<number | null>(null);
-  const [newSecTitle, setNewSecTitle] = useState("");
+
   const addInputRef = useRef<HTMLInputElement>(null);
 
   const total = checklist.reduce((a, s) => a + s.items.length, 0);
@@ -40,26 +40,48 @@ export function ChecklistEditor({ tid, checklist, onChange }: {
     }).catch(() => {});
   };
 
-  // добавление с автоопределением: # текст = новая секция, ## текст = подзаголовок
+  // Единственное поле ввода: последовательно добавляет строки в чек-лист.
+  // # текст → секция · ## текст → подзаголовок · обычный текст → пункт
+  // в последнюю секцию. После каждого Enter — фокус возвращается в поле.
   const addSmart = (raw: string) => {
     const trimmed = raw.trim();
     if (!trimmed) return;
-    const secMatch = trimmed.match(/^#\s+(.*)/);
-    if (secMatch) {
-      api.checklistSectionAdd(tid, secMatch[1]).then(onChange).catch(() => {});
+    const after = () => { onChange(); addInputRef.current?.focus(); };
+
+    // ## – ##### = подзаголовок (depth 1–4) в последнюю секцию
+    const depthMatch = trimmed.match(/^(#{2,5})\s+(.*)$/);
+    if (depthMatch) {
+      const depth = depthMatch[1].length - 1;
+      const text = depthMatch[2];
+      const target = checklist.length > 0 ? checklist[checklist.length - 1] : null;
+      if (target) {
+        api.checklistItemAdd(tid, target.id, text, "todo", false, depth)
+          .then(after).catch(() => {});
+      } else {
+        api.checklistSectionAdd(tid, "Чек-лист").then((r: any) => {
+          api.checklistItemAdd(tid, r.section_id, text, "todo", false, depth)
+            .then(after).catch(() => {});
+        }).catch(() => {});
+      }
       return;
     }
-    const depthMatch = trimmed.match(/^(#{2,5})\s+(.*)$/);
-    const depth = depthMatch ? depthMatch[1].length - 1 : 0;
-    const text = depthMatch ? depthMatch[2] : trimmed;
-    const targetSection = checklist.length > 0 ? checklist[checklist.length - 1] : null;
-    if (targetSection) {
-      api.checklistItemAdd(tid, targetSection.id, text, "todo", false, depth)
-        .then(onChange).catch(() => {});
+
+    // # текст = новая секция (в конец)
+    const secMatch = trimmed.match(/^#\s+(.*)/);
+    if (secMatch) {
+      api.checklistSectionAdd(tid, secMatch[1]).then(after).catch(() => {});
+      return;
+    }
+
+    // обычный текст → пункт в последнюю секцию
+    const target = checklist.length > 0 ? checklist[checklist.length - 1] : null;
+    if (target) {
+      api.checklistItemAdd(tid, target.id, trimmed)
+        .then(after).catch(() => {});
     } else {
       api.checklistSectionAdd(tid, "Чек-лист").then((r: any) => {
-        api.checklistItemAdd(tid, r.section_id, text, "todo", false, depth)
-          .then(onChange).catch(() => {});
+        api.checklistItemAdd(tid, r.section_id, trimmed)
+          .then(after).catch(() => {});
       }).catch(() => {});
     }
   };
@@ -133,16 +155,7 @@ export function ChecklistEditor({ tid, checklist, onChange }: {
             </div>
           ))}
 
-          <div className="cl-addsec">
-            <input className="cl-secinput" placeholder="Новая секция: # Название"
-              value={newSecTitle}
-              onChange={(e) => setNewSecTitle(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && newSecTitle.trim()) {
-                api.checklistSectionAdd(tid, newSecTitle.trim())
-                  .then(onChange).catch(() => {});
-                setNewSecTitle("");
-              } }} />
-          </div>
+
         </>
       )}
     </div>
