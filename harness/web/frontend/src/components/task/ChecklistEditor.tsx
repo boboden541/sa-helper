@@ -52,7 +52,7 @@ export function ChecklistEditor({ tid, checklist, onChange }: {
     const depthMatch = trimmed.match(/^(#{2,5})\s+(.*)$/);
     const depth = depthMatch ? depthMatch[1].length - 1 : 0;
     const text = depthMatch ? depthMatch[2] : trimmed;
-    const targetSection = checklist.length > 0 ? checklist[0] : null;
+    const targetSection = checklist.length > 0 ? checklist[checklist.length - 1] : null;
     if (targetSection) {
       api.checklistItemAdd(tid, targetSection.id, text, "todo", false, depth)
         .then(onChange).catch(() => {});

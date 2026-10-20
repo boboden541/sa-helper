@@ -292,9 +292,6 @@ table.tasks td.mono { font-family: var(--mono); font-size: 11.5px; color: var(--
 
 /* ═══ редактор чек-листа (ChecklistEditor) ═══ */
 /* кнопки Визуально/Текст — крупные, с отступом */
-.cl-modes { display: flex; gap: 2px; margin-bottom: 12px;
-  border: 1px solid var(--line2); border-radius: 8px; overflow: hidden;
-  width: fit-content; }
 .cl-mode { border: 0; background: none; color: var(--faint); padding: 7px 18px;
   cursor: pointer; font: 650 13px inherit; transition: background .12s; }
 .cl-mode.on { background: var(--acc); color: #fff; }
@@ -313,7 +310,7 @@ table.tasks td.mono { font-family: var(--mono); font-size: 11.5px; color: var(--
   border: 1px solid var(--line); overflow: hidden; }
 .cl-bar > i { display: block; height: 100%; background: var(--acc); border-radius: 3px; }
 .cl-count { font: 650 13px var(--mono); color: var(--acc); white-space: nowrap; }
-.cl-sec { margin-top: 20px; padding-top: 14px;
+.cl-sec { margin-top: 24px; padding-top: 0;
   border-top: 2px solid var(--line); }
 .cl-sec:first-of-type { border-top: 0; padding-top: 0; margin-top: 8px; }
 .cl-sec-h { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
@@ -322,7 +319,7 @@ table.tasks td.mono { font-family: var(--mono); font-size: 11.5px; color: var(--
   color: var(--faint); background: var(--surface2); padding: 1px 6px; border-radius: 3px; }
 .cl-kind-plan { color: var(--acc); }
 .cl-kind-review { color: var(--pink); }
-.cl-item { display: flex; gap: 8px; padding: 5px 4px; align-items: center;
+.cl-item { display: flex; gap: 8px; padding: 5px 4px; align-items: center; position: relative;
   border-radius: 5px; transition: background .1s; }
 .cl-item:hover { background: var(--surface2); }
 .cl-item.cl-done .cl-text { text-decoration: line-through; color: var(--faint); }
