@@ -1170,7 +1170,7 @@ def section_delete(conn: sqlite3.Connection, section_id: int) -> None:
             cur = conn.execute(
                 "INSERT INTO checklist_sections(task_id, title, kind, seq, updated_at)"
                 " VALUES (?,?,?,?,?)",
-                (task_id, "Чек-лист", "custom", 99, now_iso()))
+                (task_id, "", "custom", 99, now_iso()))
             target = int(cur.lastrowid)
         conn.execute("UPDATE checklist_items SET section_id=?, updated_at=?"
                      " WHERE section_id=?", (target, now_iso(), section_id))

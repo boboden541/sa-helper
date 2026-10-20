@@ -136,7 +136,7 @@ export function ChecklistEditor({ tid, checklist, onChange }: {
             <p className="empty">Введите «# Название» выше и нажмите Enter — создастся секция</p>
           )}
 
-          {checklist.map((sec) => (
+          {checklist.filter((sec) => sec.title !== "").map((sec) => (
             <div className="cl-sec" key={sec.id}>
               <div className="cl-sec-h">
                 <span className="cl-sec-t">{sec.title}</span>
