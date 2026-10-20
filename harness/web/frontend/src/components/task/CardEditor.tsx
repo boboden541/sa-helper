@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { toast } from "../common/toasts";
 
 /** Модульный dirty-guard: backdrop и Escape спрашивают редактор перед закрытием. */
 let dirtyGuard: (() => boolean) | null = null;
@@ -436,7 +437,7 @@ export function CardEditor({ cardMd, liveRunning, onSave, onCancel }: {
     anchorEl()?.closest?.("table") as HTMLTableElement | null ?? null;
   const needCell = (): HTMLElement | null => {
     const c = selCell();
-    if (!c) window.alert("Поставьте курсор внутрь таблицы");
+    if (!c) toast.err("Поставьте курсор внутрь таблицы");
     return c;
   };
 
@@ -472,7 +473,7 @@ export function CardEditor({ cardMd, liveRunning, onSave, onCancel }: {
     if (!c) { setTblOpen(false); return; }
     const tr = c.closest("tr");
     if (tr?.parentElement?.tagName === "THEAD") {
-      window.alert("Строку заголовка удалить нельзя — правьте текст ячеек или удалите таблицу целиком");
+      toast.err("Строку заголовка удалить нельзя — правьте текст ячеек или удалите таблицу целиком");
       setTblOpen(false);
       return;
     }

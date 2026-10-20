@@ -79,17 +79,4 @@ export function CommandPalette({ open, onClose, state, stories, actions }: {
   );
 }
 
-export interface Toast { id: number; text: string; onClick?: () => void; }
 
-export function Toasts({ toasts, onDismiss }: {
-  toasts: Toast[];
-  onDismiss: (id: number) => void;
-}) {
-  return (
-    <div className="toasts">
-      {toasts.map((t) => (
-        <div className="toast" key={t.id} onClick={() => onDismiss(t.id)}>{t.text}</div>
-      ))}
-    </div>
-  );
-}

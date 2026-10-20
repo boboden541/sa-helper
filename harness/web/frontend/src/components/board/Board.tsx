@@ -37,23 +37,27 @@ function timeAgoShort(iso?: string): string {
   return m < 1 ? "только что" : m < 60 ? `${m}м назад` : `${Math.round(m / 60)}ч назад`;
 }
 
-function Card({ t, onOpen, onDragStart, onFlag }: {
+function Card({ t, onOpen, onDragStart, onDragEnd, onFlag, justMoved }: {
   t: Task;
   onOpen: (id: string) => void;
   onDragStart: (id: string, targets: string[]) => void;
+  onDragEnd: () => void;
   onFlag: (id: string, flag: string) => void;
+  justMoved?: boolean;
 }) {
   const p = pipelineOf(t);
   const acs = t.acceptance_criteria || [];
   const passed = acs.filter((a) => a.status === "PASSED").length;
   return (
-    <div className="tcard" style={{ "--edge": edgeOf(p) } as React.CSSProperties}
+    <div className={`tcard ${justMoved ? "just-moved" : ""}`}
+      style={{ "--edge": edgeOf(p) } as React.CSSProperties}
       draggable
       onDragStart={(e) => {
         e.dataTransfer.setData("text/plain", t.id);
         e.dataTransfer.effectAllowed = "move";
         onDragStart(t.id, (t as Task & { move_targets?: string[] }).move_targets ?? []);
       }}
+      onDragEnd={onDragEnd}
       onClick={() => onOpen(t.id)}>
       <div className="ttitle">{t.title || t.id}</div>
       {t.description && <div className="tdesc">{t.description}</div>}
@@ -84,12 +88,13 @@ function Card({ t, onOpen, onDragStart, onFlag }: {
   );
 }
 
-export function Board({ state, onOpenTask, onAddTask, onMove, onFlag }: {
+export function Board({ state, onOpenTask, onAddTask, onMove, onFlag, justMovedId }: {
   state: BoardState;
   onOpenTask: (id: string) => void;
   onAddTask: () => void;
   onMove: (id: string, to: string) => void;
   onFlag: (id: string, flag: string) => void;
+  justMovedId?: string | null;
 }) {
   const [active, setActive] = useState<string[]>([]);
   const [query, setQuery] = useState("");
@@ -97,6 +102,8 @@ export function Board({ state, onOpenTask, onAddTask, onMove, onFlag }: {
   const [dragTargets, setDragTargets] = useState<string[]>([]);
   const [dropCol, setDropCol] = useState<string | null>(null);
   const tasks = state.manifest.tasks || [];
+  // С2: отмена драга мимо колонок (Esc/drop вне доски) чистит подсветку
+  const resetDrag = () => { setDragId(null); setDragTargets([]); setDropCol(null); };
 
   const visible = useMemo(() => tasks.filter((t) => {
     const p = pipelineOf(t);
@@ -171,7 +178,7 @@ export function Board({ state, onOpenTask, onAddTask, onMove, onFlag }: {
                     .find((k) => dragTargets.includes(k));
                   onMove(dragId, exact ?? col.key);
                 }
-                setDragId(null); setDragTargets([]); setDropCol(null);
+                resetDrag();
               }}>
               <div className="col-head">
                 <span className="dot" style={{ background: col.dot }} />
@@ -184,9 +191,11 @@ export function Board({ state, onOpenTask, onAddTask, onMove, onFlag }: {
               )}
               {list.map((t) => (
                 <Card key={t.id} t={t} onOpen={onOpenTask} onFlag={onFlag}
+                  justMoved={justMovedId === t.id}
                   onDragStart={(id, targets) => {
                     setDragId(id); setDragTargets(targets);
-                  }} />
+                  }}
+                  onDragEnd={resetDrag} />
               ))}
               {list.length === 0 && <div className="empty">—</div>}
             </div>

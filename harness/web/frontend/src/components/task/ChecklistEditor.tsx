@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChecklistItemModel, ChecklistSectionModel } from "../../types";
 import { api } from "../../api";
+import { toast } from "../common/toasts";
 
 const STATES: Array<{ key: ChecklistItemModel["state"]; label: string }> = [
   { key: "todo", label: "Todo" },
@@ -38,7 +39,7 @@ export function ChecklistEditor({ tid, checklist, onChange }: {
     api.checklistImport(tid, textDraft ?? "").then(() => {
       setTextDraft(null); setMode("visual"); onChange();
     }).catch((e) => {
-      window.alert(`Не удалось применить: ${e.message || e}`);
+      toast.err(`Не удалось применить: ${e.message || e}`);
     });
   };
 

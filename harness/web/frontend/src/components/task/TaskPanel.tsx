@@ -5,6 +5,7 @@ import { inline, md, parseComments } from "../common/ui";
 import { StatusFlowMap } from "../common/StatusFlowMap";
 import { CardEditor, cardEditorConfirmClose } from "./CardEditor";
 import { ChecklistEditor } from "./ChecklistEditor";
+import { toast } from "../common/toasts";
 
 
 function SessionLog({ taskId }: { taskId: string }) {
@@ -203,22 +204,26 @@ export function TaskPanel({ doc, onClose, onAction }: {
   const humanComments = comments.filter((c) => c.author !== "reviewer");
 
 
+  // С2: выбранный вариант подсвечивается, кнопки блокируются на время запроса
+  const [busyFlag, setBusyFlag] = useState<string | null>(null);
+  const [selOpt, setSelOpt] = useState<number | null>(null);
   const applyFlag = useCallback((flag: string) => {
-    api.setFlag(flag).then(onAction);
-  }, [onAction]);
+    if (busyFlag) return;
+    setBusyFlag(flag);
+    api.setFlag(flag)
+      .then(onAction)
+      .catch((e) => toast.err(`Не выполнено: ${e.message}`))
+      .finally(() => setBusyFlag(null));
+  }, [onAction, busyFlag]);
 
   const send = useCallback(() => {
     const text = cInputRef.current?.value.trim();
     if (!text || !t?.id) return;
-    const isIntervention = p === "NEEDS_HUMAN" || p === "BLOCKED";
-    const isDone = p === "DONE";
     api.comment(t.id, text).then(() => {
       if (cInputRef.current) cInputRef.current.value = "";
-      if (isIntervention) return api.setFlag(`TASK_${t.id}_RETRY`);
-      if (isDone) return api.setFlag(`TASK_${t.id}_REQUEST_CHANGES`);
-      return undefined;
-    }).then(() => onAction());
-  }, [t, p, onAction]);
+      onAction();
+    }).catch((e) => toast.err(`Не отправлено: ${e.message}`));
+  }, [t, onAction]);
 
   if (!doc || !t) return null;
 
@@ -343,10 +348,14 @@ export function TaskPanel({ doc, onClose, onAction }: {
                     <div className="a-opt-t">Steward предлагает варианты — выберите один
                       или напишите свой</div>
                     {options.map((o, i) => (
-                      <div key={i} className={`a-opt ${o.recommended ? "rec" : ""}`}
+                      <div key={i}
+                        className={`a-opt ${o.recommended ? "rec" : ""} ${selOpt === i ? "sel" : ""} ${o.flag && busyFlag === o.flag ? "busy" : ""}`}
                         onClick={() => {
-                          if (o.flag) { applyFlag(o.flag);
-                            api.stewardMessage(`Человек выбрал вариант: «${o.title}»`).catch(() => {});
+                          setSelOpt(i);
+                          if (o.flag) {
+                            applyFlag(o.flag);
+                            api.stewardMessage(`Человек выбрал вариант: «${o.title}»`)
+                              .catch(() => {});
                           }
                         }}>
                         <span className="num">{i + 1}</span>
@@ -383,7 +392,7 @@ export function TaskPanel({ doc, onClose, onAction }: {
                 onSave={(mdText, { force }) => {
                   api.saveCard(t.id, mdText, force).then((r) => {
                     if (r.ok) { setEditing(false); onAction(); }
-                    else window.alert(r.error || "не удалось сохранить карточку");
+                    else toast.err(r.error || "не удалось сохранить карточку");
                   });
                 }}
                 onCancel={() => setEditing(false)} />

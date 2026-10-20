@@ -569,3 +569,27 @@ button.quiet:hover { color: var(--acc); background: none; border: 0; }
   display: flex; flex-direction: column; gap: 8px; }
 .toast { background: var(--surface2); border: 1px solid var(--warn); border-radius: 8px;
   padding: 10px 14px; font-size: 12.5px; max-width: 340px; cursor: pointer; }
+
+/* ── С2: тосты с вариантами (info/ok/warn/err) ─────────────────────────── */
+.toast.info { border-color: var(--acc); }
+.toast.ok { border-color: var(--ok); }
+.toast.warn { border-color: var(--amber); }
+.toast.err { border-color: var(--bad); background: rgba(248, 81, 73, .08);
+  animation: toast-in .18s ease-out; }
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(6px); }
+}
+
+/* ── С2: варианты Steward — курсор, нажатие, выбор, занятость ──────────── */
+.a-opt { cursor: pointer; transition: border-color .12s, transform .06s, background .12s; }
+.a-opt:active { transform: scale(.985); }
+.a-opt.sel { border-color: var(--ok); background: rgba(63, 185, 80, .12); }
+.a-opt.busy { opacity: .55; pointer-events: none; }
+
+/* ── С2: карточка переехала (синхронный DnD/вариант) ───────────────────── */
+.tcard.just-moved { animation: just-moved 1.3s ease-out; }
+@keyframes just-moved {
+  0% { box-shadow: 0 0 0 3px var(--acc); transform: translateY(-3px); }
+  100% { box-shadow: 0 0 0 0 transparent; transform: none; }
+}
+.tcard:active { cursor: grabbing; }

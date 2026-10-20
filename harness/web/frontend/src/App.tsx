@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { BoardState, Project, TaskDoc } from "./types";
+import type { BoardState, Project, Task, TaskDoc } from "./types";
 import { api, pipelineOf, setFnr as setApiFnr, setProject as setApiProject, PIPE_RU } from "./api";
 import { Board } from "./components/board/Board";
 import { TaskList } from "./components/board/TaskList";
@@ -10,7 +10,8 @@ import { ProjectModal } from "./components/create/ProjectModal";
 import { Header } from "./components/Header";
 import { MetricsDialog } from "./components/common/MetricsDialog";
 import { OverviewDialog } from "./components/common/OverviewDialog";
-import { CommandPalette, Toasts, type Command, type Toast } from "./components/common/CommandPalette";
+import { CommandPalette, type Command } from "./components/common/CommandPalette";
+import { Toasts, toast } from "./components/common/toasts";
 import { StewardChat } from "./components/common/StewardChat";
 
 export function App() {
@@ -27,10 +28,18 @@ export function App() {
   const [overviewOpen, setOverviewOpen] = useState(false);
   const [view, setView] = useState<"board" | "list">("board");
   const [conn, setConn] = useState("…");
-  const [toasts, setToasts] = useState<Toast[]>([]);
-  const toastId = useRef(1);
+  const [justMoved, setJustMoved] = useState<string | null>(null);
   const prevAttention = useRef<Map<string, string>>(new Map());
   const bootedRef = useRef(false);
+  // refs для SSE-насоса (замыкание живёт между рендерами)
+  const fnrRef = useRef(fnr);
+  fnrRef.current = fnr;
+  const boardPumpRef = useRef<() => void>(() => {});
+  boardPumpRef.current = () => {
+    refresh();
+    const cur = fnrRef.current;
+    if (cur) api.state(cur).then(setState).catch(() => {});
+  };
 
   const activeProject = projects.find((x) => x.name === project) || null;
   const stories = activeProject?.stories ?? [];
@@ -67,17 +76,26 @@ export function App() {
     if (taskDoc) api.task(taskDoc.task.id).then(setTaskDoc);
   }, [refresh, project, fnr, loadBoard, taskDoc]);
 
-  // SSE нужен только одиночному (--harness) режиму; мульти — опрос проектов
+  // SSE: события демона/web (переходы, команды) двигают доску сразу —
+  // троттл 1.5с (leading + trailing); 3с-опрос ниже остаётся fallback'ом
   useEffect(() => {
     refresh();
     const es = new EventSource("/events");
     es.onopen = () => setConn("live");
     es.onerror = () => setConn("переподключение…");
-    es.onmessage = (e) => {
-      const data = JSON.parse(e.data);
-      if (data.manifest) setState(data);   // одиночный режим
+    let last = 0;
+    let timer: number | undefined;
+    const pump = () => {
+      const now = Date.now();
+      if (now - last >= 1500) { last = now; boardPumpRef.current(); }
+      else if (timer === undefined) {
+        timer = window.setTimeout(() => {
+          timer = undefined; last = Date.now(); boardPumpRef.current();
+        }, 1500 - (now - last));
+      }
     };
-    return () => es.close();
+    es.onmessage = pump;
+    return () => { es.close(); if (timer !== undefined) window.clearTimeout(timer); };
   }, []);
 
   // опрос активной доски + портфеля
@@ -100,11 +118,8 @@ export function App() {
     for (const [key, p] of next) {
       if (prevAttention.current.get(key) !== p) {
         const tid = key.split(":")[1];
-        const id = toastId.current++;
-        setToasts((list) => [...list,
-          { id, text: `${tid} — ${p === "BLOCKED" ? "заблокирована" : "требует вашего участия"}`,
-            onClick: () => openTask(tid) }]);
-        setTimeout(() => setToasts((l) => l.filter((x) => x.id !== id)), 10000);
+        toast.warn(`${tid} — ${p === "BLOCKED" ? "заблокирована" : "требует вашего участия"}`,
+          () => openTask(tid));
       }
     }
     prevAttention.current = next;
@@ -156,7 +171,9 @@ export function App() {
         onCreate={() => setCreateOpen(true)} onMetrics={() => setMetricsOpen(true)}
         view={view} setView={setView}
         onFlag={(name, method) => {
-          if (project && fnr) api.setFlag(name, method).then(() => loadBoard(project, fnr));
+          if (project && fnr) api.setFlag(name, method)
+            .then(() => loadBoard(project, fnr))
+            .catch((e) => toast.err(`Команда не выполнена: ${e.message}`));
         }} />
 
       {!state
@@ -165,14 +182,32 @@ export function App() {
               ? "Проектов нет — добавьте каталог воркспейса в ~/.sa-helper/workspaces.json"
               : "загрузка Story…"}</p></div>
         : view === "board"
-          ? <Board state={state} onOpenTask={openTask}
+          ? <Board state={state} onOpenTask={openTask} justMovedId={justMoved}
               onAddTask={() => { setCreateType("task"); setCreateOpen(true); }}
-              onMove={(id, to) => api.move(id, to)
-                .then(reloadAll)
-                .catch((e) => window.alert(`Перемещение не выполнено: ${e.message || e}`))}
+              onMove={(id, to) => {
+                // С2: оптимистичный перенос — карточка уезжает сразу,
+                // откат по снапшоту при ошибке (409 живой сессии и т.п.)
+                const snapshot = state;
+                if (snapshot) {
+                  const tasks = (snapshot.manifest.tasks || []).map((t) =>
+                    t.id === id ? { ...t, pipeline: to as Task["pipeline"] } : t);
+                  setState({ ...snapshot, manifest: { ...snapshot.manifest, tasks } });
+                }
+                setJustMoved(id);
+                window.setTimeout(() => setJustMoved((v) => (v === id ? null : v)), 1400);
+                api.move(id, to)
+                  .then((r) => {
+                    reloadAll();
+                    if (r.noop) toast.info("Задача уже в целевом статусе");
+                  })
+                  .catch((e) => {
+                    if (snapshot) setState(snapshot);
+                    toast.err(`Перемещение не выполнено: ${e.message}`);
+                  });
+              }}
               onFlag={(_id, flag) => api.setFlag(flag)
                 .then(reloadAll)
-                .catch((e) => window.alert(`Команда не выполнена: ${e.message || e}`))} />
+                .catch((e) => toast.err(`Команда не выполнена: ${e.message}`))} />
           : <TaskList state={state} onOpenTask={openTask}
               onAddTask={() => { setCreateType("task"); setCreateOpen(true); }} />}
 
@@ -199,7 +234,7 @@ export function App() {
       )}
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)}
         state={state} stories={stories} actions={paletteCommands} />
-      <Toasts toasts={toasts} onDismiss={(id) => setToasts((l) => l.filter((x) => x.id !== id))} />
+      <Toasts />
       <StewardChat />
     </>
   );

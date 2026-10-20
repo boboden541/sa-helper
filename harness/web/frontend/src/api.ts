@@ -16,8 +16,15 @@ function withFnr(path: string): string {
 }
 
 async function json<T>(res: Response): Promise<T> {
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-  return res.json() as Promise<T>;
+  // С2: тело ошибки доходит до пользователя (русский текст 400/409 сервера)
+  const body = await res.json().catch(() => ({}) as Record<string, unknown>);
+  if (!res.ok) {
+    const msg = (body as { error?: string }).error || `${res.status} ${res.statusText}`;
+    const e = new Error(msg) as Error & { status?: number };
+    e.status = res.status;
+    throw e;
+  }
+  return body as T;
 }
 
 export const api = {
@@ -44,14 +51,15 @@ export const api = {
       json<{ entries: Array<{ ts: string; text: string }> }>(r)),
 
   setFlag: (name: string, method: "POST" | "DELETE" = "POST") =>
-    fetch(withFnr(`/api/flag/${name}`), { method }),
+    fetch(withFnr(`/api/flag/${name}`), { method })
+      .then((r) => json<{ ok: boolean; pipeline?: string; noop?: boolean }>(r)),
 
   comment: (id: string, text: string) =>
     fetch(withFnr(`/api/comment/${id}`), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text }),
-    }),
+    }).then((r) => json<{ ok: boolean; retried?: boolean }>(r)),
 
   ask: (id: string, text: string) =>
     fetch(withFnr(`/api/ask/${id}`), {
@@ -97,7 +105,7 @@ export const api = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ to }),
-    }).then((r) => json<{ ok: boolean }>(r)),
+    }).then((r) => json<{ ok: boolean; pipeline?: string; noop?: boolean }>(r)),
 
   attachments: (id: string) =>
     fetch(withFnr(`/api/attachments?task=${id}`)).then((r) =>
