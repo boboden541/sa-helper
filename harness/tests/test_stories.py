@@ -147,3 +147,29 @@ class TestAttachmentsRegex(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestBusyLane(StoriesFixture):
+    """Регрессия С1: RETRY для idle-задачи применяется даже при занятом слоте
+    (старый whitelist busy-lane молча терял такие команды)."""
+
+    def test_retry_applies_while_lane_busy(self):
+        import subprocess
+        t2 = dbmod.task_create(self.conn, self.sid,
+                               {"id": "T2", "title": "B", "system": "core"}, origin="plan")
+        dbmod.task_set_v3(self.conn, self.sid, t2,
+                          {"pipeline": "BLOCKED", "retries": 1})
+        dbmod.insert_command(self.conn, self.sid, "TASK_T2_RETRY", by="agent")
+        proc = subprocess.Popen(["sleep", "5"])
+        try:
+            self.lane.proc = proc
+            self.lane.task_id = "T1"
+            self.lane.stage = "implementing"
+            self.lane.story_id = self.sid
+            self.lane.started_at = time.time()
+            self.tick()
+        finally:
+            proc.kill()
+        row = self.conn.execute(
+            "SELECT pipeline FROM tasks WHERE tid='T2'").fetchone()
+        self.assertEqual(row["pipeline"], "IMPLEMENTING")

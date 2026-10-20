@@ -10,8 +10,9 @@
   - Состояние целиком в БД (~/.sa-helper/harness.db, WAL): kill -9 демона
     не теряет состояние; осиротевшие сессии распознаются по таблице sessions
     (status='running' + живой pid → fencing; мёртвый pid → reconcile).
-  - Один писатель домена: pipeline и v3-поля пишет только демон; сессии —
-    только v2-домен (через адаптер, R4). Тень не нужна: UPDATE колоночный.
+  - Владение доменами: pipeline/v3 пишут демон и web — оба через общий
+    transition.py (С1: human-действия синхронны, fencing по живой сессии);
+    сессии — только v2-домен (через адаптер, R4). Тень не нужна.
   - Решения — чистая функция decide(): не изменилась с файловой версии.
   - Stream-логи стадий остаются файлами (.run/*.log), путь — в sessions.
 
@@ -36,6 +37,11 @@ import review_gate as rg  # noqa: E402
 import db as dbmod  # noqa: E402
 import cards  # noqa: E402
 from runner import _kill_tree  # noqa: E402
+# переходы/журналы — общий модуль с web-витриной (С1): демон и web меняют
+# состояние одним кодом; имена реэкспортированы для тестов (orch.apply_transition)
+from transition import (TASK_FLAG_RE, _escalation_report, _steward_options,  # noqa: E402,F401
+                        apply_transition, cmt, ev, now_iso,
+                        pre_event_effects, task_flags_decisions)
 
 IS_WINDOWS = os.name == "nt"
 
@@ -46,13 +52,7 @@ STAGE_COMMANDS = {
     "handoff": "/impl-handoff {source}",
     "decompose": "/task-decompose {harness} {task}",
 }
-TASK_FLAG_RE = re.compile(
-    r"^TASK_(T\d+)_(REQUEST_CHANGES|FORCE_APPROVE|RETRY|RESUME_WORK|PAUSE|ABORT|SKIP_REVIEW|ACCEPT|REJECT|DEFER)$")
 SESSION_ID_RE = re.compile('"session_id":\\s*"([a-f0-9-]+)"')
-
-
-def now_iso() -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()) + "Z"
 
 
 def claude_command(args: list[str], skip_permissions: bool,
@@ -102,43 +102,6 @@ def completion_events(task: dict, review_iterations_max: int = 3) -> list[tuple[
             return [(sm.EV_REVIEW_CHANGES, "вердикт CHANGES_REQUESTED → доработка")]
         return []
     return []
-
-
-def task_flags_decisions(manifest: dict, flags: set[str]) -> list[tuple]:
-    """Адресные события задач из очереди команд (канон v3, /.flags)."""
-    decisions: list[tuple] = []
-    by_id = {t.get("id"): t for t in manifest.get("tasks", [])}
-    for name in sorted(flags):
-        match = TASK_FLAG_RE.match(name)
-        if not match:
-            continue
-        tid, action = match.groups()
-        task = by_id.get(tid)
-        if task is None:
-            continue
-        decisions.append(("flag", name))
-        if action == "PAUSE":
-            decisions.append(("set", tid, "paused", True))
-        elif action == "RESUME_WORK":
-            decisions.append(("set", tid, "paused", False))
-        elif action == "SKIP_REVIEW":
-            decisions.append(("set", tid, "skip_review", True))
-        elif action == "RETRY":
-            pipeline = task.get("pipeline")
-            event = sm.EV_RETRY if pipeline == sm.BLOCKED else sm.EV_RESUME_WORK
-            decisions.append(("event", tid, event, f"флаг {name}"))
-        elif action == "ACCEPT":
-            decisions.append(("event", tid, sm.EV_PROPOSE_ACCEPT, f"флаг {name}"))
-        elif action == "DEFER":
-            decisions.append(("event", tid, sm.EV_DEFER, f"флаг {name}"))
-        elif action == "REJECT":
-            decisions.append(("event", tid, sm.EV_PROPOSE_REJECT, f"флаг {name}"))
-        else:
-            event = {"REQUEST_CHANGES": sm.EV_REQUEST_CHANGES,
-                     "FORCE_APPROVE": sm.EV_FORCE_APPROVE,
-                     "ABORT": sm.EV_ABORT}[action]
-            decisions.append(("event", tid, event, f"флаг {name}"))
-    return decisions
 
 
 # --- чистое ядро решений (не изменилось с файловой версии) ----------------
@@ -293,126 +256,7 @@ def _verify_flags(conn, story_id: int, ws: Path, fnr: str) -> tuple[bool, bool]:
     return bool(has_report), bool(attempted)
 
 
-# --- применение переходов и журналы (БД) ---------------------------------
-
-def ev(conn, story_id: int, tid: str | None, text: str,
-       kind: str | None = None) -> None:
-    dbmod.append_event(conn, story_id, tid, text, actor="daemon", kind=kind)
-
-
-def cmt(conn, story_id: int, tid: str, text: str) -> None:
-    dbmod.append_comment(conn, story_id, tid, "daemon", text)
-
-
-def _escalation_report(task: dict, reason: str) -> str:
-    tid = task["id"]
-    findings = [f for f in (task.get("findings") or [])
-                if f.get("resolution") != "resolved"]
-    lines = [
-        "⏸ **Требуется вмешательство человека** — задача остановлена в статусе NEEDS_HUMAN.",
-        f"**Формальная причина:** {reason}",
-    ]
-    lines.append(
-        f"Где остановилась: {task.get('blocked_from') or '—'} · "
-        f"итераций ревью: {task.get('review_iterations') or 0}/3 · "
-        f"перезапусков: {task.get('retries') or 0}",
-    )
-    if findings:
-        lines.append("Открытые замечания ревью:")
-        for f in findings[:10]:
-            where = f" ({f['file']})" if f.get("file") else ""
-            lines.append(f"· [{f.get('id')}] {f.get('text')}{where} — {f.get('resolution', 'open')}")
-    lines += [
-        "Что можно сделать (кнопки в карточке):",
-        f"· «Повторить» (TASK_{tid}_RETRY) — вернуть задачу в работу с места остановки",
-        f"· «Принять (force)» — если считаете задачу готовой (только из Review)",
-        f"· «Остановить» (TASK_{tid}_ABORT) — снять задачу с конвейера",
-        "Комментарий в этом журнале увидит агент при следующем запуске задачи.",
-    ]
-    return "\n".join(lines)
-
-
-def apply_transition(conn, story_id: int, tid: str, event: str, reason: str) -> bool:
-    """Применить событие машины состояний в БД. False при отказе."""
-    task = dbmod.read_task(conn, story_id, tid, with_card=False)
-    if not task:
-        return False
-    # гейт чек-листа: незакрытые обязательные пункты блокируют approve
-    if event in (sm.EV_REVIEW_APPROVED, sm.EV_FORCE_APPROVE):
-        open_m = dbmod.checklist_open_mandatory(conn, task["id"])
-        if open_m:
-            cmt(conn, story_id, tid,
-                f"⛔ Гейт чек-листа: {len(open_m)} обязательных пунктов открыты — "
-                "закройте их (или снимите !), затем повторите approve: "
-                + "; ".join(f"«{m['text']}»" for m in open_m[:5]))
-            ev(conn, story_id, tid,
-               f"{tid}: approve отклонён гейтом чек-листа ({len(open_m)} mandatory)",
-               kind="gate")
-            return False
-    task["id"] = task["tid"]
-    result = sm.transition(task, event)
-    if not result["ok"]:
-        ev(conn, story_id, tid, f"{tid}: ОТКАЗ {event}: {result['error']}")
-        return False
-    patch = dict(result["patch"])
-    new_pipeline = patch.get("pipeline")
-    with dbmod.tx(conn):
-        sets = ", ".join(f"{k}=?" for k in patch)
-        conn.execute(f"UPDATE tasks SET {sets}, pipeline_since=?, blocked_reason=?,"
-                     " updated_at=? WHERE story_id=? AND tid=?",
-                     (*patch.values(), now_iso(), reason, now_iso(), story_id, tid))
-    if new_pipeline and new_pipeline != sm.NEEDS_HUMAN:
-        dbmod.steward_options_clear(conn, story_id, tid)
-    label = f"{tid}: {event} → {new_pipeline} ({reason})"
-    ev(conn, story_id, tid, label)
-    if new_pipeline == sm.NEEDS_HUMAN:
-        dbmod.task_set_v3(conn, story_id, tid, {"blocked_reason": reason})
-        task["blocked_reason"] = reason
-        cmt(conn, story_id, tid, _escalation_report(task, reason))
-        threading.Thread(target=_steward_options, daemon=True,
-                         args=(conn, story_id, tid, reason)).start()
-    elif new_pipeline == sm.BLOCKED:
-        wait_min = max(1, round(float(task.get("retry_after_ts") or time.time())
-                                - time.time()) // 60)
-        cmt(conn, story_id, tid,
-            f"⛔ Стадия прервана — задача в BLOCKED, авто-перезапуск ~через {wait_min} мин "
-            f"(попытка {task.get('retries') or 0}). Причина: {reason}")
-    else:
-        cmt(conn, story_id, tid, f"{event} → {new_pipeline} — {reason}")
-    return True
-
-
-def _steward_options(conn, story_id: int, tid: str, reason: str) -> None:
-    """Steward предлагает человеку ровно 3 варианта (stdout-JSON → steward_options)."""
-    story = conn.execute("SELECT fnr FROM stories WHERE id=?", (story_id,)).fetchone()
-    prompt = (
-        f"/steward Задача {tid} (Story {story['fnr']}) остановлена в NEEDS_HUMAN. "
-        f"Причина: {reason}. Ответь ТОЛЬКО JSON-объектом в stdout, без файлов: "
-        'формат {"options": [{"title": "кратко", "explanation": "почему и последствия", '
-        '"flag": "TASK_' + tid + '_RETRY|TASK_' + tid + '_FORCE_APPROVE|TASK_' + tid +
-        '_ABORT|TASK_' + tid + '_REQUEST_CHANGES|null", "recommended": true|false}]}. '
-        "Ровно один recommended=true. Flag=null — только для варианта «разобраться вручную»."
-    )
-    options_json = None
-    try:
-        result = subprocess.run(["claude", "--output-format", "json", "-p", prompt],
-                                capture_output=True, text=True, timeout=600,
-                                stdin=subprocess.DEVNULL)
-        try:
-            doc = json.loads(result.stdout or "{}")
-            answer = str(doc.get("result") or "")
-            parsed = json.loads(answer[answer.index("{"):answer.rindex("}") + 1])
-            if isinstance(parsed.get("options"), list) and parsed["options"]:
-                options_json = json.dumps(parsed, ensure_ascii=False)
-        except (json.JSONDecodeError, ValueError, KeyError):
-            options_json = None
-    except (OSError, subprocess.SubprocessError):
-        options_json = None
-    if options_json:
-        dbmod.steward_options_set(conn, story_id, tid, options_json)
-    ev(conn, story_id, tid, f"{tid}: варианты Steward "
-                            f"{'записаны' if options_json else 'не подготовлены (offline/лимиты)'}")
-
+# --- применение переходов и журналы: общий код в transition.py (С1) ----
 
 # --- reconcile ревью-петли и завершения стадий (БД) ----------------------
 
@@ -989,39 +833,31 @@ def process_workspace(lane: WorkspaceLane, opts: argparse.Namespace) -> None:
                 _, tid, event, reason = d
                 if lane_busy and tid == lane.task_id:
                     continue  # живая сессия — единственный писатель задачи
-                # при занятом слоте проводим только управляющие события
-                # (отложить/остановить/принять/отклонить/вернуть); прогресс
-                # конвейера — при свободном слоте, чтобы не было гонки
-                # «START без сессии → мгновенный completion»
-                if lane_busy and event not in (sm.EV_DEFER, sm.EV_ABORT,
-                                               sm.EV_PROPOSE_ACCEPT,
-                                               sm.EV_PROPOSE_REJECT,
-                                               sm.EV_REQUEST_CHANGES):
+                # при занятом слоте применяем всё, кроме «прогресса без
+                # сессии» (QUEUE_READY/START до освобождения слота врут
+                # доске); человеческие RETRY/RESUME идут синхронно через
+                # web (С1), сюда попадают агентские команды и события
+                if lane_busy and event in (sm.EV_QUEUE_READY, sm.EV_START):
                     continue
                 task = dbmod.read_task(conn, sid, tid, with_card=False)
-                if event in (sm.EV_RETRY, sm.EV_RESUME_WORK) \
-                        and task.get("v2_status") == "ESCALATED_BLOCKED":
-                    # человек явно попросил повторить после circuit breaker:
-                    # снимаем v2-эскалацию, иначе completion ре-эскалирует
-                    # до старта новой сессии (кейс T7)
-                    target = task.get("blocked_from") or "IMPLEMENTING"
-                    v2 = "AGENT_REVIEW" if target == "REVIEW" else "APPROVED"
-                    dbmod.task_set_v2(conn, sid, tid, {"status": v2})
-                if event == sm.EV_RETRY:
-                    dbmod.task_set_v3(conn, sid, tid, {"retry_after_ts": 0})
-                if event in (sm.EV_REVIEW_CHANGES, sm.EV_REQUEST_CHANGES):
-                    # доработка с чистым v2-статусом (канон v3)
-                    dbmod.task_set_v2(conn, sid, tid, {"status": "APPROVED"})
-                    dbmod.task_set_v3(conn, sid, tid, {"review_verdict": None})
-                if event == sm.EV_IMPL_BLOCKED:
-                    backoff = min(300 * (2 ** (task.get("retries") or 0)), 3600)
-                    dbmod.task_set_v3(conn, sid, tid,
-                                      {"retry_after_ts": time.time() + backoff})
+                pre_event_effects(conn, sid, tid, event, task)
                 apply_transition(conn, sid, tid, event, reason)
             elif kind == "stage":
                 _, tid, stage = d
                 if lane_busy:
-                    continue  # слот занят — решени�� применится в следующем тике
+                    continue  # слот занят — решение применится в следующем тике
+
+                if tid:  # человек мог двинуть задачу между тиками (С1)
+                    fresh = dbmod.read_task(conn, sid, tid, with_card=False)
+                    expected = {"implementing": {sm.IMPLEMENTING, sm.READY},
+                                "review": {sm.REVIEW},
+                                "decompose": {sm.PROPOSED}}.get(stage)
+                    if fresh is None or (expected
+                                         and fresh.get("pipeline") not in expected):
+                        ev(conn, sid, tid,
+                           f"запуск стадии {stage} отменён — задача в "
+                           f"{(fresh or {}).get('pipeline') if fresh else '?'}")
+                        continue
                 if opts.dry_run:
                     print(f"  [dry-run] {fnr}: стадия {stage} для {tid or 'FNR'}")
                     continue

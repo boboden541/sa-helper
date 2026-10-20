@@ -110,10 +110,26 @@ class TestStateAndStories(WebServerFixture):
 
 
 class TestMove(WebServerFixture):
-    def test_move_creates_command(self):
+    def test_move_applies_sync(self):
         out = self.post(self.q("/api/task/T2/move"), {"to": "ABORTED"})
         self.assertTrue(out["ok"])
-        self.assertEqual(self.commands(), ["TASK_T2_ABORT"])
+        self.assertEqual(out.get("pipeline"), "ABORTED")  # применён сразу
+        self.assertEqual(self.commands(), [])  # не через очередь
+        task = dbmod.read_task(self.conn, self.sid, "T2", with_card=False)
+        self.assertEqual(task["pipeline"], "ABORTED")
+        ev = self.conn.execute(
+            "SELECT actor FROM events WHERE tid='T2' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        self.assertEqual(ev["actor"], "human")
+
+    def test_move_fence_409(self):
+        dbmod.session_start(self.conn, self.sid, "T2", "implementing",
+                            os.getpid(), "test", "t.log")
+        code, body = self.post_expect_error(self.q("/api/task/T2/move"),
+                                            {"to": "ABORTED"})
+        self.assertEqual(code, 409)
+        self.assertIn("сессия", body["error"])
+        self.assertTrue(body["running"])
 
     def test_invalid_transition_is_400(self):
         code, body = self.post_expect_error(self.q("/api/task/T2/move"),
@@ -221,7 +237,10 @@ class TestComments(WebServerFixture):
         self.post(self.q("/api/comment/T2"), {"text": "починить 403"})
         doc = self.get(self.q("/api/task/T2"))
         self.assertIn("починить 403", doc["comments_md"])
-        self.assertIn("TASK_T2_RETRY", self.commands())
+        # С1: retry применён синхронно, без демона — задача вернулась в работу
+        task = dbmod.read_task(self.conn, self.sid, "T2", with_card=False)
+        self.assertEqual(task["pipeline"], "IMPLEMENTING")
+        self.assertEqual(self.commands(), [])
 
 
 if __name__ == "__main__":

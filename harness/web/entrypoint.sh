@@ -7,14 +7,14 @@ if [ -d "$WORK" ]; then
   mkdir -p "$WORK/.claude/commands" "$WORK/harness"
   # Адаптер агентов и его зависимости — рабочие копии в воркспейсе
   # (sahelper резолвит импорты относительно своего файла)
-  for f in steward_api.py sahelper.py db.py cards.py state_machine.py review_gate.py; do
+  for f in steward_api.py sahelper.py db.py cards.py state_machine.py review_gate.py transition.py; do
     [ -f "/app/harness/$f" ] && cp "/app/harness/$f" "$WORK/harness/" 2>/dev/null || true
   done
   # адаптер нужен и в harness-каталоге каждой Story (промпты ссылаются на него
   # относительно пути задачи)
   for hd in "$WORK"/sa_documentation/FNR/FNR_*/harness; do
     [ -d "$hd" ] || continue
-    for f in sahelper.py db.py cards.py state_machine.py review_gate.py; do
+    for f in sahelper.py db.py cards.py state_machine.py review_gate.py transition.py; do
       [ -f "/app/harness/$f" ] && cp "/app/harness/$f" "$hd/" 2>/dev/null || true
     done
   done

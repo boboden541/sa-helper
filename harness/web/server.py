@@ -32,6 +32,7 @@ if sys_path not in __import__("sys").path:
 import state_machine as sm  # noqa: E402
 import cards  # noqa: E402
 import db as dbmod  # noqa: E402
+import transition as tr  # noqa: E402
 
 WEB_DIR = Path(__file__).resolve().parent
 DIST_DIR = WEB_DIR / "frontend" / "dist"
@@ -51,21 +52,23 @@ TASK_ID_RE = re.compile(r"T\d+")
 STATE: dict = {"conn": None, "default_project": None, "claude_bin": "claude",
                "workspace_root": None}  # монтирование воркспейса (контейнер: /work)
 
-# Разрешённые перемещения по колонкам (канон v3; цели через команды демону)
-MOVE_MAP = {
-    ("PROPOSED", "BACKLOG"): "TASK_{tid}_ACCEPT",
-    ("DONE", "IMPLEMENTING"): "TASK_{tid}_REQUEST_CHANGES",
-    ("BLOCKED", "IMPLEMENTING"): "TASK_{tid}_RETRY",
-    ("NEEDS_HUMAN", "IMPLEMENTING"): "TASK_{tid}_RETRY",
-    ("REVIEW", "DONE"): "TASK_{tid}_FORCE_APPROVE",
-    ("READY", "ABORTED"): "TASK_{tid}_ABORT",
-    ("IMPLEMENTING", "ABORTED"): "TASK_{tid}_ABORT",
-    ("REVIEW", "ABORTED"): "TASK_{tid}_ABORT",
-    ("BLOCKED", "ABORTED"): "TASK_{tid}_ABORT",
-    ("NEEDS_HUMAN", "ABORTED"): "TASK_{tid}_ABORT",
-    ("ABORTED", "BACKLOG"): "TASK_{tid}_ACCEPT",   # «разморозка» снятой задачи (v4)
-    ("BLOCKED", "BACKLOG"): "TASK_{tid}_DEFER",    # «отложить в бэклог» (v4)
-    ("NEEDS_HUMAN", "BACKLOG"): "TASK_{tid}_DEFER",
+# Разрешённые перемещения по колонкам (канон v3): пара колонок → событие
+# машины состояний. Применяется СИНХРОННО в web (transition.human_apply_event) —
+# карточка переезжает сразу, без ожидания тика демона (порция С1).
+MOVE_EVENT = {
+    ("PROPOSED", "BACKLOG"): sm.EV_PROPOSE_ACCEPT,
+    ("DONE", "IMPLEMENTING"): sm.EV_REQUEST_CHANGES,
+    ("BLOCKED", "IMPLEMENTING"): sm.EV_RETRY,
+    ("NEEDS_HUMAN", "IMPLEMENTING"): sm.EV_RESUME_WORK,
+    ("REVIEW", "DONE"): sm.EV_FORCE_APPROVE,
+    ("READY", "ABORTED"): sm.EV_ABORT,
+    ("IMPLEMENTING", "ABORTED"): sm.EV_ABORT,
+    ("REVIEW", "ABORTED"): sm.EV_ABORT,
+    ("BLOCKED", "ABORTED"): sm.EV_ABORT,
+    ("NEEDS_HUMAN", "ABORTED"): sm.EV_ABORT,
+    ("ABORTED", "BACKLOG"): sm.EV_PROPOSE_ACCEPT,   # «разморозка» снятой задачи (v4)
+    ("BLOCKED", "BACKLOG"): sm.EV_DEFER,            # «отложить в бэклог» (v4)
+    ("NEEDS_HUMAN", "BACKLOG"): sm.EV_DEFER,
 }
 
 ACTION_FLAGS = {
@@ -94,7 +97,7 @@ def task_actions(task: dict) -> list[str]:
 
 
 def _move_targets(pipeline: str) -> list[str]:
-    return sorted({to for (frm, to) in MOVE_MAP if frm == pipeline})
+    return sorted({to for (frm, to) in MOVE_EVENT if frm == pipeline})
 
 
 def pipeline_of(task: dict) -> str:
@@ -102,6 +105,28 @@ def pipeline_of(task: dict) -> str:
          "TDD_GREEN": "IMPLEMENTING", "GATES": "IMPLEMENTING",
          "AGENT_REVIEW": "REVIEW", "ESCALATED_BLOCKED": "NEEDS_HUMAN"}
     return task.get("pipeline") or m.get(task.get("v2_status") or "", "BACKLOG")
+
+
+def _send_transition(self, r: dict) -> None:
+    """Маппинг результата transition.human_apply* на HTTP-ответ: ok → 200,
+    fence/gate → 409 (текст для тоста витрины), no_task → 404,
+    noop/illegal → 200 noop (двойной клик — не ошибка)."""
+    if r.get("ok"):
+        self._send(200, json.dumps({"ok": True, "pipeline": r.get("pipeline")},
+                                   ensure_ascii=False).encode("utf-8"),
+                   "application/json")
+    elif r.get("code") in ("fence", "gate"):
+        body = {"error": r.get("error")}
+        if r.get("running"):
+            body["running"] = True
+        if r.get("code") == "gate":
+            body["gate"] = True
+        self._send(409, json.dumps(body, ensure_ascii=False).encode("utf-8"),
+                   "application/json")
+    elif r.get("code") == "no_task":
+        self._send(404, b'{"error":"no such task"}', "application/json")
+    else:  # noop/illegal — переход уже исполнен или не применим
+        self._send(200, b'{"ok":true,"noop":true}', "application/json")
 
 
 # ─── вид данных: manifest-view (совместимость с фронтендом) ────────────────
@@ -674,18 +699,18 @@ class Handler(BaseHTTPRequestHandler):
             target = str(self._json_body().get("to") or "").strip()
             task = dbmod.read_task(c, sid, task_id, with_card=False)
             frm = pipeline_of(task) if task else ""
-            flag_tpl = MOVE_MAP.get((frm, target))
+            flag_tpl = MOVE_EVENT.get((frm, target))
             if not flag_tpl:
                 self._send(400, json.dumps(
                     {"error": f"переход {frm} → {target} недопустим"},
                     ensure_ascii=False).encode("utf-8"), "application/json")
                 return
-            name = flag_tpl.format(tid=task_id)
-            dbmod.insert_command(c, sid, name, by="human")
-            dbmod.append_event(c, sid, task_id,
-                               f"{task_id}: человек перемещает {frm} → {target} ({name})",
-                               actor="human", kind="flag")
-            self._send(200, b'{"ok":true}', "application/json")
+            event = flag_tpl
+            # С1: синхронное применение — карточка переезжает сразу, события
+            # и комментарий пишет тот же код, что и демон (transition.py)
+            _send_transition(self, tr.human_apply_event(
+                c, sid, task_id, event, f"человек: {frm} → {target}"))
+            return
         elif path.startswith("/api/task/") and path.endswith("/card"):
             story = self._story(project, params) if project else None
             task_id = path.split("/")[3]
@@ -838,6 +863,12 @@ class Handler(BaseHTTPRequestHandler):
                 dbmod.story_pause(c, sid, True)
                 dbmod.append_event(c, sid, None, "Story: пауза конвейера (человек)",
                                    actor="human", kind="flag")
+            elif tr.TASK_FLAG_RE.fullmatch(name):
+                # С1: адресная команда задачи — синхронное применение
+                m = tr.TASK_FLAG_RE.fullmatch(name)
+                _send_transition(self, tr.human_apply(
+                    c, sid, m.group(1), m.group(2), f"команда {name}"))
+                return
             else:
                 dbmod.insert_command(c, sid, name, by="human")
             self._send(200, b'{"ok":true}', "application/json")
@@ -854,9 +885,13 @@ class Handler(BaseHTTPRequestHandler):
             task = dbmod.read_task(c, sid, task_id, with_card=False)
             if task and task["pipeline"] in ("NEEDS_HUMAN", "BLOCKED"):
                 is_attention = True
-                dbmod.insert_command(c, sid, f"TASK_{task_id}_RETRY", by="human")
+                # С1: синхронно; при fence комментарий остаётся, переход
+                # не насильственный — результат не трогаем
+                tr.human_apply(c, sid, task_id, "RETRY",
+                               "комментарий человека в карточке")
             elif task and task["pipeline"] == "DONE":
-                dbmod.insert_command(c, sid, f"TASK_{task_id}_REQUEST_CHANGES", by="human")
+                tr.human_apply(c, sid, task_id, "REQUEST_CHANGES",
+                               "комментарий человека в карточке")
             dbmod.append_event(c, sid, task_id, f"{task_id}: комментарий человека",
                                actor="human", kind="comment")
             self._send(200, b'{"ok":true,"retried":true}' if is_attention
