@@ -1,5 +1,5 @@
-import { useState } from "react";
-import type { ChecklistSectionModel, ChecklistItemModel } from "../../types";
+import { useEffect, useRef, useState } from "react";
+import type { ChecklistItemModel, ChecklistSectionModel } from "../../types";
 import { api } from "../../api";
 
 const STATES: Array<{ key: ChecklistItemModel["state"]; label: string }> = [
@@ -14,18 +14,20 @@ const STATES: Array<{ key: ChecklistItemModel["state"]; label: string }> = [
 const CHIP_LABEL: Record<string, string> = Object.fromEntries(
   STATES.map((s) => [s.key, s.label]));
 
-/** Структурный редактор чек-листа (модель БД). Инлайн: добавление пункта,
- *  toggle чекбоксом, правка текста по клику, ⋮ — статус/обязательность/удаление. */
+/** Структурный редактор чек-листа (модель БД). Подзаголовки depth 1–4,
+ *  инлайн-добавление сверху, переключение Визуально|Текст. */
 export function ChecklistEditor({ tid, checklist, onChange }: {
   tid: string;
   checklist: ChecklistSectionModel[];
   onChange: () => void;
 }) {
+  const [mode, setMode] = useState<"visual" | "text">("visual");
+  const [textDraft, setTextDraft] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const [menuId, setMenuId] = useState<number | null>(null);
-  const [mode, setMode] = useState<"visual" | "text">("visual");
-  const [textDraft, setTextDraft] = useState<string | null>(null);
+  const [newSecTitle, setNewSecTitle] = useState("");
+  const addInputRef = useRef<HTMLInputElement>(null);
 
   const total = checklist.reduce((a, s) => a + s.items.length, 0);
   const done = checklist.reduce(
@@ -33,10 +35,33 @@ export function ChecklistEditor({ tid, checklist, onChange }: {
   const pct = total ? Math.round((100 * done) / total) : 0;
 
   const importText = () => {
-    if (textDraft === null) return;
-    api.checklistImport(tid, textDraft).then(() => {
+    api.checklistImport(tid, textDraft ?? "").then(() => {
       setTextDraft(null); setMode("visual"); onChange();
     }).catch(() => {});
+  };
+
+  // добавление с автоопределением: # текст = новая секция, ## текст = подзаголовок
+  const addSmart = (raw: string) => {
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    const secMatch = trimmed.match(/^#\s+(.*)/);
+    if (secMatch) {
+      api.checklistSectionAdd(tid, secMatch[1]).then(onChange).catch(() => {});
+      return;
+    }
+    const depthMatch = trimmed.match(/^(#{2,5})\s+(.*)$/);
+    const depth = depthMatch ? depthMatch[1].length - 1 : 0;
+    const text = depthMatch ? depthMatch[2] : trimmed;
+    const targetSection = checklist.length > 0 ? checklist[0] : null;
+    if (targetSection) {
+      api.checklistItemAdd(tid, targetSection.id, text, "todo", false, depth)
+        .then(onChange).catch(() => {});
+    } else {
+      api.checklistSectionAdd(tid, "Чек-лист").then((r: any) => {
+        api.checklistItemAdd(tid, r.section_id, text, "todo", false, depth)
+          .then(onChange).catch(() => {});
+      }).catch(() => {});
+    }
   };
 
   return (
@@ -45,89 +70,88 @@ export function ChecklistEditor({ tid, checklist, onChange }: {
         <div className="cl-bar"><i style={{ width: `${pct}%` }} /></div>
         <span className="cl-count">{done}/{total}</span>
       </div>
+
       <div className="cl-modes">
         <button className={`cl-mode ${mode === "visual" ? "on" : ""}`}
-          onClick={() => { if (mode === "text") { setTextDraft(null); setMode("visual"); } }}>
-          Визуально
-        </button>
+          onClick={() => { setTextDraft(null); setMode("visual"); }}>Визуально</button>
         <button className={`cl-mode ${mode === "text" ? "on" : ""}`}
           onClick={() => {
-            if (mode === "visual") {
-              // сериализуем текущий чек-лист в Checkvist для textarea
-              setTextDraft(serialize(checklist));
-              setMode("text");
-            }
+            setTextDraft(serializeFromModel(checklist));
+            setMode("text");
           }}>Текст</button>
       </div>
+
       {mode === "text" ? (
-        <div>
+        <div className="cl-textwrap">
           <textarea className="cl-textarea" value={textDraft ?? ""}
             onChange={(e) => setTextDraft(e.target.value)}
-            rows={Math.max(8, (textDraft ?? "").split("\n").length + 1)}
-            placeholder={"# Секция\n+ сделано\n~ в работе\n- сделать\n[x] пропущено !"} />
+            rows={Math.max(10, (textDraft ?? "").split("\n").length + 1)}
+            placeholder={"# Секция\n## Подзаголовок\n+ сделано !\n~ в работе\n- сделать\n[x] пропущено"} />
           <div className="cl-texthint">
-            Маркеры: <b>+</b> done · <b>~</b> in-progress · <b>-</b> todo ·
-            <b> [r]/[b]/[f]</b> · <b>[x]</b> skipped · <b>[s]</b> skipped ·
-            суффикс <b>!</b> = обязательный
+            <b>#</b> секция · <b>##</b>–<b>#####</b> подзаголовки ·
+            <b> +</b> done · <b>~</b> в работе · <b>-</b> todo ·
+            <b> [r]/[b]/[f]</b> · <b>[x]</b> skipped · суффикс <b>!</b> = обязательный
           </div>
           <button className="primary" style={{ marginTop: 6 }}
             onClick={importText}>Применить</button>
         </div>
       ) : (
         <>
-      {checklist.length === 0 && (
-        <p className="empty">чек-лист пуст — добавьте секцию и пункты</p>
-      )}
-      {checklist.map((sec) => (
-        <div className="cl-sec" key={sec.id}>
-          <div className="cl-sec-h">
-            <span className="cl-sec-t">{sec.title}</span>
-            <span className={`cl-kind cl-kind-${sec.kind}`}>
-              {sec.kind === "plan" ? "агент" : sec.kind === "review" ? "ревьюер" : "своя"}
-            </span>
-            <button className="ced-btn" title="Удалить секцию"
-              onClick={() => { if (window.confirm(`Удалить секцию «${sec.title}»?`)) {
-                api.checklistSectionDelete(sec.id).then(onChange).catch(() => {});
-              } }}>✕</button>
+          {/* поле добавления — СВЕРХУ, всегда доступно без скролла */}
+          <div className="cl-additem">
+            <input ref={addInputRef} placeholder="Текст, # секция, ## подзаголовок…"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  addSmart((e.target as HTMLInputElement).value);
+                  (e.target as HTMLInputElement).value = "";
+                }
+              }} />
           </div>
-          {sec.items.map((it) => (
-            <ItemRow key={it.id} it={it} onChange={onChange}
-              editingId={editingId} setEditingId={setEditingId}
-              editDraft={editDraft} setEditDraft={setEditDraft}
-              menuId={menuId} setMenuId={setMenuId} />
+
+          {checklist.length === 0 && (
+            <p className="empty">Введите «# Название» выше и нажмите Enter — создастся секция</p>
+          )}
+
+          {checklist.map((sec) => (
+            <div className="cl-sec" key={sec.id}>
+              <div className="cl-sec-h">
+                <span className="cl-sec-t">{sec.title}</span>
+                <span className={`cl-kind cl-kind-${sec.kind}`}>
+                  {sec.kind === "plan" ? "агент" : sec.kind === "review" ? "ревьюер" : "своя"}
+                </span>
+                <button className="ced-btn" title="Удалить секцию"
+                  onClick={() => { if (window.confirm(`Удалить секцию «${sec.title}»?`)) {
+                    api.checklistSectionDelete(sec.id).then(onChange).catch(() => {});
+                  } }}>✕</button>
+              </div>
+              {sec.items.map((it) => (
+                <ItemRow key={it.id} tid={tid} it={it} onChange={onChange}
+                  editingId={editingId} setEditingId={setEditingId}
+                  editDraft={editDraft} setEditDraft={setEditDraft}
+                  menuId={menuId} setMenuId={setMenuId} />
+              ))}
+            </div>
           ))}
-          <AddItem onAdd={(text, mandatory) => {
-            api.checklistItemAdd(tid, sec.id, text, "todo", mandatory)
-              .then(onChange).catch(() => {});
-          }} placeholder="Добавить пункт…" />
-        </div>
-      ))}
-      <AddSection onAdd={(title) => {
-        api.checklistSectionAdd(tid, title).then(onChange).catch(() => {});
-      }} />
+
+          <div className="cl-addsec">
+            <input className="cl-secinput" placeholder="Новая секция: # Название"
+              value={newSecTitle}
+              onChange={(e) => setNewSecTitle(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && newSecTitle.trim()) {
+                api.checklistSectionAdd(tid, newSecTitle.trim())
+                  .then(onChange).catch(() => {});
+                setNewSecTitle("");
+              } }} />
+          </div>
         </>
       )}
     </div>
   );
 }
 
-/** Сериализация модели → Checkvist-текст (для textarea текстового режима). */
-function serialize(checklist: ChecklistSectionModel[]): string {
-  const out: string[] = [];
-  for (const sec of checklist) {
-    out.push(`# ${sec.title}`);
-    for (const it of sec.items) {
-      const mark = { done: "+", inprog: "~", todo: "-", review: "[r]",
-                     blocked: "[b]", failed: "[f]", skipped: "[x]" }[it.state] || "-";
-      out.push(`${mark} ${it.text}${it.mandatory ? " !" : ""}`);
-    }
-    out.push("");
-  }
-  return out.join("\n");
-}
-
-function ItemRow({ it, onChange, editingId, setEditingId,
+function ItemRow({ tid, it, onChange, editingId, setEditingId,
                    editDraft, setEditDraft, menuId, setMenuId }: {
+  tid: string;
   it: ChecklistItemModel;
   onChange: () => void;
   editingId: number | null;
@@ -137,7 +161,19 @@ function ItemRow({ it, onChange, editingId, setEditingId,
   menuId: number | null;
   setMenuId: (v: number | null) => void;
 }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (menuId !== it.id) return;
+    const away = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setMenuId(null);
+    };
+    document.addEventListener("mousedown", away);
+    return () => document.removeEventListener("mousedown", away);
+  }, [menuId, it.id, setMenuId]);
+
   const doneState = it.state === "done" || it.state === "skipped";
+  const isHeader = (it as any).depth > 0;
+
   const toggle = () => {
     api.checklistItemPatch(it.id, { state: doneState ? "todo" : "done" })
       .then(onChange).catch(() => {});
@@ -148,8 +184,28 @@ function ItemRow({ it, onChange, editingId, setEditingId,
     }
     setEditingId(null);
   };
+
+  if (isHeader) {
+    return (
+      <div className={`cl-item cl-header cl-header-${(it as any).depth}`}
+        ref={ref}
+        style={{ paddingLeft: `${((it as any).depth - 1) * 16}px` }}>
+        <span className="cl-header-text">{it.text}</span>
+        <span className="cl-dots" onClick={() => setMenuId(menuId === it.id ? null : it.id)}>⋮</span>
+        {menuId === it.id && (
+          <div className="cl-menu">
+            <div className="cl-danger" onClick={() => {
+              api.checklistItemDelete(it.id).then(onChange).catch(() => {});
+              setMenuId(null);
+            }}>Удалить заголовок</div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
-    <div className={`cl-item ${doneState ? "cl-done" : ""}`}>
+    <div className={`cl-item ${doneState ? "cl-done" : ""}`} ref={ref}>
       <span className={`cl-box ${it.state}`} onClick={toggle}
         title={doneState ? "Вернуть в todo" : "Отметить выполненным"}>
         {doneState ? "✓" : it.state === "inprog" ? "⟳" : ""}
@@ -172,7 +228,7 @@ function ItemRow({ it, onChange, editingId, setEditingId,
       </span>
       <span className="cl-dots" onClick={() => setMenuId(menuId === it.id ? null : it.id)}>⋮</span>
       {menuId === it.id && (
-        <div className="cl-menu" onMouseLeave={() => setMenuId(null)}>
+        <div className="cl-menu">
           {STATES.filter((s) => s.key !== it.state).map((s) => (
             <div key={s.key} onClick={() => {
               api.checklistItemPatch(it.id, { state: s.key })
@@ -221,7 +277,7 @@ function AddItem({ onAdd, placeholder }: {
   );
 }
 
-/** Кнопка «+ секция» (внизу редактора чек-листа). */
+/** Кнопка «+ секция» */
 export function AddSection({ onAdd }: { onAdd: (title: string) => void }) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
@@ -246,4 +302,23 @@ export function AddSection({ onAdd }: { onAdd: (title: string) => void }) {
       )}
     </div>
   );
+}
+
+/** Сериализация модели → Checkvist-текст */
+function serializeFromModel(checklist: ChecklistSectionModel[]): string {
+  const out: string[] = [];
+  for (const sec of checklist) {
+    out.push(`# ${sec.title}`);
+    for (const it of sec.items) {
+      if ((it as any).depth > 0) {
+        out.push(`${"#".repeat((it as any).depth + 1)} ${it.text}`);
+        continue;
+      }
+      const mark = { done: "+", inprog: "~", todo: "-", review: "[r]",
+                     blocked: "[b]", failed: "[f]", skipped: "[x]" }[it.state] || "-";
+      out.push(`${mark} ${it.text}${it.mandatory ? " !" : ""}`);
+    }
+    out.push("");
+  }
+  return out.join("\n");
 }

@@ -254,6 +254,7 @@ CREATE TABLE IF NOT EXISTS checklist_items(
   id INTEGER PRIMARY KEY,
   section_id INTEGER NOT NULL REFERENCES checklist_sections(id) ON DELETE CASCADE,
   seq INTEGER NOT NULL DEFAULT 0,
+  depth INTEGER NOT NULL DEFAULT 0,
   text_md TEXT NOT NULL,
   state TEXT NOT NULL DEFAULT 'todo' CHECK(state IN
     ('todo','inprog','done','review','blocked','failed','skipped')),
@@ -317,6 +318,12 @@ def connect(path: str | Path | None = None) -> sqlite3.Connection:
     if ver < 2:
         _migrate_checklists_v2(conn)
         conn.execute("UPDATE meta SET value='2' WHERE key='schema_version'")
+    if ver < 3:
+        try:
+            conn.execute("ALTER TABLE checklist_items ADD COLUMN depth INTEGER NOT NULL DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass  # колонка уже есть (свежая БД из SCHEMA_SQL)
+        conn.execute("UPDATE meta SET value='3' WHERE key='schema_version'")
     conn.commit()
     return conn
 
@@ -1149,7 +1156,8 @@ def section_delete(conn: sqlite3.Connection, section_id: int) -> None:
 
 
 def item_add(conn: sqlite3.Connection, section_id: int, text: str,
-             state: str = "todo", mandatory: bool = False) -> int:
+             state: str = "todo", mandatory: bool = False,
+             depth: int = 0) -> int:
     if state not in CHECKLIST_STATES:
         raise ValueError(f"неизвестное состояние: {state}")
     text = (text or "").strip()
@@ -1159,9 +1167,9 @@ def item_add(conn: sqlite3.Connection, section_id: int, text: str,
         n = conn.execute("SELECT COALESCE(MAX(seq),-1)+1 FROM checklist_items"
                          " WHERE section_id=?", (section_id,)).fetchone()[0]
         cur = conn.execute(
-            "INSERT INTO checklist_items(section_id, seq, text_md, state, mandatory,"
-            " created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
-            (section_id, n, text.strip(), state, 1 if mandatory else 0,
+            "INSERT INTO checklist_items(section_id, seq, depth, text_md, state,"
+            " mandatory, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)",
+            (section_id, n, depth, text.strip(), state, 1 if mandatory else 0,
              now_iso(), now_iso()))
         return int(cur.lastrowid)
 
@@ -1197,7 +1205,7 @@ def item_delete(conn: sqlite3.Connection, item_id: int) -> None:
 
 # ─── Checkvist-синтаксис (текстовый режим) ─────────────────────────────────
 
-_CV_SECTION = re.compile(r"^#\s+(.+?)\s*$")
+_CV_SECTION = re.compile(r"^#{1,5}\s+(.+?)\s*$")
 _CV_ITEM = re.compile(
     r"^(\+|~|-|\[ \]|\[~\]|\[r\]|\[b\]|\[f\]|\[x\]|\[s\])\s*(.*)$")
 _CV_STATE = {"+": "done", "~": "inprog", "-": "todo", "[ ]": "todo", "[~]": "inprog",
