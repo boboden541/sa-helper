@@ -136,8 +136,9 @@ export function ChecklistEditor({ tid, checklist, onChange }: {
             <p className="empty">Введите «# Название» выше и нажмите Enter — создастся секция</p>
           )}
 
-          {checklist.filter((sec) => sec.title !== "").map((sec) => (
+          {checklist.map((sec) => (
             <div className="cl-sec" key={sec.id}>
+              {sec.title !== "" && (
               <div className="cl-sec-h">
                 <span className="cl-sec-t">{sec.title}</span>
                 <span className={`cl-kind cl-kind-${sec.kind}`}>
@@ -146,8 +147,9 @@ export function ChecklistEditor({ tid, checklist, onChange }: {
                 <span className="cl-dots" title="Удалить секцию"
                   onClick={() => { if (window.confirm(`Удалить секцию «${sec.title}»?`)) {
                     api.checklistSectionDelete(sec.id).then(onChange).catch(() => {});
-                  } }}>⋮</span>
+                  } }}>···</span>
               </div>
+              )}
               {sec.items.map((it) => (
                 <ItemRow key={it.id} it={it} onChange={onChange}
                   editingId={editingId} setEditingId={setEditingId}
