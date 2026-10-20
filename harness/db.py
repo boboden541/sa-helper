@@ -1123,11 +1123,12 @@ def checklist_progress_db(conn: sqlite3.Connection, task_id: int) -> dict:
 
 
 def checklist_open_mandatory(conn: sqlite3.Connection, task_id: int) -> list[dict]:
-    """Незакрытые обязательные пункты plan-секций (гейт approve ревью)."""
+    """Незакрытые обязательные пункты plan- и review-секций (гейт approve):
+    ревьюер обязан закрыть свой чек-лист ревью до вердикта APPROVED (С4)."""
     return [dict(r) for r in conn.execute(
         "SELECT ci.id, cs.title, ci.text_md AS text FROM checklist_items ci"
         " JOIN checklist_sections cs ON cs.id=ci.section_id"
-        " WHERE cs.task_id=? AND cs.kind='plan' AND ci.mandatory=1"
+        " WHERE cs.task_id=? AND cs.kind IN ('plan','review') AND ci.mandatory=1"
         " AND ci.state NOT IN ('done','skipped')", (task_id,))]
 
 

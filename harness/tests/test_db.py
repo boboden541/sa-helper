@@ -213,15 +213,22 @@ class TestChecklistGate(unittest.TestCase):
                                 (self.tid,)).fetchone()
         self.assertEqual(row["pipeline"], "DONE")
 
-    def test_gate_ignores_non_plan_sections(self):
-        # mandatory в review-секции (доработка ревьюера) гейт не блокирует;
-        # план-mandatory из setUp закрываем
-        dbmod.item_update(self.conn, self.item_id, state="done")
+    def test_gate_blocks_on_review_mandatory(self):
+        # С4: незакрытый mandatory чек-листа ревьюера тоже блокирует approve
+        dbmod.item_update(self.conn, self.item_id, state="done")  # план закрыт
         sec = dbmod.section_add(self.conn, self.conn.execute(
             "SELECT id FROM tasks WHERE tid=?", (self.tid,)).fetchone()["id"],
-            "Доработка по ревью (чек-лист)", kind="review")
-        dbmod.item_add(self.conn, sec, "закрыть замечание", state="todo",
-                       mandatory=True)
+            "Ревью (чек-лист)", kind="review")
+        rv = dbmod.item_add(self.conn, sec, "проверена обработка 409", state="todo",
+                            mandatory=True)
+        ok = orch.apply_transition(self.conn, self.sid, self.tid,
+                                   sm.EV_REVIEW_APPROVED, "вердикт APPROVED")
+        self.assertFalse(ok)
+        row = self.conn.execute("SELECT pipeline FROM tasks WHERE tid=?",
+                                (self.tid,)).fetchone()
+        self.assertEqual(row["pipeline"], "REVIEW")
+        # ревьюер закрыл свой пункт — approve проходит
+        dbmod.item_update(self.conn, rv, state="done")
         ok = orch.apply_transition(self.conn, self.sid, self.tid,
                                    sm.EV_REVIEW_APPROVED, "вердикт APPROVED")
         self.assertTrue(ok)

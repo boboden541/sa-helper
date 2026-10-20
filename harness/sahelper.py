@@ -79,6 +79,10 @@ def cmd_state(a, conn, pid):
             "decomposed": bool(t["decomposed"]), "branch": t["branch"],
             "worktree": t["worktree"], "iteration_count": t["iteration_count"],
             "blocked_reason": t["blocked_reason"],
+            "review_iterations": t["review_iterations"],
+            "review_verdict": t["review_verdict"],
+            "retries": t["retries"],
+            "blocked_from": t["blocked_from"],
             "actions": _actions(t),
         })
     out({"fnr": story["fnr"], "status": story["status"],
@@ -168,21 +172,22 @@ def cmd_checklist_add(a, conn, pid):
                             (sid := int(story["id"]), a.task)).fetchone()
     if task_row is None:
         die(f"нет такой задачи: {a.task}")
-    sec_id = _ensure_section(conn, task_row["id"], a.section)
+    sec_id = _ensure_section(conn, task_row["id"], a.section, kind=a.kind)
     item_id = dbmod.item_add(conn, sec_id, a.text, state=a.state,
-                             mandatory=a.mandatory)
+                             mandatory=a.mandatory, depth=a.depth)
     dbmod.append_event(conn, sid, a.task,
                        f"{a.task}: пункт чек-листа добавлен ({a.section})",
                        actor="session", kind="checklist")
     out({"ok": True, "item_id": item_id})
 
 
-def _ensure_section(conn, task_id: int, title: str) -> int:
-    row = conn.execute("SELECT id FROM checklist_sections WHERE task_id=? AND title=?",
+def _ensure_section(conn, task_id: int, title: str,
+                    kind: str | None = None) -> int:
+    row = conn.execute("SELECT id, kind FROM checklist_sections WHERE task_id=? AND title=?",
                        (task_id, title)).fetchone()
     if row:
         return int(row["id"])
-    return dbmod.section_add(conn, task_id, title)
+    return dbmod.section_add(conn, task_id, title, kind=kind or "custom")
 
 
 def cmd_checklist_state(a, conn, pid):
@@ -212,6 +217,48 @@ def _find_item(conn, task_id: int, ref: str) -> int | None:
         "SELECT ci.id FROM checklist_items ci JOIN checklist_sections cs ON cs.id=ci.section_id"
         " WHERE cs.task_id=? AND ci.text_md LIKE ? ORDER BY ci.seq", (task_id, f"%{ref}%")).fetchall()
     return int(rows[0]["id"]) if rows else None
+
+
+def cmd_review(a, conn, pid):
+    """Всё для режима доработки (С4): вердикт, находки, чек-лист ревью,
+    комментарии ревьюера и markdown-отчёт — единым чтением."""
+    proj = resolve_project(conn, a.workspace)
+    story = resolve_story(conn, int(proj["id"]), a.fnr)
+    sid = int(story["id"])
+    task_row = conn.execute("SELECT id FROM tasks WHERE story_id=? AND tid=?",
+                            (sid, a.task)).fetchone()
+    if task_row is None:
+        die(f"нет такой задачи: {a.task}")
+    t = dbmod.read_task(conn, sid, a.task, with_card=False)
+    verdict = conn.execute(
+        "SELECT iteration, status, created_at FROM review_verdicts"
+        " WHERE story_id=? AND tid=? ORDER BY iteration DESC LIMIT 1",
+        (sid, a.task)).fetchone()
+    vitems: list[dict] = []
+    if verdict:
+        vid = conn.execute(
+            "SELECT id FROM review_verdicts WHERE story_id=? AND tid=? AND iteration=?",
+            (sid, a.task, verdict["iteration"])).fetchone()
+        vitems = [dict(r) for r in conn.execute(
+            "SELECT kind, file, text FROM verdict_items WHERE verdict_id=? ORDER BY rowid",
+            (int(vid["id"]),))]
+    review_checklist = [
+        {"title": s["title"], "items": s["items"]}
+        for s in dbmod.checklist_get(conn, int(task_row["id"]))
+        if s["kind"] == "review"]
+    out({
+        "task": {"id": a.task, "title": t["title"], "pipeline": t["pipeline"],
+                 "review_iterations": t["review_iterations"],
+                 "review_verdict": t["review_verdict"],
+                 "blocked_from": t["blocked_from"], "retries": t["retries"]},
+        "verdict": dict(verdict) if verdict else None,
+        "verdict_items": vitems,
+        "findings": t.get("findings") or [],
+        "review_checklist": review_checklist,
+        "reviewer_comments": [c for c in dbmod.list_comments(conn, sid, a.task)
+                              if c.get("author") == "reviewer"],
+        "review_md": dbmod.doc_get(conn, sid, "review", tid=a.task),
+    })
 
 
 def cmd_story_init(a, conn, pid):
@@ -461,6 +508,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--section", required=True); s.add_argument("--text", required=True)
     s.add_argument("--state", default="todo")
     s.add_argument("--mandatory", action="store_true")
+    s.add_argument("--depth", type=int, default=0)
+    s.add_argument("--kind", default=None, choices=["plan", "review", "custom"])
     s.set_defaults(fn=cmd_checklist_add)
     s = sub.add_parser("checklist-state"); s.add_argument("fnr"); s.add_argument("task")
     s.add_argument("ref"); s.add_argument("--state", required=True)
@@ -519,6 +568,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(fn=cmd_story_create)
     s = sub.add_parser("comments"); s.add_argument("fnr"); s.add_argument("task")
     s.set_defaults(fn=cmd_comments)
+    s = sub.add_parser("review"); s.add_argument("fnr"); s.add_argument("task")
+    s.set_defaults(fn=cmd_review)
     s = sub.add_parser("timeline"); s.add_argument("fnr"); s.add_argument("task")
     s.set_defaults(fn=cmd_timeline)
     s = sub.add_parser("validate"); s.add_argument("fnr"); s.set_defaults(fn=cmd_validate)

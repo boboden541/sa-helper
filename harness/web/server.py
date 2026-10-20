@@ -160,6 +160,7 @@ def task_view(conn, story_id: int, tid: str) -> dict | None:
                                 for a in t["acceptance_criteria"]],
         "gates": t["gates"],
         "card_version": t["card_version"],
+        "findings": t.get("findings") or [],
     }
     task["pipeline"] = pipeline_of(task)
     task["actions"] = task_actions(task)
@@ -572,6 +573,7 @@ class Handler(BaseHTTPRequestHandler):
                 "comments_md": comments_as_md(c, sid, task_id),
                 "ask_pending": (run_dir / f"{task_id}_ask.pending").exists(),
                 "checklist": dbmod.checklist_get(c, task_row_id),
+                "review_md": dbmod.doc_get(c, sid, "review", tid=task_id),
             }
             self._send(200, json.dumps(doc, ensure_ascii=False).encode("utf-8"),
                        "application/json")

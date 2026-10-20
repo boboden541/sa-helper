@@ -406,7 +406,8 @@ export function TaskPanel({ doc, onClose, onAction }: {
             title="Чек-лист"
             cnt={t.checklist && t.checklist.total > 0 &&
               <span className="cnt">{t.checklist.done}/{t.checklist.total}</span>}>
-            <ChecklistEditor tid={t.id} checklist={doc.checklist || []}
+            <ChecklistEditor tid={t.id}
+              checklist={(doc.checklist || []).filter((s) => s.kind !== "review")}
               onChange={onAction} />
             <div className="sess">
               <div className="l">итог последней сессии</div>
@@ -414,21 +415,41 @@ export function TaskPanel({ doc, onClose, onAction }: {
             </div>
           </Sect>
 
-          {/* ── Ревью ──
+          {/* ── Ревью (С4): чек-лист ревьюера + markdown-отчёт + находки ──
               отклонение от макета: severity замечаний в данных нет
               (Finding без поля severity), поэтому cnt = «N открыто»,
               а не «x существенно · y nit» */}
           <Sect collapsed={!!collapsed.review} onToggle={() => toggleSect("review")}
             title="Ревью"
-            cnt={(t.findings || []).length > 0 && <span className="cnt">
-              {(t.findings || []).filter((f) => f.resolution !== "resolved").length} открыто</span>}>
+            cnt={<span className="cnt">
+              {(t.review_iterations || 0) > 0 && `итераций: ${t.review_iterations}`}
+              {(t.findings || []).filter((f) => f.resolution !== "resolved").length > 0 &&
+                ` · открыто: ${(t.findings || []).filter((f) => f.resolution !== "resolved").length}`}
+            </span>}>
             <p><b>Вердикт:</b> {t.review_verdict || "ещё не проводилось"}</p>
-            <ul>
-              {(t.findings || []).map((f) => (
-                <li key={f.id}>{f.text} {f.file && <span className="mono">({f.file})</span>}
-                  — <i>{f.resolution}</i></li>
-              ))}
-            </ul>
+            {(doc.checklist || []).some((s) => s.kind === "review") && (
+              <>
+                <div className="meta" style={{ margin: "8px 0 4px" }}>
+                  Чек-лист ревьюера</div>
+                <ChecklistEditor tid={t.id}
+                  checklist={(doc.checklist || []).filter((s) => s.kind === "review")}
+                  onChange={onAction} />
+              </>
+            )}
+            {doc.review_md && (
+              <>
+                <div className="meta" style={{ margin: "8px 0 4px" }}>Отчёт ревьюера</div>
+                <div className="post" dangerouslySetInnerHTML={{ __html: md(doc.review_md) }} />
+              </>
+            )}
+            {(t.findings || []).length > 0 && (
+              <ul>
+                {(t.findings || []).map((f) => (
+                  <li key={f.id}>{f.text} {f.file && <span className="mono">({f.file})</span>}
+                    — <i>{f.resolution}</i></li>
+                ))}
+              </ul>
+            )}
             {renderComments(reviewComments)}
           </Sect>
 

@@ -230,6 +230,25 @@ class TestStewardGuard(WebServerFixture):
         code, _ = self.post_expect_error("/api/steward/message", {"text": "привет"})
         self.assertEqual(code, 400)
 
+    def test_task_doc_has_findings_and_review_md(self):
+        # С4: блок «Ревью» панели всегда видит находки и markdown-отчёт
+        tid_row = self.conn.execute("SELECT id FROM tasks WHERE tid='T2'").fetchone()
+        dbmod.verdict_add(self.conn, self.sid, "T2", 1, "CHANGES_REQUESTED",
+                          blocking=[{"file": "a.py:1", "text": "нет гейта"}],
+                          advisory=[])
+        # findings-таблицу пишет reconcile_review демона — сеем напрямую
+        with dbmod.tx(self.conn):
+            self.conn.execute(
+                "INSERT INTO findings(story_id, tid, fid, text, file, resolution,"
+                " updated_at) VALUES (?,?,?,?,?, 'open', ?)",
+                (self.sid, "T2", "abc123", "нет гейта", "a.py:1", dbmod.now_iso()))
+        dbmod.doc_set(self.conn, self.sid, "review", "## Отчёт\n", tid="T2")
+        doc = self.get(self.q("/api/task/T2"))
+        self.assertEqual(doc["review_md"], "## Отчёт\n")
+        state = self.get(self.q("/api/state"))
+        t2 = next(x for x in state["manifest"]["tasks"] if x["id"] == "T2")
+        self.assertEqual(t2["findings"][0]["file"], "a.py:1")
+
     def test_chat_messages_have_ids(self):
         # С3: id сообщения — ключ merge-полла чата (история/эхо)
         dbmod.steward_append(self.conn, self.pid_row, "human", "привет")

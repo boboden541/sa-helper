@@ -140,6 +140,7 @@ export interface TaskDoc {
     blocked_from: string | null;
   } | null;
   checklist?: ChecklistSectionModel[];
+  review_md?: string | null;
 }
 
 export interface ChecklistItemModel {

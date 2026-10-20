@@ -146,3 +146,81 @@ class TestWriteOwnership(SahelperFixture):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestReviewCommand(SahelperFixture):
+    """С4: режим доработки — единое чтение «что чинить» + новые флаги чек-листа."""
+
+    def _setup_task(self):
+        code, out = self._run("task-create", "FNR_1",
+                              '{"id": "T1", "title": "А"}')
+        self.assertEqual(code, 0)
+        self._run("checklist-section-add", "FNR_1", "T1",
+                  "--title", "Ревью (чек-лист)", "--kind", "review")
+        code, out = self._run(
+            "checklist-add", "FNR_1", "T1", "--section", "Ревью (чек-лист)",
+            "--text", "Проверена обработка 409", "--kind", "review",
+            "--depth", "1", "--mandatory")
+        self.assertEqual(code, 0)
+        self._run("verdict-set", "FNR_1", "T1", "--status", "CHANGES_REQUESTED",
+                  "--iteration", "1",
+                  "--blocking", '[{"file": "app/api.py:120", "text": "нет гейта версии"}]')
+        self._run("comment-add", "FNR_1", "T1", "--author", "reviewer",
+                  "--text", "Есть замечания — см. отчёт и чек-лист ревью")
+        report = Path(self._td.name) / "review.md"
+        report.write_text("## Замечания\n\n- app/api.py:120 — нет гейта версии\n",
+                          encoding="utf-8")
+        self._run("doc-set", "FNR_1", "--kind", "review", "--tid", "T1",
+                  "--file", str(report))
+
+    def test_review_returns_full_context(self):
+        self._setup_task()
+        code, out = self._run("review", "FNR_1", "T1")
+        self.assertEqual(code, 0)
+        d = json.loads(out)
+        # счётчик итераций растит демон на EV_REVIEW_CHANGES (после вердикта — 0)
+        self.assertEqual(d["task"]["review_iterations"], 0)
+        self.assertEqual(d["verdict"]["status"], "CHANGES_REQUESTED")
+        self.assertEqual(d["verdict_items"][0]["file"], "app/api.py:120")
+        self.assertEqual(len(d["review_checklist"]), 1)
+        self.assertEqual(d["review_checklist"][0]["items"][0]["mandatory"], 1)
+        self.assertEqual(d["review_checklist"][0]["items"][0]["depth"], 1)
+        # авто-комментарий вердикта + явный комментарий ревьюера
+        self.assertEqual(len(d["reviewer_comments"]), 2)
+        self.assertTrue(any("Вердикт" in c["body"] for c in d["reviewer_comments"]))
+        self.assertIn("Замечания", d["review_md"])
+        # findings-таблицу пишет reconcile_review демона; после verdict-set — пуста
+        self.assertEqual(d["findings"], [])
+
+    def test_state_shows_review_fields(self):
+        self._setup_task()
+        code, out = self._run("state", "FNR_1")
+        d = json.loads(out)
+        t1 = next(x for x in d["tasks"] if x["id"] == "T1")
+        # verdict-set не пишет v3-поля (владение демона) — только таблицу вердиктов
+        self.assertEqual(t1["review_iterations"], 0)
+        self.assertIsNone(t1["review_verdict"])
+        self.assertIn("retries", t1)
+        self.assertIn("blocked_from", t1)
+
+    def test_checklist_add_depth_plan(self):
+        self._run("task-create", "FNR_1", '{"id": "T2", "title": "B"}')
+        self._run("checklist-add", "FNR_1", "T2", "--section", "План работ (чек-лист)",
+                  "--text", "Доработки по итогам ревью (iter 1)", "--depth", "1",
+                  "--kind", "plan")
+        code, out = self._run("checklist-add", "FNR_1", "T2",
+                              "--section", "План работ (чек-лист)",
+                              "--text", "Исправить 409-гейт", "--depth", "2")
+        self.assertEqual(code, 0)
+        conn = dbmod.connect(self.dbfile)
+        rows = conn.execute(
+            "SELECT ci.depth, cs.kind FROM checklist_items ci"
+            " JOIN checklist_sections cs ON cs.id=ci.section_id"
+            " WHERE ci.text_md LIKE '%Доработки%'").fetchone()
+        self.assertEqual(rows["depth"], 1)
+        self.assertEqual(rows["kind"], "plan")  # --kind прокинут в _ensure_section
+        rows2 = conn.execute(
+            "SELECT depth FROM checklist_items WHERE text_md LIKE '%409-гейт%'"
+        ).fetchone()
+        self.assertEqual(rows2["depth"], 2)
+        conn.close()
