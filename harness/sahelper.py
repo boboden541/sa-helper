@@ -45,6 +45,17 @@ def resolve_project(conn, ws_arg: str | None):
     return dbmod.get_project(conn, name)
 
 
+def _require_task(conn, a, project_id: int) -> int:
+    fnr = getattr(a, "fnr", None)
+    tid = getattr(a, "task", None)
+    story = resolve_story(conn, project_id, fnr)
+    row = conn.execute("SELECT id FROM tasks WHERE story_id=? AND tid=?",
+                       (int(story["id"]), tid)).fetchone()
+    if row is None:
+        die(f"нет такой задачи: {tid}")
+    return int(row["id"])
+
+
 def resolve_story(conn, project_id: int, fnr: str):
     row = dbmod.get_story(conn, project_id, fnr)
     if row is None:
@@ -115,6 +126,9 @@ def cmd_card_set(a, conn, pid):
     story = resolve_story(conn, int(proj["id"]), a.fnr)
     sid = int(story["id"])
     body = sys.stdin.read() if a.file == "-" else Path(a.file).read_text(encoding="utf-8")
+    import cards as _cards
+    if _cards.parse_checklist_sections(body):
+        die("чек-лист — отдельная модель: правьте через checklist-set/checklist-add")
     ok, version = dbmod.task_set_card(conn, sid, a.task, body,
                                       expect_version=a.expect_version)
     if not ok:
@@ -128,37 +142,76 @@ def cmd_card_set(a, conn, pid):
 
 
 def cmd_checklist_set(a, conn, pid):
+    """Checkvist-текст -> полная замена УКАЗАННОЙ секции чек-листа задачи."""
     proj = resolve_project(conn, a.workspace)
     story = resolve_story(conn, int(proj["id"]), a.fnr)
     sid = int(story["id"])
-    row = conn.execute("SELECT card_md, card_version FROM tasks WHERE story_id=? AND tid=?",
-                       (sid, a.task)).fetchone()
-    if row is None:
+    task_row = conn.execute("SELECT id FROM tasks WHERE story_id=? AND tid=?",
+                            (sid, a.task)).fetchone()
+    if task_row is None:
         die(f"нет такой задачи: {a.task}")
-    section_body = sys.stdin.read() if a.file == "-" else Path(a.file).read_text(encoding="utf-8")
-    card = row["card_md"] or ""
-    lines = card.splitlines()
-    # заменить секцию «## <title>» до следующего «## » (или конца)
-    start = end = None
-    for i, ln in enumerate(lines):
-        if ln.strip() == f"## {a.section}":
-            start = i
-        elif start is not None and ln.startswith("## "):
-            end = i
-            break
-    block = f"## {a.section}\n\n{section_body.strip()}\n"
-    if start is None:
-        new_card = card.rstrip() + "\n\n" + block
-    else:
-        end = end if end is not None else len(lines)
-        new_card = "\n".join(lines[:start]) + "\n" + block + "\n".join(lines[end:])
-    ok, version = dbmod.task_set_card(conn, sid, a.task, new_card,
-                                      expect_version=a.expect_version)
-    if not ok:
-        out({"error": "конфликт версии карточки — перечитайте", "card_version": version})
-        sys.exit(EXIT_CONFLICT)
-    out({"ok": True, "card_version": version,
-         "sections": [s["title"] for s in cards.parse_checklist_sections(new_card)]})
+    body = sys.stdin.read() if a.file == "-" else Path(a.file).read_text(encoding="utf-8")
+    items = [it for sec in dbmod.parse_checkvist(body) for it in sec["items"]]
+    if not items and body.strip():
+        die("в тексте не найдено пунктов (маркеры + / ~ / - / [r] [b] [f] [x])")
+    dbmod.checklist_replace_section(conn, int(task_row["id"]), a.section, items)
+    dbmod.append_event(conn, sid, a.task,
+                       f"{a.task}: чек-лист «{a.section}» обновлён сессией "
+                       f"({len(items)} пунктов)", actor="session", kind="checklist")
+    out({"ok": True, "section": a.section, "items": len(items)})
+
+
+def cmd_checklist_add(a, conn, pid):
+    proj = resolve_project(conn, a.workspace)
+    story = resolve_story(conn, int(proj["id"]), a.fnr)
+    task_row = conn.execute("SELECT id FROM tasks WHERE story_id=? AND tid=?",
+                            (sid := int(story["id"]), a.task)).fetchone()
+    if task_row is None:
+        die(f"нет такой задачи: {a.task}")
+    sec_id = _ensure_section(conn, task_row["id"], a.section)
+    item_id = dbmod.item_add(conn, sec_id, a.text, state=a.state,
+                             mandatory=a.mandatory)
+    dbmod.append_event(conn, sid, a.task,
+                       f"{a.task}: пункт чек-листа добавлен ({a.section})",
+                       actor="session", kind="checklist")
+    out({"ok": True, "item_id": item_id})
+
+
+def _ensure_section(conn, task_id: int, title: str) -> int:
+    row = conn.execute("SELECT id FROM checklist_sections WHERE task_id=? AND title=?",
+                       (task_id, title)).fetchone()
+    if row:
+        return int(row["id"])
+    return dbmod.section_add(conn, task_id, title)
+
+
+def cmd_checklist_state(a, conn, pid):
+    proj = resolve_project(conn, a.workspace)
+    story = resolve_story(conn, int(proj["id"]), a.fnr)
+    task_row = conn.execute("SELECT id FROM tasks WHERE story_id=? AND tid=?",
+                            (int(story["id"]), a.task)).fetchone()
+    if task_row is None:
+        die(f"нет такой задачи: {a.task}")
+    item_id = _find_item(conn, task_row["id"], a.ref)
+    if item_id is None:
+        die(f"пункт не найден: {a.ref}")
+    if not dbmod.item_update(conn, item_id, state=a.state):
+        die(f"не удалось обновить: {a.ref}")
+    dbmod.append_event(conn, int(story["id"]), a.task,
+                       f"{a.task}: пункт чек-листа -> {a.state}", actor="session",
+                       kind="checklist")
+    out({"ok": True})
+
+
+def _find_item(conn, task_id: int, ref: str) -> int | None:
+    """ref = числовой id пункта ИЛИ подстрока текста (первое совпадение)."""
+    if ref.isdigit():
+        row = conn.execute("SELECT id FROM checklist_items WHERE id=?", (int(ref),)).fetchone()
+        return int(row["id"]) if row else None
+    rows = conn.execute(
+        "SELECT ci.id FROM checklist_items ci JOIN checklist_sections cs ON cs.id=ci.section_id"
+        " WHERE cs.task_id=? AND ci.text_md LIKE ? ORDER BY ci.seq", (task_id, f"%{ref}%")).fetchall()
+    return int(rows[0]["id"]) if rows else None
 
 
 def cmd_story_init(a, conn, pid):
@@ -403,8 +456,19 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(fn=cmd_card_set)
     s = sub.add_parser("checklist-set"); s.add_argument("fnr"); s.add_argument("task")
     s.add_argument("--section", required=True); s.add_argument("--file", required=True)
-    s.add_argument("--expect-version", type=int, default=None)
     s.set_defaults(fn=cmd_checklist_set)
+    s = sub.add_parser("checklist-add"); s.add_argument("fnr"); s.add_argument("task")
+    s.add_argument("--section", required=True); s.add_argument("--text", required=True)
+    s.add_argument("--state", default="todo")
+    s.add_argument("--mandatory", action="store_true")
+    s.set_defaults(fn=cmd_checklist_add)
+    s = sub.add_parser("checklist-state"); s.add_argument("fnr"); s.add_argument("task")
+    s.add_argument("ref"); s.add_argument("--state", required=True)
+    s.set_defaults(fn=cmd_checklist_state)
+    s = sub.add_parser("checklist-section-add"); s.add_argument("fnr"); s.add_argument("task")
+    s.add_argument("--title", required=True); s.add_argument("--kind", default="custom")
+    s.set_defaults(fn=lambda a, c, pid: out({"ok": True, "section_id": dbmod.section_add(
+        c, _require_task(c, a, pid), a.title, kind=a.kind)}))
     s = sub.add_parser("story-init"); s.add_argument("--fnr", default=None)
     s.add_argument("--title", default=""); s.add_argument("--source", default="")
     s.add_argument("--status-planned", action="store_true")

@@ -298,6 +298,9 @@ def import_workspace(conn, ws: Path, project_name: str | None = None) -> dict:
                         (sid, kind, json.dumps(payload, ensure_ascii=False),
                          dbmod.now_iso(), sid, kind))
 
+        # чек-листы: вынести секций из card_md в таблицы
+        dbmod._migrate_checklists_v2(conn)
+
         # steward-канал воркспейса (chat/session/options)
         sdir = ws / "sa_documentation" / "harness" / "steward"
         if sdir.is_dir():
@@ -396,10 +399,14 @@ def export_workspace(conn, project_name: str, out: Path) -> dict:
         (fdir / "manifest.json").write_text(
             json.dumps(man, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         report["files"] += 1
-        for trow in conn.execute("SELECT tid, card_md FROM tasks WHERE story_id=?", (sid,)):
-            if trow["card_md"]:
-                (fdir / "tasks" / f"{trow['tid']}.md").write_text(
-                    trow["card_md"], encoding="utf-8")
+        for trow in conn.execute("SELECT id, tid, card_md FROM tasks WHERE story_id=?", (sid,)):
+            body = trow["card_md"] or ""
+            sections = dbmod.checklist_get(conn, trow["id"])
+            rendered = dbmod.serialize_checklist(sections) if sections else ""
+            if rendered:
+                body = body.rstrip() + "\n\n" + rendered
+            if body:
+                (fdir / "tasks" / f"{trow['tid']}.md").write_text(body, encoding="utf-8")
                 report["files"] += 1
         for c in dbmod.list_comments(conn, sid):
             tid = c.get("tid") or "STORY"

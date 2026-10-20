@@ -139,7 +139,7 @@ def task_view(conn, story_id: int, tid: str) -> dict | None:
     task["pipeline"] = pipeline_of(task)
     task["actions"] = task_actions(task)
     task["can_ask"] = bool(t.get("session_id"))
-    task["checklist"] = cards.checklist_progress(t.get("card_md") or "")
+    task["checklist"] = dbmod.checklist_progress_db(conn, t["id"])
     task["description"] = cards.card_preview(t.get("card_md") or "",
                                              t.get("description") or "")
     task["move_targets"] = _move_targets(task["pipeline"])
@@ -208,7 +208,7 @@ def _stories_payload(conn, project_id: int) -> dict:
             " COALESCE(SUM(usage_tokens_total),0) t, COALESCE(SUM(usage_cost_usd),0) c"
             " FROM tasks WHERE story_id=?", (sid,)).fetchone()
         task_rows = []
-        for tr in conn.execute("SELECT tid FROM tasks WHERE story_id=? ORDER BY"
+        for tr in conn.execute("SELECT id, tid FROM tasks WHERE story_id=? ORDER BY"
                                " CAST(SUBSTR(tid,2) AS INTEGER)", (sid,)):
             t = dbmod.read_task(conn, sid, tr["tid"])
             if not t:
@@ -222,8 +222,8 @@ def _stories_payload(conn, project_id: int) -> dict:
                 "description": cards.card_preview(t.get("card_md") or "",
                                                   t.get("description") or ""),
                 "usage": _usage_view(t),
-                "plan_done": cards.checklist_progress(t.get("card_md") or "")["done"],
-                "plan_total": cards.checklist_progress(t.get("card_md") or "")["total"],
+                "plan_done": dbmod.checklist_progress_db(conn, int(tr["id"]))["done"],
+                "plan_total": dbmod.checklist_progress_db(conn, int(tr["id"]))["total"],
                 "live": (_live_view(conn, sid, t["tid"]) or {}).get("running")
                         if t["pipeline"] in ("IMPLEMENTING", "REVIEW") else None,
             })
@@ -541,9 +541,7 @@ class Handler(BaseHTTPRequestHandler):
                 "problem": problem,
                 "comments_md": comments_as_md(c, sid, task_id),
                 "ask_pending": (run_dir / f"{task_id}_ask.pending").exists(),
-                "checklist_sections": cards.parse_checklist_sections(
-                    c.execute("SELECT card_md FROM tasks WHERE story_id=? AND tid=?",
-                              (sid, task_id)).fetchone()["card_md"] or ""),
+                "checklist": dbmod.checklist_get(c, task["id"]),
             }
             self._send(200, json.dumps(doc, ensure_ascii=False).encode("utf-8"),
                        "application/json")
@@ -684,6 +682,12 @@ class Handler(BaseHTTPRequestHandler):
             expect_version = body.get("expect_version")
             if not card_md.strip():
                 self._send(400, '{"error":"нужен card_md"}'.encode("utf-8"),
+                           "application/json")
+                return
+            if any("чек-лист" in ln.lower() for ln in card_md.splitlines()
+                   if ln.strip().startswith("## ")):
+                self._send(400, '{"error":"чек-лист — отдельная модель: редактируйте '
+                                'в секции «Чек-лист», не в описании"}'.encode("utf-8"),
                            "application/json")
                 return
             if not force and any(s["alive"] for s in dbmod.live_sessions(c, sid)):

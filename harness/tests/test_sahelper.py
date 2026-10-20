@@ -101,10 +101,15 @@ class TestWriteOwnership(SahelperFixture):
                              "--section", "План работ (чек-лист)",
                              "--file", "-", stdin="- [ ] шаг 1\n- [~] шаг 2\n")
         self.assertEqual(code, 0)
-        code, out = self._run("card", "FNR_1", "T1")
-        card = json.loads(out)["card_md"]
-        self.assertIn("## План работ (чек-лист)", card)
-        self.assertIn("- [~] шаг 2", card)
+        # чек-лист — отдельная модель: пункты в таблицах, card_md без секций
+        conn = dbmod.connect(self.dbfile)
+        items = [(r["text_md"], r["state"]) for r in conn.execute(
+            "SELECT text_md, state FROM checklist_items ORDER BY seq")]
+        card = conn.execute("SELECT card_md FROM tasks WHERE tid='T1'").fetchone()["card_md"] or ""
+        conn.close()
+        self.assertIn(("шаг 1", "todo"), items)
+        self.assertIn(("шаг 2", "inprog"), items)
+        self.assertNotIn("## План работ", card)
 
     def test_verdict_set_writes_items_and_comment(self):
         self._run("task-create", "FNR_1", '{"title": "Первая"}')

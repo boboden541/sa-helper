@@ -14,6 +14,8 @@ sys.path.insert(0, str(ROOT))
 
 import db as dbmod  # noqa: E402
 import cards  # noqa: E402
+import state_machine as sm  # noqa: E402
+import orchestrator as orch  # noqa: E402
 
 
 class DbFixture(unittest.TestCase):
@@ -169,3 +171,57 @@ class TestCardsCommon(DbFixture):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestChecklistGate(unittest.TestCase):
+    """Гейт чек-листа: открытые mandatory в plan-секции блокируют approve."""
+
+    def setUp(self):
+        import tempfile
+        self._td = tempfile.TemporaryDirectory()
+        self.conn = dbmod.connect(os.path.join(self._td.name, "g.db"))
+        self.pid = dbmod.upsert_project(self.conn, "t", "/tmp/g")
+        self.sid = dbmod.create_story(self.conn, self.pid, "FNR_1", "Т", "")
+        tid = dbmod.task_create(self.conn, self.sid,
+                                {"id": "T1", "title": "A"}, origin="plan")
+        dbmod.task_set_v3(self.conn, self.sid, tid, {"pipeline": "REVIEW"})
+        dbmod.task_set_v2(self.conn, self.sid, tid, {"status": "AGENT_REVIEW"})
+        sec = dbmod.section_add(self.conn, self.conn.execute(
+            "SELECT id FROM tasks WHERE tid=?", (tid,)).fetchone()["id"],
+            "План работ (чек-лист)", kind="plan")
+        self.item_id = dbmod.item_add(self.conn, sec, "финальный прогон",
+                                      state="inprog", mandatory=True)
+        self.tid = tid
+
+    def tearDown(self):
+        self.conn.close()
+        self._td.cleanup()
+
+    def test_gate_blocks_approve_while_mandatory_open(self):
+        ok = orch.apply_transition(self.conn, self.sid, self.tid,
+                                   sm.EV_REVIEW_APPROVED, "вердикт APPROVED")
+        self.assertFalse(ok)
+        row = self.conn.execute("SELECT pipeline FROM tasks WHERE tid=?",
+                                (self.tid,)).fetchone()
+        self.assertEqual(row["pipeline"], "REVIEW")
+        # закрыли mandatory — approve проходит
+        dbmod.item_update(self.conn, self.item_id, state="done")
+        ok = orch.apply_transition(self.conn, self.sid, self.tid,
+                                   sm.EV_REVIEW_APPROVED, "вердикт APPROVED")
+        self.assertTrue(ok)
+        row = self.conn.execute("SELECT pipeline FROM tasks WHERE tid=?",
+                                (self.tid,)).fetchone()
+        self.assertEqual(row["pipeline"], "DONE")
+
+    def test_gate_ignores_non_plan_sections(self):
+        # mandatory в review-секции (доработка ревьюера) гейт не блокирует;
+        # план-mandatory из setUp закрываем
+        dbmod.item_update(self.conn, self.item_id, state="done")
+        sec = dbmod.section_add(self.conn, self.conn.execute(
+            "SELECT id FROM tasks WHERE tid=?", (self.tid,)).fetchone()["id"],
+            "Доработка по ревью (чек-лист)", kind="review")
+        dbmod.item_add(self.conn, sec, "закрыть замечание", state="todo",
+                       mandatory=True)
+        ok = orch.apply_transition(self.conn, self.sid, self.tid,
+                                   sm.EV_REVIEW_APPROVED, "вердикт APPROVED")
+        self.assertTrue(ok)

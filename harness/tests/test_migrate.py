@@ -108,7 +108,11 @@ class TestMigrate(unittest.TestCase):
         self.assertEqual(t1["usage_tokens_total"], 15)
         self.assertEqual(t1["depends_on"], ["T2"])
         self.assertEqual(t1["gates"]["build"], "passed")
-        self.assertIn("шаг 1", t1["card_md"])
+        # чек-лист — отдельная модель: card_md без секций, пункты в таблицах
+        self.assertNotIn("## План работ", t1["card_md"])
+        items = [r["text_md"] for r in self.conn.execute(
+            "SELECT text_md FROM checklist_items ORDER BY seq")]
+        self.assertIn("шаг 1", items)
         ac = t1["acceptance_criteria"][0]
         self.assertEqual((ac["ac_id"], ac["status"]), ("AC-1.1", "PASSED"))
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import json
+import re
 import sqlite3
 import subprocess
 import time
@@ -237,6 +238,30 @@ CREATE TABLE IF NOT EXISTS attachments(
   UNIQUE(story_id, tid, name)
 );
 
+CREATE TABLE IF NOT EXISTS checklist_sections(
+  id INTEGER PRIMARY KEY,
+  task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'custom' CHECK(kind IN ('plan','review','custom')),
+  seq INTEGER NOT NULL DEFAULT 0,
+  note TEXT,
+  updated_at TEXT NOT NULL,
+  UNIQUE(task_id, title)
+);
+CREATE INDEX IF NOT EXISTS idx_chsec_task ON checklist_sections(task_id, seq);
+
+CREATE TABLE IF NOT EXISTS checklist_items(
+  id INTEGER PRIMARY KEY,
+  section_id INTEGER NOT NULL REFERENCES checklist_sections(id) ON DELETE CASCADE,
+  seq INTEGER NOT NULL DEFAULT 0,
+  text_md TEXT NOT NULL,
+  state TEXT NOT NULL DEFAULT 'todo' CHECK(state IN
+    ('todo','inprog','done','review','blocked','failed','skipped')),
+  mandatory INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_chitems_section ON checklist_items(section_id, seq);
+
 CREATE TABLE IF NOT EXISTS steward_messages(
   id INTEGER PRIMARY KEY,
   project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -287,8 +312,80 @@ def connect(path: str | Path | None = None) -> sqlite3.Connection:
     conn.executescript(SCHEMA_SQL)
     conn.execute("INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', ?)",
                  (str(SCHEMA_VERSION),))
+    ver = int(conn.execute(
+        "SELECT value FROM meta WHERE key='schema_version'").fetchone()[0])
+    if ver < 2:
+        _migrate_checklists_v2(conn)
+        conn.execute("UPDATE meta SET value='2' WHERE key='schema_version'")
     conn.commit()
     return conn
+
+
+def _migrate_checklists_v2(conn: sqlite3.Connection) -> None:
+    """v1→v2: чек-лист-секции из card_md всех задач → таблицы checklist_*.
+
+    Идемпотентно: card_md, в котором секций нет, не трогается. Заголовки
+    сравниваются по префиксу контрактов («План работ (чек-лист)…» → plan,
+    «Доработка по ревью (чек-лист)…» → review, суффикс — в note); пустые
+    заголовки-двойники пропускаются.
+    """
+    import cards as _cards
+    for row in conn.execute("SELECT id, card_md FROM tasks"
+                            " WHERE card_md LIKE '%чек-лист%'").fetchall():
+        task_id, card_md = int(row["id"]), row["card_md"] or ""
+        sections = _cards.parse_checklist_sections(card_md)
+        if not sections:
+            continue
+        for sec in sections:
+            title = sec["title"].strip()
+            kind = "custom"
+            canon = title
+            if title.startswith("План работ (чек-лист)"):
+                kind, canon = "plan", "План работ (чек-лист)"
+            elif title.startswith("Доработка по ревью (чек-лист)"):
+                kind, canon = "review", "Доработка по ревью (чек-лист)"
+            note = title[len(canon):].strip(" —") or None
+            if not sec["items"]:
+                continue  # пустой заголовок-двойник
+            with tx(conn):
+                n_sec = conn.execute("SELECT COUNT(*) c FROM checklist_sections"
+                                     " WHERE task_id=?", (task_id,)).fetchone()["c"]
+                cur = conn.execute(
+                    "INSERT INTO checklist_sections(task_id, title, kind, seq, note,"
+                    " updated_at) VALUES (?,?,?,?,?,?)"
+                    " ON CONFLICT(task_id, title) DO UPDATE SET updated_at=excluded.updated_at",
+                    (task_id, canon, kind, n_sec, note, now_iso()))
+                sec_id = int(cur.lastrowid)
+                for i, it in enumerate(sec["items"], 1):
+                    conn.execute(
+                        "INSERT INTO checklist_items(section_id, seq, text_md, state,"
+                        " mandatory, created_at, updated_at) VALUES (?,?,?,?,0,?,?)",
+                        (sec_id, i, it["text"], it["state"], now_iso(), now_iso()))
+        # вырезать чек-лист-секции из карточки
+        new_md = _cut_checklist_sections(card_md)
+        if new_md != card_md:
+            with tx(conn):
+                conn.execute(
+                    "UPDATE tasks SET card_md=?, card_version=card_version+1,"
+                    " card_updated_at=? WHERE id=?",
+                    (new_md, now_iso(), task_id))
+
+
+def _cut_checklist_sections(card_md: str) -> str:
+    """Удалить из card_md секции «## …чек-лист…» (с телом до следующего ##)."""
+    lines = (card_md or "").splitlines()
+    out: list[str] = []
+    skipping = False
+    for line in lines:
+        if line.startswith("## "):
+            skipping = "чек-лист" in line.lower()
+            if skipping:
+                continue
+        if not skipping:
+            out.append(line)
+    text = "\n".join(out)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip() + ("\n" if text.strip() else "")
+    return text
 
 
 @contextmanager
@@ -964,3 +1061,230 @@ def validate_story(conn: sqlite3.Connection, story_id: int) -> dict:
             if not hit:
                 errors.append(f"{t['tid']}: система {t['system']} не объявлена")
     return {"valid": not errors, "errors": errors}
+
+
+# ─── чек-лист задачи (модель v2) ────────────────────────────────────────────
+
+CHECKLIST_STATES = ("todo", "inprog", "done", "review", "blocked", "failed", "skipped")
+
+
+def task_row_id(conn: sqlite3.Connection, story_id: int, tid: str) -> int | None:
+    row = conn.execute("SELECT id FROM tasks WHERE story_id=? AND tid=?",
+                       (story_id, tid)).fetchone()
+    return int(row["id"]) if row else None
+
+
+def checklist_get(conn: sqlite3.Connection, task_id: int) -> list[dict]:
+    """Секции с пунктами (упорядоченно)."""
+    sections = []
+    for srow in conn.execute(
+            "SELECT id, title, kind, seq, note FROM checklist_sections"
+            " WHERE task_id=? ORDER BY seq, id", (task_id,)):
+        items = [dict(r) for r in conn.execute(
+            "SELECT id, seq, text_md AS text, state, mandatory, updated_at"
+            " FROM checklist_items WHERE section_id=? ORDER BY seq, id",
+            (srow["id"],))]
+        sections.append({"id": srow["id"], "title": srow["title"], "kind": srow["kind"],
+                         "seq": srow["seq"], "note": srow["note"], "items": items})
+    return sections
+
+
+def checklist_progress_db(conn: sqlite3.Connection, task_id: int) -> dict:
+    row = conn.execute(
+        "SELECT COUNT(*) total,"
+        " SUM(state='done') done,"
+        " SUM(state IN ('inprog','review','blocked','failed')) wip,"
+        " SUM(mandatory=1 AND state NOT IN ('done','skipped')) open_mandatory"
+        " FROM checklist_items ci JOIN checklist_sections cs ON cs.id=ci.section_id"
+        " WHERE cs.task_id=?", (task_id,)).fetchone()
+    return {"total": row["total"] or 0, "done": row["done"] or 0,
+            "in_progress": row["wip"] or 0,
+            "open_mandatory": row["open_mandatory"] or 0}
+
+
+def checklist_open_mandatory(conn: sqlite3.Connection, task_id: int) -> list[dict]:
+    """Незакрытые обязательные пункты plan-секций (гейт approve ревью)."""
+    return [dict(r) for r in conn.execute(
+        "SELECT ci.id, cs.title, ci.text_md AS text FROM checklist_items ci"
+        " JOIN checklist_sections cs ON cs.id=ci.section_id"
+        " WHERE cs.task_id=? AND cs.kind='plan' AND ci.mandatory=1"
+        " AND ci.state NOT IN ('done','skipped')", (task_id,))]
+
+
+def section_add(conn: sqlite3.Connection, task_id: int, title: str,
+                kind: str = "custom") -> int:
+    if kind not in ("plan", "review", "custom"):
+        raise ValueError(f"неизвестный kind: {kind}")
+    title = (title or "").strip()
+    if not title:
+        raise ValueError("нужен заголовок секции")
+    with tx(conn):
+        n = conn.execute("SELECT COALESCE(MAX(seq),-1)+1 FROM checklist_sections"
+                         " WHERE task_id=?", (task_id,)).fetchone()[0]
+        cur = conn.execute(
+            "INSERT INTO checklist_sections(task_id, title, kind, seq, updated_at)"
+            " VALUES (?,?,?,?,?)"
+            " ON CONFLICT(task_id, title) DO UPDATE SET kind=excluded.kind,"
+            " updated_at=excluded.updated_at",
+            (task_id, title, kind, n, now_iso()))
+        return int(cur.lastrowid)
+
+
+def section_delete(conn: sqlite3.Connection, section_id: int) -> None:
+    with tx(conn):
+        conn.execute("DELETE FROM checklist_sections WHERE id=?", (section_id,))
+
+
+def item_add(conn: sqlite3.Connection, section_id: int, text: str,
+             state: str = "todo", mandatory: bool = False) -> int:
+    if state not in CHECKLIST_STATES:
+        raise ValueError(f"неизвестное состояние: {state}")
+    text = (text or "").strip()
+    if not text:
+        raise ValueError("нужен текст пункта")
+    with tx(conn):
+        n = conn.execute("SELECT COALESCE(MAX(seq),-1)+1 FROM checklist_items"
+                         " WHERE section_id=?", (section_id,)).fetchone()[0]
+        cur = conn.execute(
+            "INSERT INTO checklist_items(section_id, seq, text_md, state, mandatory,"
+            " created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
+            (section_id, n, text.strip(), state, 1 if mandatory else 0,
+             now_iso(), now_iso()))
+        return int(cur.lastrowid)
+
+
+def item_update(conn: sqlite3.Connection, item_id: int, text: str | None = None,
+                state: str | None = None, mandatory: bool | None = None) -> bool:
+    sets, vals = [], []
+    if text is not None:
+        if not text.strip():
+            raise ValueError("пустой текст пункта")
+        sets.append("text_md=?"); vals.append(text.strip())
+    if state is not None:
+        if state not in CHECKLIST_STATES:
+            raise ValueError(f"неизвестное состояние: {state}")
+        sets.append("state=?"); vals.append(state)
+    if mandatory is not None:
+        sets.append("mandatory=?"); vals.append(1 if mandatory else 0)
+    if not sets:
+        return False
+    with tx(conn):
+        cur = conn.execute("SELECT id FROM checklist_items WHERE id=?", (item_id,)).fetchone()
+        if not cur:
+            return False
+        conn.execute(f"UPDATE checklist_items SET {', '.join(sets)}, updated_at=? WHERE id=?",
+                     (*vals, now_iso(), item_id))
+    return True
+
+
+def item_delete(conn: sqlite3.Connection, item_id: int) -> None:
+    with tx(conn):
+        conn.execute("DELETE FROM checklist_items WHERE id=?", (item_id,))
+
+
+# ─── Checkvist-синтаксис (текстовый режим) ─────────────────────────────────
+
+_CV_SECTION = re.compile(r"^#\s+(.+?)\s*$")
+_CV_ITEM = re.compile(
+    r"^(\+|~|-|\[ \]|\[~\]|\[r\]|\[b\]|\[f\]|\[x\]|\[s\])\s*(.*)$")
+_CV_STATE = {"+": "done", "~": "inprog", "-": "todo", "[ ]": "todo", "[~]": "inprog",
+             "[r]": "review", "[b]": "blocked", "[f]": "failed",
+             "[x]": "done",   # канон чек-листов: [x] = done
+             "[s]": "skipped"}  # skipped — [s] (наше расширение)
+_STATE_TO_CV = {"done": "+", "inprog": "~", "todo": "-", "review": "[r]",
+                "blocked": "[b]", "failed": "[f]", "skipped": "[s]"}
+
+
+def parse_checkvist(text: str) -> list[dict]:
+    """Checkvist-синтаксис → секции/пункты (см. гайд Checkvist): `# заголовок`
+    открывает секцию; `+`/`~`/`-`/`[r]`/`[b]`/`[f]`/`[x]` — состояния;
+    `!` после маркера или в конце строки — обязательный пункт."""
+    sections: list[dict] = []
+    cur: dict | None = None
+    for line in (text or "").splitlines():
+        if not line.strip():
+            continue
+        h = _CV_SECTION.match(line.strip())
+        if h:
+            cur = {"title": h.group(1).strip(), "items": []}
+            sections.append(cur)
+            continue
+        m = _CV_ITEM.match(line.strip())
+        if not m:
+            continue  # посторонние строки пропускаем (не падаем)
+        marker, rest = m.group(1), m.group(2).strip()
+        # вложенный канонический маркер: "- [ ] …" = то же, что "- …"
+        nest = re.match(r"^(\[ \]|\[~\]|\[r\]|\[b\]|\[f\]|\[x\]|\[s\])\s*(.*)$", rest)
+        if nest:
+            marker = nest.group(1)   # вложенный маркер уточняет состояние
+            rest = nest.group(2).strip()
+        mandatory = False
+        if rest.startswith("!"):
+            mandatory = True
+            rest = rest[1:].strip()
+        elif rest.endswith("!"):
+            mandatory = True
+            rest = rest[:-1].strip()
+        if cur is None:
+            cur = {"title": "Чек-лист", "items": []}
+            sections.append(cur)
+        cur["items"].append({"state": _CV_STATE[marker], "text": rest, "mandatory": mandatory})
+    return [s for s in sections if s["items"]]
+
+
+def serialize_checklist(sections: list[dict]) -> str:
+    """Модель → Checkvist-текст (для редактора и export-снапшота)."""
+    out: list[str] = []
+    for sec in sections:
+        out.append(f"# {sec['title']}")
+        for it in sec["items"]:
+            mark = _STATE_TO_CV.get(it["state"], "-")
+            bang = " !" if it.get("mandatory") else ""
+            out.append(f"{mark} {it['text']}{bang}")
+        out.append("")
+    return "\n".join(out).strip() + "\n"
+
+
+def checklist_replace(conn: sqlite3.Connection, task_id: int,
+                      sections: list[dict]) -> None:
+    """Полная замена чек-листа задачи секциями из parse_checkvist."""
+    with tx(conn):
+        conn.execute("DELETE FROM checklist_sections WHERE task_id=?", (task_id,))
+        for i, sec in enumerate(sections):
+            title = sec["title"].strip()
+            kind = "plan" if title.startswith("План работ (чек-лист)") else \
+                   "review" if title.startswith("Доработка по ревью (чек-лист)") else "custom"
+            cur = conn.execute(
+                "INSERT INTO checklist_sections(task_id, title, kind, seq, updated_at)"
+                " VALUES (?,?,?,?,?)",
+                (task_id, title, kind, i, now_iso()))
+            sec_id = int(cur.lastrowid)
+            for j, it in enumerate(sec["items"], 1):
+                conn.execute(
+                    "INSERT INTO checklist_items(section_id, seq, text_md, state,"
+                    " mandatory, created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
+                    (sec_id, j, it["text"], it["state"],
+                     1 if it.get("mandatory") else 0, now_iso(), now_iso()))
+        conn.execute("UPDATE tasks SET updated_at=? WHERE id=?", (now_iso(), task_id))
+
+
+def checklist_replace_section(conn: sqlite3.Connection, task_id: int, title: str,
+                              items: list[dict]) -> None:
+    """Замена/создание ОДНОЙ секции по заголовку (checklist-set агента/человека)."""
+    kind = "plan" if title.startswith("План работ (чек-лист)") else \
+           "review" if title.startswith("Доработка по ревью (чек-лист)") else "custom"
+    with tx(conn):
+        conn.execute("DELETE FROM checklist_sections WHERE task_id=? AND title=?",
+                     (task_id, title))
+        n = conn.execute("SELECT COALESCE(MAX(seq),-1)+1 FROM checklist_sections"
+                         " WHERE task_id=?", (task_id,)).fetchone()[0]
+        cur = conn.execute(
+            "INSERT INTO checklist_sections(task_id, title, kind, seq, updated_at)"
+            " VALUES (?,?,?,?,?)", (task_id, title, kind, n, now_iso()))
+        sec_id = int(cur.lastrowid)
+        for j, it in enumerate(items, 1):
+            conn.execute(
+                "INSERT INTO checklist_items(section_id, seq, text_md, state, mandatory,"
+                " created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
+                (sec_id, j, it["text"], it["state"],
+                 1 if it.get("mandatory") else 0, now_iso(), now_iso()))

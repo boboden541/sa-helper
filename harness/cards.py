@@ -14,7 +14,7 @@ SECTION_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
 STATE_NAMES = {" ": "todo", "~": "inprog", "x": "done",
                "r": "review", "b": "blocked", "f": "failed"}
 # секция «Что сделать» — источник превью (единое описание задачи)
-CARD_DESC_RE = re.compile(r"^##\s+Что сделать\s*\n\n(.*?)(?=^##\s|\Z)", re.S | re.M)
+CARD_DESC_RE = re.compile(r"^##\s+Что сделать:?\s*\n\n(.*?)(?=^##\s|\Z)", re.S | re.M)
 
 
 def parse_checklist_sections(card_md: str) -> list[dict]:

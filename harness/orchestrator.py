@@ -295,8 +295,9 @@ def _verify_flags(conn, story_id: int, ws: Path, fnr: str) -> tuple[bool, bool]:
 
 # --- применение переходов и журналы (БД) ---------------------------------
 
-def ev(conn, story_id: int, tid: str | None, text: str) -> None:
-    dbmod.append_event(conn, story_id, tid, text, actor="daemon")
+def ev(conn, story_id: int, tid: str | None, text: str,
+       kind: str | None = None) -> None:
+    dbmod.append_event(conn, story_id, tid, text, actor="daemon", kind=kind)
 
 
 def cmt(conn, story_id: int, tid: str, text: str) -> None:
@@ -336,6 +337,18 @@ def apply_transition(conn, story_id: int, tid: str, event: str, reason: str) -> 
     task = dbmod.read_task(conn, story_id, tid, with_card=False)
     if not task:
         return False
+    # гейт чек-листа: незакрытые обязательные пункты блокируют approve
+    if event in (sm.EV_REVIEW_APPROVED, sm.EV_FORCE_APPROVE):
+        open_m = dbmod.checklist_open_mandatory(conn, task["id"])
+        if open_m:
+            cmt(conn, story_id, tid,
+                f"⛔ Гейт чек-листа: {len(open_m)} обязательных пунктов открыты — "
+                "закройте их (или снимите !), затем повторите approve: "
+                + "; ".join(f"«{m['text']}»" for m in open_m[:5]))
+            ev(conn, story_id, tid,
+               f"{tid}: approve отклонён гейтом чек-листа ({len(open_m)} mandatory)",
+               kind="gate")
+            return False
     task["id"] = task["tid"]
     result = sm.transition(task, event)
     if not result["ok"]:
@@ -647,7 +660,7 @@ def claim_lock(hdir: Path) -> bool:
 
 def _update_card_description(card_md: str, description: str) -> str:
     """Секция «Что сделать» в карточке (канон TASK_EDIT)."""
-    section = re.search(r"(## Что сделать\n\n)(.*?)(\n## |\Z)", card_md, re.S)
+    section = re.search(r"(## Что сделать:?\n\n)(.*?)(\n## |\Z)", card_md, re.S)
     if section:
         return card_md[:section.start(2)] + description + card_md[section.end(2):]
     return card_md + f"\n## Что сделать\n\n{description}\n"
