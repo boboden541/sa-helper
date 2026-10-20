@@ -330,41 +330,54 @@ def _migrate_checklists_v2(conn: sqlite3.Connection) -> None:
     заголовки-двойники пропускаются.
     """
     import cards as _cards
-    for row in conn.execute("SELECT id, card_md FROM tasks"
-                            " WHERE card_md LIKE '%чек-лист%'").fetchall():
-        task_id, card_md = int(row["id"]), row["card_md"] or ""
-        sections = _cards.parse_checklist_sections(card_md)
-        if not sections:
-            continue
-        for sec in sections:
-            title = sec["title"].strip()
-            kind = "custom"
-            canon = title
-            if title.startswith("План работ (чек-лист)"):
-                kind, canon = "plan", "План работ (чек-лист)"
-            elif title.startswith("Доработка по ревью (чек-лист)"):
-                kind, canon = "review", "Доработка по ревью (чек-лист)"
-            note = title[len(canon):].strip(" —") or None
-            if not sec["items"]:
-                continue  # пустой заголовок-двойник
-            with tx(conn):
-                n_sec = conn.execute("SELECT COUNT(*) c FROM checklist_sections"
-                                     " WHERE task_id=?", (task_id,)).fetchone()["c"]
-                cur = conn.execute(
-                    "INSERT INTO checklist_sections(task_id, title, kind, seq, note,"
-                    " updated_at) VALUES (?,?,?,?,?,?)"
-                    " ON CONFLICT(task_id, title) DO UPDATE SET updated_at=excluded.updated_at",
-                    (task_id, canon, kind, n_sec, note, now_iso()))
-                sec_id = int(cur.lastrowid)
-                for i, it in enumerate(sec["items"], 1):
-                    conn.execute(
-                        "INSERT INTO checklist_items(section_id, seq, text_md, state,"
-                        " mandatory, created_at, updated_at) VALUES (?,?,?,?,0,?,?)",
-                        (sec_id, i, it["text"], it["state"], now_iso(), now_iso()))
-        # вырезать чек-лист-секции из карточки
-        new_md = _cut_checklist_sections(card_md)
-        if new_md != card_md:
-            with tx(conn):
+    with tx(conn):
+        for row in conn.execute("SELECT id, card_md FROM tasks"
+                                " WHERE card_md LIKE '%чек-лист%'").fetchall():
+            task_id, card_md = int(row["id"]), row["card_md"] or ""
+            sections = _cards.parse_checklist_sections(card_md)
+            if not sections:
+                continue
+            for sec in sections:
+                title = sec["title"].strip()
+                kind = "custom"
+                canon = title
+                if title.startswith("План работ (чек-лист)"):
+                    kind, canon = "plan", "План работ (чек-лист)"
+                elif title.startswith("Доработка по ревью (чек-лист)"):
+                    kind, canon = "review", "Доработка по ревью (чек-лист)"
+                note = title[len(canon):].strip(" —") or None
+                if not sec["items"]:
+                    continue  # пустой заголовок-двойник
+                existing = conn.execute(
+                    "SELECT id FROM checklist_sections WHERE task_id=? AND title=?",
+                    (task_id, canon)).fetchone()
+                if existing:
+                    # дубликат заголовка (повторные декомпозиции) — дописываем
+                    # пункты в существующую секцию
+                    sec_id = int(existing["id"])
+                    base = conn.execute("SELECT COALESCE(MAX(seq),0) FROM checklist_items"
+                                        " WHERE section_id=?", (sec_id,)).fetchone()[0]
+                    for i, it in enumerate(sec["items"], base + 1):
+                        conn.execute(
+                            "INSERT INTO checklist_items(section_id, seq, text_md, state,"
+                            " mandatory, created_at, updated_at) VALUES (?,?,?,?,0,?,?)",
+                            (sec_id, i, it["text"], it["state"], now_iso(), now_iso()))
+                else:
+                    n_sec = conn.execute("SELECT COUNT(*) c FROM checklist_sections"
+                                         " WHERE task_id=?", (task_id,)).fetchone()["c"]
+                    cur = conn.execute(
+                        "INSERT INTO checklist_sections(task_id, title, kind, seq, note,"
+                        " updated_at) VALUES (?,?,?,?,?,?)",
+                        (task_id, canon, kind, n_sec, note, now_iso()))
+                    sec_id = int(cur.lastrowid)
+                    for i, it in enumerate(sec["items"], 1):
+                        conn.execute(
+                            "INSERT INTO checklist_items(section_id, seq, text_md, state,"
+                            " mandatory, created_at, updated_at) VALUES (?,?,?,?,0,?,?)",
+                            (sec_id, i, it["text"], it["state"], now_iso(), now_iso()))
+            # вырезать чек-лист-секции из карточки
+            new_md = _cut_checklist_sections(card_md)
+            if new_md != card_md:
                 conn.execute(
                     "UPDATE tasks SET card_md=?, card_version=card_version+1,"
                     " card_updated_at=? WHERE id=?",

@@ -24,11 +24,20 @@ export function ChecklistEditor({ tid, checklist, onChange }: {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const [menuId, setMenuId] = useState<number | null>(null);
+  const [mode, setMode] = useState<"visual" | "text">("visual");
+  const [textDraft, setTextDraft] = useState<string | null>(null);
 
   const total = checklist.reduce((a, s) => a + s.items.length, 0);
   const done = checklist.reduce(
     (a, s) => a + s.items.filter((i) => i.state === "done").length, 0);
   const pct = total ? Math.round((100 * done) / total) : 0;
+
+  const importText = () => {
+    if (textDraft === null) return;
+    api.checklistImport(tid, textDraft).then(() => {
+      setTextDraft(null); setMode("visual"); onChange();
+    }).catch(() => {});
+  };
 
   return (
     <div>
@@ -36,6 +45,36 @@ export function ChecklistEditor({ tid, checklist, onChange }: {
         <div className="cl-bar"><i style={{ width: `${pct}%` }} /></div>
         <span className="cl-count">{done}/{total}</span>
       </div>
+      <div className="cl-modes">
+        <button className={`cl-mode ${mode === "visual" ? "on" : ""}`}
+          onClick={() => { if (mode === "text") { setTextDraft(null); setMode("visual"); } }}>
+          Визуально
+        </button>
+        <button className={`cl-mode ${mode === "text" ? "on" : ""}`}
+          onClick={() => {
+            if (mode === "visual") {
+              // сериализуем текущий чек-лист в Checkvist для textarea
+              setTextDraft(serialize(checklist));
+              setMode("text");
+            }
+          }}>Текст</button>
+      </div>
+      {mode === "text" ? (
+        <div>
+          <textarea className="cl-textarea" value={textDraft ?? ""}
+            onChange={(e) => setTextDraft(e.target.value)}
+            rows={Math.max(8, (textDraft ?? "").split("\n").length + 1)}
+            placeholder={"# Секция\n+ сделано\n~ в работе\n- сделать\n[x] пропущено !"} />
+          <div className="cl-texthint">
+            Маркеры: <b>+</b> done · <b>~</b> in-progress · <b>-</b> todo ·
+            <b> [r]/[b]/[f]</b> · <b>[x]</b> skipped · <b>[s]</b> skipped ·
+            суффикс <b>!</b> = обязательный
+          </div>
+          <button className="primary" style={{ marginTop: 6 }}
+            onClick={importText}>Применить</button>
+        </div>
+      ) : (
+        <>
       {checklist.length === 0 && (
         <p className="empty">чек-лист пуст — добавьте секцию и пункты</p>
       )}
@@ -66,8 +105,25 @@ export function ChecklistEditor({ tid, checklist, onChange }: {
       <AddSection onAdd={(title) => {
         api.checklistSectionAdd(tid, title).then(onChange).catch(() => {});
       }} />
+        </>
+      )}
     </div>
   );
+}
+
+/** Сериализация модели → Checkvist-текст (для textarea текстового режима). */
+function serialize(checklist: ChecklistSectionModel[]): string {
+  const out: string[] = [];
+  for (const sec of checklist) {
+    out.push(`# ${sec.title}`);
+    for (const it of sec.items) {
+      const mark = { done: "+", inprog: "~", todo: "-", review: "[r]",
+                     blocked: "[b]", failed: "[f]", skipped: "[x]" }[it.state] || "-";
+      out.push(`${mark} ${it.text}${it.mandatory ? " !" : ""}`);
+    }
+    out.push("");
+  }
+  return out.join("\n");
 }
 
 function ItemRow({ it, onChange, editingId, setEditingId,
