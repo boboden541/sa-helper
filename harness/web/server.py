@@ -935,6 +935,14 @@ class Handler(BaseHTTPRequestHandler):
                 return
             c, story, task_id = ctx
             text = str(self._json_body().get("text") or "")
+            if not text.strip():
+                # пустой текст = удалить весь чек-лист
+                dbmod.checklist_replace(c, task_id, [])
+                dbmod.append_event(c, int(story["id"]), tid,
+                                   f"{tid}: чек-лист удалён человеком",
+                                   actor="human", kind="checklist")
+                self._send(200, b'{"ok":true,"deleted":true}', "application/json")
+                return
             sections = dbmod.parse_checkvist(text)
             if not sections:
                 self._send(400, '{"error":"текст не содержит пунктов"}'.encode("utf-8"),

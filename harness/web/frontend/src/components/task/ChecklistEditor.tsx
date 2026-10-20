@@ -37,7 +37,9 @@ export function ChecklistEditor({ tid, checklist, onChange }: {
   const importText = () => {
     api.checklistImport(tid, textDraft ?? "").then(() => {
       setTextDraft(null); setMode("visual"); onChange();
-    }).catch(() => {});
+    }).catch((e) => {
+      window.alert(`Не удалось применить: ${e.message || e}`);
+    });
   };
 
   // Единственное поле ввода: последовательно добавляет строки в чек-лист.
@@ -141,10 +143,10 @@ export function ChecklistEditor({ tid, checklist, onChange }: {
                 <span className={`cl-kind cl-kind-${sec.kind}`}>
                   {sec.kind === "plan" ? "агент" : sec.kind === "review" ? "ревьюер" : "своя"}
                 </span>
-                <button className="ced-btn" title="Удалить секцию"
+                <span className="cl-dots" title="Удалить секцию"
                   onClick={() => { if (window.confirm(`Удалить секцию «${sec.title}»?`)) {
                     api.checklistSectionDelete(sec.id).then(onChange).catch(() => {});
-                  } }}>✕</button>
+                  } }}>⋮</span>
               </div>
               {sec.items.map((it) => (
                 <ItemRow key={it.id} it={it} onChange={onChange}
