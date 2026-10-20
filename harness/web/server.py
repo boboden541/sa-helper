@@ -635,7 +635,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             pid = int(prow["id"])
             messages = [dict(r) for r in c.execute(
-                "SELECT ts, author, body AS text FROM steward_messages"
+                "SELECT id, ts, author, body AS text FROM steward_messages"
                 " WHERE project_id=? ORDER BY id", (pid,))]
             pending = bool(dbmod.steward_get_state(c, pid).get("pending"))
             self._send(200, json.dumps({"messages": messages, "pending": pending},

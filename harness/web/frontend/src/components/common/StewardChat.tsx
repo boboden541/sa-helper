@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import { api } from "../../api";
+import { toast } from "./toasts";
 
-interface Msg { ts: string; author: string; text: string; }
+interface Msg { id?: number; ts: string; author: string; text: string; local?: boolean; }
 
 /** Чат со Steward — диспетчером конвейера (порция H1). */
 export function StewardChat() {
@@ -34,17 +36,40 @@ export function StewardChat() {
   const [pending, setPending] = useState(false);
   const [draft, setDraft] = useState("");
   const bodyRef = useRef<HTMLDivElement>(null);
+  // С3: курсор «на момент открытия» — история до открытия не показывается,
+  // при закрытии окно очищается (в БД остаётся аудит)
+  const cursorRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!open) return;
-    const load = () =>
-      fetch("/api/steward/chat")
-        .then((r) => r.json())
-        .then((d) => { setMessages(d.messages || []); setPending(!!d.pending); })
-        .catch(() => {});
-    load();
+    if (!open) {
+      setMessages([]); setPending(false); cursorRef.current = null;
+      return;
+    }
+    let alive = true;
+    api.stewardChat().then((d) => {
+      if (!alive) return;
+      cursorRef.current = (d.messages || []).length;
+      setPending(!!d.pending);
+    }).catch(() => {});
+    const nowLabel = () => new Date().toLocaleString("ru-RU",
+      { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    const load = () => api.stewardChat().then((d) => {
+      if (!alive) return;
+      setPending(!!d.pending);
+      const all = d.messages || [];
+      const cur = cursorRef.current ?? all.length;
+      cursorRef.current = cur;
+      setMessages((prev) => {
+        const fresh: Msg[] = all.slice(cur);
+        const confirmed = fresh.filter((s) => s.author === "human").map((s) => s.text);
+        // merge вместо wipe: локальные эхо live до подтверждения сервером
+        const kept = prev.filter((m) => m.local && !confirmed.includes(m.text));
+        return [...fresh, ...kept.map((m) => ({ ...m, ts: m.ts || nowLabel() }))];
+      });
+    }).catch(() => {});
+    const first = setTimeout(load, 300);
     const timer = setInterval(load, 2000);
-    return () => clearInterval(timer);
+    return () => { alive = false; clearTimeout(first); clearInterval(timer); };
   }, [open]);
 
   useEffect(() => {
@@ -55,15 +80,17 @@ export function StewardChat() {
     const text = draft.trim();
     if (!text || pending) return;
     setDraft("");
-    fetch("/api/steward/message", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
-    }).then(() => {
-      setMessages((m) => [...m, { ts: new Date().toLocaleString("ru-RU", {
-        day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }),
-        author: "human", text }]);
-      setPending(true);
-    }).catch(() => {});
+    setMessages((m) => [...m, { ts: new Date().toLocaleString("ru-RU", {
+      day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }),
+      author: "human", text, local: true }]);
+    setPending(true);
+    api.stewardMessage(text).catch((e) => {
+      // 429 «steward is thinking» и прочие — сообщение возвращается в поле
+      setPending(false);
+      setMessages((m) => m.filter((x) => !(x.local && x.text === text)));
+      setDraft(text);
+      toast.err(`Не отправлено: ${e.message}`);
+    });
   };
 
   return (

@@ -91,7 +91,7 @@ export const api = {
 
   stewardChat: () =>
     fetch(withFnr("/api/steward/chat")).then((r) =>
-      json<{ messages: Array<{ ts: string; author: string; text: string }>; pending: boolean }>(r)),
+      json<{ messages: Array<{ id?: number; ts: string; author: string; text: string }>; pending: boolean }>(r)),
 
   stewardMessage: (text: string) =>
     fetch(withFnr("/api/steward/message"), {

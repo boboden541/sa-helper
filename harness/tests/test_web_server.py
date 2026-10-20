@@ -230,6 +230,16 @@ class TestStewardGuard(WebServerFixture):
         code, _ = self.post_expect_error("/api/steward/message", {"text": "привет"})
         self.assertEqual(code, 400)
 
+    def test_chat_messages_have_ids(self):
+        # С3: id сообщения — ключ merge-полла чата (история/эхо)
+        dbmod.steward_append(self.conn, self.pid_row, "human", "привет")
+        dbmod.steward_append(self.conn, self.pid_row, "steward", "ответ")
+        data = self.get(self.q("/api/steward/chat"))
+        msgs = data["messages"]
+        self.assertEqual([m["text"] for m in msgs], ["привет", "ответ"])
+        self.assertTrue(all(isinstance(m.get("id"), int) for m in msgs))
+        self.assertFalse(data["pending"])
+
 
 class TestComments(WebServerFixture):
     def test_comment_and_attention_retry(self):
