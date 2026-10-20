@@ -145,6 +145,7 @@ export interface TaskDoc {
 export interface ChecklistItemModel {
   id: number;
   seq: number;
+  depth: number;
   text: string;
   state: "todo" | "inprog" | "done" | "review" | "blocked" | "failed" | "skipped";
   mandatory: number;

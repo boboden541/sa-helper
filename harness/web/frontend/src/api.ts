@@ -120,10 +120,10 @@ export const api = {
     }).then((r) => r.json()),
 
   checklistItemAdd: (tid: string, sectionId: number, text: string,
-                     state = "todo", mandatory = false) =>
+                     state = "todo", mandatory = false, depth = 0) =>
     fetch(withFnr(`/api/checklist/${tid}/item`), {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ section_id: sectionId, text, state, mandatory }),
+      body: JSON.stringify({ section_id: sectionId, text, state, mandatory, depth }),
     }).then((r) => r.json()),
 
   checklistItemPatch: (itemId: number, patch: Record<string, unknown>) =>

@@ -1101,7 +1101,7 @@ def checklist_get(conn: sqlite3.Connection, task_id: int) -> list[dict]:
             "SELECT id, title, kind, seq, note FROM checklist_sections"
             " WHERE task_id=? ORDER BY seq, id", (task_id,)):
         items = [dict(r) for r in conn.execute(
-            "SELECT id, seq, text_md AS text, state, mandatory, updated_at"
+            "SELECT id, seq, depth, text_md AS text, state, mandatory, updated_at"
             " FROM checklist_items WHERE section_id=? ORDER BY seq, id",
             (srow["id"],))]
         sections.append({"id": srow["id"], "title": srow["title"], "kind": srow["kind"],
@@ -1206,6 +1206,7 @@ def item_delete(conn: sqlite3.Connection, item_id: int) -> None:
 # ─── Checkvist-синтаксис (текстовый режим) ─────────────────────────────────
 
 _CV_SECTION = re.compile(r"^#{1,5}\s+(.+?)\s*$")
+_CV_HEADER = re.compile(r"^(#{2,6})\s+(.+?)\s*$")
 _CV_ITEM = re.compile(
     r"^(\+|~|-|\[ \]|\[~\]|\[r\]|\[b\]|\[f\]|\[x\]|\[s\])\s*(.*)$")
 _CV_STATE = {"+": "done", "~": "inprog", "-": "todo", "[ ]": "todo", "[~]": "inprog",
@@ -1230,6 +1231,15 @@ def parse_checkvist(text: str) -> list[dict]:
             cur = {"title": h.group(1).strip(), "items": []}
             sections.append(cur)
             continue
+        sub = _CV_HEADER.match(line.strip())
+        if sub:
+            depth = len(sub.group(1)) - 1
+            if cur is None:
+                cur = {"title": "Чек-лист", "items": []}
+                sections.append(cur)
+            cur["items"].append({"state": "todo", "text": sub.group(2).strip(),
+                                 "mandatory": False, "depth": depth})
+            continue
         m = _CV_ITEM.match(line.strip())
         if not m:
             continue  # посторонние строки пропускаем (не падаем)
@@ -1249,7 +1259,8 @@ def parse_checkvist(text: str) -> list[dict]:
         if cur is None:
             cur = {"title": "Чек-лист", "items": []}
             sections.append(cur)
-        cur["items"].append({"state": _CV_STATE[marker], "text": rest, "mandatory": mandatory})
+        cur["items"].append({"state": _CV_STATE[marker], "text": rest,
+                             "mandatory": mandatory, "depth": 0})
     return [s for s in sections if s["items"]]
 
 

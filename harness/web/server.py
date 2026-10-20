@@ -915,7 +915,8 @@ class Handler(BaseHTTPRequestHandler):
                 item_id = dbmod.item_add(c, int(body.get("section_id") or 0),
                                          str(body.get("text") or ""),
                                          state=str(body.get("state") or "todo"),
-                                         mandatory=bool(body.get("mandatory")))
+                                         mandatory=bool(body.get("mandatory")),
+                                         depth=int(body.get("depth") or 0))
             except ValueError as exc:
                 self._send(400, json.dumps({"error": str(exc)},
                            ensure_ascii=False).encode("utf-8"), "application/json")

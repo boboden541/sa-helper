@@ -125,7 +125,7 @@ export function ChecklistEditor({ tid, checklist, onChange }: {
                   } }}>✕</button>
               </div>
               {sec.items.map((it) => (
-                <ItemRow key={it.id} tid={tid} it={it} onChange={onChange}
+                <ItemRow key={it.id} it={it} onChange={onChange}
                   editingId={editingId} setEditingId={setEditingId}
                   editDraft={editDraft} setEditDraft={setEditDraft}
                   menuId={menuId} setMenuId={setMenuId} />
@@ -149,9 +149,8 @@ export function ChecklistEditor({ tid, checklist, onChange }: {
   );
 }
 
-function ItemRow({ tid, it, onChange, editingId, setEditingId,
+function ItemRow({ it, onChange, editingId, setEditingId,
                    editDraft, setEditDraft, menuId, setMenuId }: {
-  tid: string;
   it: ChecklistItemModel;
   onChange: () => void;
   editingId: number | null;
@@ -249,30 +248,6 @@ function ItemRow({ tid, it, onChange, editingId, setEditingId,
           }}>Удалить пункт</div>
         </div>
       )}
-    </div>
-  );
-}
-
-function AddItem({ onAdd, placeholder }: {
-  onAdd: (text: string, mandatory: boolean) => void;
-  placeholder: string;
-}) {
-  const [text, setText] = useState("");
-  const [mand, setMand] = useState(false);
-  const submit = () => {
-    if (!text.trim()) return;
-    onAdd(text.trim(), mand);
-    setText(""); setMand(false);
-  };
-  return (
-    <div className="cl-additem">
-      <input value={text} placeholder={placeholder}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter") submit(); }} />
-      <button className="ced-btn" title="Обязательный пункт"
-        onClick={() => setMand(!mand)}
-        style={mand ? { color: "var(--acc)" } : undefined}>!</button>
-      <button className="ced-btn" title="Добавить" onClick={submit}>＋</button>
     </div>
   );
 }

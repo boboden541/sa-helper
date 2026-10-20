@@ -299,6 +299,15 @@ table.tasks td.mono { font-family: var(--mono); font-size: 11.5px; color: var(--
   cursor: pointer; font: 650 13px inherit; transition: background .12s; }
 .cl-mode.on { background: var(--acc); color: #fff; }
 .cl-mode:not(.on):hover { background: var(--surface2); color: var(--text); }
+/* режимы — крупный зазор */
+.cl-modes { display: flex; gap: 8px; margin: 10px 0 12px; }
+.cl-mode { border: 1px solid var(--line2); background: var(--surface2);
+  color: var(--faint); padding: 6px 18px; border-radius: 7px; cursor: pointer;
+  font: 12.5px inherit; transition: all .12s; }
+.cl-mode.on { background: var(--acc); color: #fff; border-color: var(--acc);
+  font-weight: 650; }
+
+/* прогресс */
 .cl-progress { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .cl-bar { flex: 1; height: 6px; border-radius: 3px; background: var(--chip);
   border: 1px solid var(--line); overflow: hidden; }
@@ -317,6 +326,8 @@ table.tasks td.mono { font-family: var(--mono); font-size: 11.5px; color: var(--
   border-radius: 5px; transition: background .1s; }
 .cl-item:hover { background: var(--surface2); }
 .cl-item.cl-done .cl-text { text-decoration: line-through; color: var(--faint); }
+.cl-item.cl-header { background: none; padding: 8px 4px 4px; }
+.cl-header-text { font-weight: 700; font-size: 14px; color: var(--text); }
 .cl-box { display: inline-flex; width: 18px; height: 18px; align-items: center;
   justify-content: center; border: 1.5px solid var(--line2); border-radius: 4px;
   background: var(--surface); cursor: pointer; font-size: 11px; flex-shrink: 0;
