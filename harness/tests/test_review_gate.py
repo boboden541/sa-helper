@@ -91,6 +91,27 @@ class TestGate(unittest.TestCase):
         self.assertEqual(res["event"], sm.EV_REVIEW_CHANGES)
         self.assertEqual(res["findings"][0]["resolution"], "open")
 
+    def test_old_findings_with_fid_key_get_id(self):
+        # хотфикс crash-loop 2026-10-21: находки из БД имеют fid, из вердикта id;
+        # все выходные находки обязаны иметь id (INSERT f["id"] в reconcile_review)
+        task = self.task(findings=[{"fid": "old1", "text": "старая",
+                                    "resolution": "open"}])
+        v = rg.parse_review_verdict(verdict(
+            blocking=["- new1 | file: a.java:1 | text: новая находка"]))
+        res = rg.review_gate(task, v)
+        self.assertTrue(all(f.get("id") for f in res["findings"]),
+                        f"находка без id: {res['findings']}")
+        self.assertIn("new1", {f["id"] for f in res["findings"]})
+        self.assertIn("old1", {f["id"] for f in res["findings"]})
+
+    def test_approved_resolves_fid_findings_with_id(self):
+        task = self.task(findings=[{"fid": "old1", "text": "старая",
+                                    "resolution": "open"}])
+        v = rg.parse_review_verdict(verdict(blocking=[]))
+        res = rg.review_gate(task, v)
+        self.assertEqual(res["event"], sm.EV_REVIEW_APPROVED)
+        self.assertEqual(res["findings"][0]["id"], "old1")
+
     def test_closure_first_stalls_on_new_blockers_after_fix(self):
         # прошлые находки закрыты (ревьюер подтвердил), но найдены новые
         task = self.task(findings=[{"id": "b1", "text": "x", "resolution": "open"}])

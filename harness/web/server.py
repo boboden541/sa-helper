@@ -17,11 +17,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import threading
 import time
 import traceback
+import urllib.error
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote
 from pathlib import Path
@@ -33,6 +36,8 @@ import state_machine as sm  # noqa: E402
 import cards  # noqa: E402
 import db as dbmod  # noqa: E402
 import transition as tr  # noqa: E402
+import ai_provider as aip  # noqa: E402
+import ai_gateway as aigw  # noqa: E402
 
 WEB_DIR = Path(__file__).resolve().parent
 DIST_DIR = WEB_DIR / "frontend" / "dist"
@@ -399,7 +404,8 @@ def _ask_agent(project_row, fnr: str, task_id: str, session_id: str, question: s
         result = subprocess.run(
             [STATE["claude_bin"], "--resume", session_id, "-p", question],
             cwd=str(fnr_root), capture_output=True, text=True, timeout=600,
-            stdin=subprocess.DEVNULL)
+            stdin=subprocess.DEVNULL,
+            env=aip.apply_env(dict(os.environ), STATE["conn"]))
         answer = (result.stdout or "").strip() or "(агент не вернул ответ)"
     except (OSError, subprocess.SubprocessError) as exc:
         answer = f"(ошибка чата: {exc})"
@@ -410,6 +416,88 @@ def _ask_agent(project_row, fnr: str, task_id: str, session_id: str, question: s
 
 def db_story_by_fnr(project_row, fnr: str):
     return dbmod.get_story(STATE["conn"], int(project_row["id"]), fnr)
+
+
+# --- Подключение ИИ (СТ FNR-10, задачи 4.2.x) -------------------------------
+
+def _ai_test_anthropic(base_url: str, model: str, token: str | None,
+                       timeout: int = 20) -> dict:
+    """Минимальный реальный запрос к антропик-совместимому провайдеру
+    (СТ 4.2.3: проверка по реальному пути; токен в итог не попадает)."""
+    url = base_url.rstrip("/") + "/v1/messages"
+    body = json.dumps({"model": model, "max_tokens": 8,
+                       "messages": [{"role": "user", "content": "ping"}]}).encode("utf-8")
+    headers = {"Content-Type": "application/json",
+               "anthropic-version": "2023-06-01"}
+    if token:
+        # оба способа авторизации: часть прокси ждёт Bearer, часть — x-api-key
+        headers["Authorization"] = f"Bearer {token}"
+        headers["x-api-key"] = token
+    started = time.monotonic()
+    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as res:
+            doc = json.loads(res.read().decode("utf-8", errors="replace") or "{}")
+        return {"ok": True, "model": str(doc.get("model") or model),
+                "latencyMs": int((time.monotonic() - started) * 1000)}
+    except urllib.error.HTTPError as exc:
+        detail = ""
+        try:
+            detail = exc.read().decode("utf-8", errors="replace")[:800]
+        except Exception:
+            pass
+        human = {401: "Провайдер отклонил токен. Проверьте значение в разделе «API-токен».",
+                 403: "Доступ запрещён провайдером (токен без прав или исчерпан).",
+                 404: "Эндпоинт не найден — проверьте Базовый URL провайдера.",
+                 400: "Провайдер отклонил запрос — чаще всего не совпадает имя модели."}
+        return {"ok": False,
+                "human": human.get(exc.code, f"Провайдер вернул ошибку {exc.code}."),
+                "tech": f"HTTP {exc.code} {detail}"}
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        return {"ok": False,
+                "human": f"Провайдер не ответил за {timeout} секунд — проверьте адрес и сеть.",
+                "tech": f"{type(exc).__name__}: {exc}"}
+
+
+def _ai_test_via_gateway(port: int, model: str, timeout: int = 25) -> dict:
+    """Проверка openai-конфигурации по реальному пути (СТ 4.2.3, правило 5):
+    эпизодический шлюз + стриминг-запрос с tool-определением."""
+    url = f"http://127.0.0.1:{port}/v1/messages"
+    body = json.dumps({
+        "model": model or "test", "max_tokens": 32, "stream": True,
+        "tools": [{"name": "noop", "description": "Ничего не делает (тест шлюза)",
+                   "input_schema": {"type": "object", "properties": {}}}],
+        "messages": [{"role": "user", "content": "ping"}],
+    }).encode("utf-8")
+    started = time.monotonic()
+    req = urllib.request.Request(url, data=body, method="POST",
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as res:
+            saw = set()
+            for raw in res:
+                line = raw.decode("utf-8", errors="replace").strip()
+                if line.startswith("event:"):
+                    saw.add(line[6:].strip())
+        if "message_stop" in saw:
+            return {"ok": True, "model": model,
+                    "latencyMs": int((time.monotonic() - started) * 1000)}
+        return {"ok": False,
+                "human": "Шлюз вернул неполный поток — чаще всего не совпадает имя модели.",
+                "tech": f"события потока: {sorted(saw) or 'нет'}"}
+    except urllib.error.HTTPError as exc:
+        detail = ""
+        try:
+            detail = exc.read().decode("utf-8", errors="replace")[:600]
+        except Exception:
+            pass
+        return {"ok": False,
+                "human": "Провайдер отклонил запрос через шлюз (токен, модель или адрес).",
+                "tech": f"HTTP {exc.code} {detail}"}
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        return {"ok": False,
+                "human": f"Шлюз/провайдер не ответили за {timeout} секунд.",
+                "tech": f"{type(exc).__name__}: {exc}"}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -629,6 +717,29 @@ class Handler(BaseHTTPRequestHandler):
                         "file": Path(log_file).name,
                         "mtime": Path(log_file).stat().st_mtime}
             self._send(200, json.dumps(body, ensure_ascii=False).encode("utf-8"),
+                       "application/json")
+        elif path == "/api/settings/ai":
+            eff = aip.effective(c)
+            saved_row = dbmod.ai_settings_get(c)
+            saved = ({"protocol": saved_row["protocol"], "provider": saved_row["provider"],
+                      "baseUrl": saved_row["base_url"], "model": saved_row["model"]}
+                     if saved_row else
+                     {"protocol": None, "provider": None, "baseUrl": None, "model": None})
+            saved_token = saved_row["token"] if saved_row else None
+            doc = {
+                "saved": saved,
+                "hasToken": bool(saved_token),
+                "tokenMask": aip.mask(saved_token),
+                "sources": {"protocol": eff["sources"]["protocol"],
+                            "baseUrl": eff["sources"]["base_url"],
+                            "model": eff["sources"]["model"],
+                            "token": eff["sources"]["token"]},
+                "effective": {"protocol": eff["protocol"], "baseUrl": eff["base_url"],
+                              "model": eff["model"],
+                              "tokenSource": eff["token_source"]},
+                "presets": aip.presets(),
+            }
+            self._send(200, json.dumps(doc, ensure_ascii=False).encode("utf-8"),
                        "application/json")
         elif path == "/api/steward/chat":
             prow = dbmod.get_project(c, params.get("project") or "")
@@ -994,6 +1105,84 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, json.dumps({"ok": True, "sections": len(sections),
                                         "items": n_items},
                        ensure_ascii=False).encode("utf-8"), "application/json")
+        elif path == "/api/settings/ai":
+            # СТ 4.2.2: сохранение; незаполненное → «незадано», пустой токен —
+            # «без изменений», clearToken — возврат к окружению
+            body = self._json_body()
+            protocol = str(body.get("protocol") or "").strip()
+            provider = str(body.get("provider") or "").strip() or None
+            base_url = str(body.get("baseUrl") or "").strip() or None
+            model = str(body.get("model") or "").strip() or None
+            token = str(body.get("token") or "").strip()
+            clear_token = bool(body.get("clearToken"))
+            if protocol not in aip.PROTOCOLS:
+                self._send(400, json.dumps({"error": "недопустимый протокол"},
+                           ensure_ascii=False).encode("utf-8"), "application/json")
+                return
+            if base_url and not base_url.startswith(("http://", "https://")):
+                self._send(400, json.dumps({"error": "Базовый URL должен начинаться"
+                                            " с http:// или https://"},
+                           ensure_ascii=False).encode("utf-8"), "application/json")
+                return
+            if not any((provider, base_url, model, token)) and not clear_token:
+                self._send(400, json.dumps({"error": "нечего сохранять: заполните"
+                                            " хотя бы одно поле подключения"},
+                           ensure_ascii=False).encode("utf-8"), "application/json")
+                return
+            dbmod.ai_settings_set(c, protocol, provider, base_url, model,
+                                  token=token or None, clear_token=clear_token)
+            row = dbmod.ai_settings_get(c)
+            doc: dict = {"ok": True,
+                         "tokenMask": aip.mask(row["token"]) if row and row["token"] else None}
+            self._send(200, json.dumps(doc, ensure_ascii=False).encode("utf-8"),
+                       "application/json")
+        elif path == "/api/settings/ai/test":
+            # СТ 4.2.3: проверка по реальному пути; форма → сохранённое → окружение
+            body = self._json_body()
+            protocol = str(body.get("protocol") or "").strip()
+            base_url = str(body.get("baseUrl") or "").strip()
+            model = str(body.get("model") or "").strip()
+            token = str(body.get("token") or "").strip()
+            eff = aip.effective(c)
+            base_url = base_url or eff.get("base_url") or ""
+            model = model or eff.get("model") or ""
+            if not token:
+                token = eff.get("token") or ""
+            if protocol == "openai":
+                # Фаза 2 (СТ 4.2.3 правило 5 / 4.4.2): тест по реальному пути —
+                # эпизодический шлюз + стриминг с tool-определением
+                if not base_url:
+                    self._send(400, json.dumps({"error": "для проверки openai-конфигурации"
+                                                " нужен Базовый URL"},
+                               ensure_ascii=False).encode("utf-8"), "application/json")
+                    return
+                srv = aigw.start({"upstream_base_url": base_url,
+                                  "upstream_token": token,
+                                  "model": model})
+                try:
+                    port = srv.server_address[1]
+                    res = _ai_test_via_gateway(port, model)
+                finally:
+                    srv.shutdown()
+                    srv.server_close()
+                res["tech"] = aip.mask_text(res.get("tech", ""), token)
+                doc = res
+            elif protocol != "anthropic":
+                self._send(400, json.dumps({"error": "нужен протокол anthropic"
+                                            " или openai"},
+                           ensure_ascii=False).encode("utf-8"), "application/json")
+                return
+            elif not base_url or not model:
+                self._send(400, json.dumps({"error": "конфигурация неполна: нужны"
+                                            " Базовый URL и Модель"},
+                           ensure_ascii=False).encode("utf-8"), "application/json")
+                return
+            else:
+                res = _ai_test_anthropic(base_url, model, token or None)
+                res["tech"] = aip.mask_text(res.get("tech", ""), token)
+                doc = res
+            self._send(200, json.dumps(doc, ensure_ascii=False).encode("utf-8"),
+                       "application/json")
         else:
             self._send(404, b'{"error":"not found"}', "application/json")
 
@@ -1082,7 +1271,8 @@ def _steward_turn(project_row, message: str) -> None:
             args = [STATE["claude_bin"], "--output-format", "json",
                     "-p", f"/steward {message}"]
         result = subprocess.run(args, cwd=str(workspace), capture_output=True,
-                                text=True, timeout=900, stdin=subprocess.DEVNULL)
+                                text=True, timeout=900, stdin=subprocess.DEVNULL,
+                                env=aip.apply_env(dict(os.environ), c))
         answer = ""
         try:
             doc = json.loads(result.stdout or "{}")

@@ -1,4 +1,4 @@
-import type { BoardState, Project, Story, TaskDoc } from "./types";
+import type { AiSaveResult, AiSettingsSnapshot, AiTestResult, BoardState, Project, Story, TaskDoc } from "./types";
 
 let currentFnr: string | null = null;
 let currentProject: string | null = null;
@@ -164,6 +164,26 @@ export const api = {
       conflict: r.status === 409,
       error: (b as { error?: string }).error,
     }))),
+
+
+  // Подключение ИИ (СТ FNR-10, задачи 4.2.1–4.2.3)
+
+  aiSettings: () =>
+    fetch("/api/settings/ai").then((r) => json<AiSettingsSnapshot>(r)),
+
+  aiSave: (payload: Record<string, unknown>) =>
+    fetch("/api/settings/ai", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }).then((r) => json<AiSaveResult>(r)),
+
+  aiTest: (payload: Record<string, unknown>) =>
+    fetch("/api/settings/ai/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }).then((r) => json<AiTestResult>(r)),
 };
 
 export function pipelineOf(t: {

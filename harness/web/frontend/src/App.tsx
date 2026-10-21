@@ -7,6 +7,7 @@ import { TaskPanel } from "./components/task/TaskPanel";
 import { cardEditorConfirmClose } from "./components/task/CardEditor";
 import { CreateModal } from "./components/create/CreateModal";
 import { ProjectModal } from "./components/create/ProjectModal";
+import { AiSettingsModal } from "./components/settings/AiSettingsModal";
 import { Header } from "./components/Header";
 import { MetricsDialog } from "./components/common/MetricsDialog";
 import { OverviewDialog } from "./components/common/OverviewDialog";
@@ -23,6 +24,7 @@ export function App() {
   const [createOpen, setCreateOpen] = useState(false);
   const [createType, setCreateType] = useState<"story" | "task">("story");
   const [projectModalOpen, setProjectModalOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [metricsOpen, setMetricsOpen] = useState(false);
   const [overviewOpen, setOverviewOpen] = useState(false);
@@ -169,6 +171,7 @@ export function App() {
         onAddProject={() => setProjectModalOpen(true)}
         onOpenTask={openTask}
         onCreate={() => setCreateOpen(true)} onMetrics={() => setMetricsOpen(true)}
+        onOpenSettings={() => setSettingsOpen(true)}
         view={view} setView={setView}
         onFlag={(name, method) => {
           if (project && fnr) api.setFlag(name, method)
@@ -225,6 +228,7 @@ export function App() {
             else refresh();
           }} />
       )}
+      {settingsOpen && <AiSettingsModal onClose={() => setSettingsOpen(false)} />}
       {metricsOpen && (
         <MetricsDialog stories={stories} fnr={fnr} onClose={() => setMetricsOpen(false)} />
       )}

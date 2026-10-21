@@ -32,7 +32,7 @@ function ThemeToggle() {
 /** Шапка-пульт: лого, селектор Story (обзор внутри), вид, метрики, действия. */
 export function Header({ fnr, stories, projects, activeProject, state, conn = "…",
   onOpenStory, onOpenProject, onAllStories, onAddProject, onOpenTask,
-  onCreate, onMetrics, view, setView, onFlag }: {
+  onCreate, onMetrics, view, setView, onFlag, onOpenSettings }: {
   fnr: string | null;
   stories: Story[];
   projects: Project[];
@@ -49,18 +49,24 @@ export function Header({ fnr, stories, projects, activeProject, state, conn = "�
   view: "board" | "list";
   setView: (v: "board" | "list") => void;
   onFlag: (name: string, method?: "POST" | "DELETE") => void;
+  onOpenSettings: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [storiesOpen, setStoriesOpen] = useState(false);
   const [bellOpen, setBellOpen] = useState(false);
+  const [gearOpen, setGearOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const storiesRef = useRef<HTMLDivElement>(null);
+  const gearRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
       if (storiesRef.current && !storiesRef.current.contains(e.target as Node)) {
         setStoriesOpen(false);
+      }
+      if (gearRef.current && !gearRef.current.contains(e.target as Node)) {
+        setGearOpen(false);
       }
     };
     document.addEventListener("mousedown", onDoc);
@@ -159,6 +165,17 @@ export function Header({ fnr, stories, projects, activeProject, state, conn = "�
       </div>
 
       <ThemeToggle />
+      <div className="story-select" ref={gearRef}>
+        <button title="Настройки" onClick={() => setGearOpen((v) => !v)}>⚙</button>
+        {gearOpen && (
+          <div className="story-menu" style={{ left: "auto", right: 0, minWidth: 200 }}>
+            <div className="s-head meta">Настройки</div>
+            <div className="s-item" onClick={() => { onOpenSettings(); setGearOpen(false); }}>
+              <span className="meta">⚡ Подключение ИИ</span>
+            </div>
+          </div>
+        )}
+      </div>
       <button onClick={onMetrics} title="Метрики расхода">📊 METRICS</button>
       <div className="story-select">
         <button title="Задачи, требующие вашего участия"

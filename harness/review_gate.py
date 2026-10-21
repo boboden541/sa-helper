@@ -111,7 +111,10 @@ def review_gate(task: dict, verdict: dict, strategy: str = "closure_first",
     """
     blocking = verdict.get("blocking", [])
     iterations = int(task.get("review_iterations") or 0)
-    old_findings = {f.get("id"): f for f in (task.get("findings") or [])}
+    # находки из БД приходят с ключом fid, из вердикта — id (хотфикс crash-loop
+    # 2026-10-21: INSERT f["id"] в reconcile_review падал на старых находках)
+    old_findings = {(f.get("id") or f.get("fid")): f
+                    for f in (task.get("findings") or [])}
 
     # previous: явный из вердикта или авто-сверка с прошлыми находками по id
     previous = dict(verdict.get("previous") or {})
@@ -121,7 +124,8 @@ def review_gate(task: dict, verdict: dict, strategy: str = "closure_first",
             previous[fid] = "still_blocking" if fid in new_ids else "resolved"
 
     if verdict.get("status") == "APPROVED" or not blocking:
-        resolved = [{**f, "resolution": "resolved"} for f in old_findings.values()]
+        resolved = [{**f, "id": f.get("id") or f.get("fid"),
+                     "resolution": "resolved"} for f in old_findings.values()]
         return {"event": sm.EV_REVIEW_APPROVED,
                 "reason": f"вердикт APPROVED ({len(resolved)} прежних находок закрыто)",
                 "findings": resolved}
@@ -132,7 +136,7 @@ def review_gate(task: dict, verdict: dict, strategy: str = "closure_first",
         findings.append({**f, "resolution": resolution})
     for fid, old in old_findings.items():
         if fid not in new_ids:
-            findings.append({**old, "resolution": "resolved"})
+            findings.append({**old, "id": fid, "resolution": "resolved"})
 
     if iterations >= review_iterations_max:
         return {"event": sm.EV_REVIEW_STALLED,

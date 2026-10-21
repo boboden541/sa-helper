@@ -36,6 +36,7 @@ import state_machine as sm  # noqa: E402
 import review_gate as rg  # noqa: E402
 import db as dbmod  # noqa: E402
 import cards  # noqa: E402
+import ai_provider as ai_prov  # noqa: E402
 from runner import _kill_tree  # noqa: E402
 # переходы/журналы — общий модуль с web-витриной (С1): демон и web меняют
 # состояние одним кодом; имена реэкспортированы для тестов (orch.apply_transition)
@@ -387,6 +388,9 @@ def spawn_stage(workspace: Path, hdir: Path, task_id: str | None, stage: str,
     dbfile = [r[2] for r in conn.execute("PRAGMA database_list") if r[1] == "main"]
     env["HARNESS_DB"] = os.environ.get("HARNESS_DB") or (dbfile[0] if dbfile
                                                          else str(dbmod.db_path()))
+    # СТ FNR-10 (4.3.2): параметры «Подключение ИИ» — в окружение сессии;
+    # пустые настройки / ошибка хранилища → окружение не меняется
+    ai_prov.apply_env(env, conn)
     kwargs: dict = {"cwd": str(workspace), "stdin": subprocess.DEVNULL, "env": env}
     if IS_WINDOWS:
         kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP

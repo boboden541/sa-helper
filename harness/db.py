@@ -281,6 +281,15 @@ CREATE TABLE IF NOT EXISTS steward_options(
   tid TEXT NOT NULL, options_json TEXT NOT NULL, updated_at TEXT,
   PRIMARY KEY(story_id, tid)
 );
+
+-- Подключение ИИ (СТ FNR-10): единственная строка-конфигурация; NULL поля
+-- означают «не задано — взять из окружения» (три-стейт семантика).
+CREATE TABLE IF NOT EXISTS ai_settings(
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  protocol TEXT CHECK (protocol IS NULL OR protocol IN ('anthropic','openai')),
+  provider TEXT, base_url TEXT, model TEXT, token TEXT,
+  updated_at TEXT NOT NULL
+);
 """
 
 
@@ -1358,3 +1367,38 @@ def checklist_replace_section(conn: sqlite3.Connection, task_id: int, title: str
                 " created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
                 (sec_id, j, it["text"], it["state"],
                  1 if it.get("mandatory") else 0, now_iso(), now_iso()))
+
+
+# --- Подключение ИИ (СТ FNR-10, задача 4.1.1) -------------------------------
+
+def ai_settings_get(conn: sqlite3.Connection) -> sqlite3.Row | None:
+    """Единственная строка настроек «Подключение ИИ» (или None)."""
+    return conn.execute("SELECT * FROM ai_settings WHERE id=1").fetchone()
+
+
+def ai_settings_set(conn: sqlite3.Connection, protocol: str | None,
+                    provider: str | None, base_url: str | None,
+                    model: str | None, token: str | None = None,
+                    clear_token: bool = False) -> None:
+    """Сохранить конфигурацию (upsert id=1).
+
+    token — непустое новое значение; None/"" → оставить сохранённый как был;
+    clear_token=True → очистить сохранённый токен (возврат к окружению).
+    Незаполненные параметры пишутся как NULL («незадано»), не как пустые строки.
+    """
+    if token:
+        kept: str | None = token
+    elif clear_token:
+        kept = None
+    else:
+        cur = ai_settings_get(conn)
+        kept = cur["token"] if cur else None
+    with tx(conn):
+        conn.execute(
+            "INSERT INTO ai_settings(id, protocol, provider, base_url, model,"
+            " token, updated_at) VALUES (1,?,?,?,?,?,?)"
+            " ON CONFLICT(id) DO UPDATE SET protocol=excluded.protocol,"
+            " provider=excluded.provider, base_url=excluded.base_url,"
+            " model=excluded.model, token=excluded.token,"
+            " updated_at=excluded.updated_at",
+            (protocol, provider, base_url, model, kept, now_iso()))

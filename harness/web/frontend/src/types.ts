@@ -175,3 +175,50 @@ export interface Project {
   usage: Usage;
   stories: Story[];
 }
+
+// «Подключение ИИ» (СТ FNR-10): снимок настроек для поп-апа
+
+export type AiProtocol = "anthropic" | "openai";
+export type SettingSource = "saved" | "env" | "unset";
+
+export interface ProviderPreset {
+  provider: string;
+  protocol: AiProtocol;
+  baseUrl: string;
+  defaultModel: string | null;
+  needsToken: boolean;
+}
+
+export interface AiSettingsSnapshot {
+  saved: {
+    protocol: string | null;
+    provider: string | null;
+    baseUrl: string | null;
+    model: string | null;
+  };
+  hasToken: boolean;
+  tokenMask: string | null;
+  sources: Record<"protocol" | "baseUrl" | "model" | "token", SettingSource>;
+  effective: {
+    protocol: string | null;
+    baseUrl: string | null;
+    model: string | null;
+    tokenSource: "saved" | "env" | "none";
+  };
+  presets: ProviderPreset[];
+}
+
+export interface AiSaveResult {
+  ok: boolean;
+  warning?: string | null;
+  tokenMask: string | null;
+}
+
+export interface AiTestResult {
+  ok: boolean;
+  model?: string;
+  latencyMs?: number;
+  human?: string;
+  tech?: string;
+  code?: string;
+}

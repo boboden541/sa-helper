@@ -28,6 +28,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import state_machine as sm  # noqa: E402
+import ai_provider as aip  # noqa: E402
 import db as dbmod  # noqa: E402
 
 TASK_FLAG_RE = re.compile(
@@ -152,7 +153,8 @@ def _steward_options(conn, story_id: int, tid: str, reason: str) -> None:
     try:
         result = subprocess.run(["claude", "--output-format", "json", "-p", prompt],
                                 capture_output=True, text=True, timeout=600,
-                                stdin=subprocess.DEVNULL)
+                                stdin=subprocess.DEVNULL,
+                                env=aip.apply_env(dict(os.environ), conn))
         try:
             doc = json.loads(result.stdout or "{}")
             answer = str(doc.get("result") or "")
