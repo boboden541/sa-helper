@@ -7,6 +7,7 @@ import { TaskPanel } from "./components/task/TaskPanel";
 import { cardEditorConfirmClose } from "./components/task/CardEditor";
 import { CreateModal } from "./components/create/CreateModal";
 import { ProjectModal } from "./components/create/ProjectModal";
+import { ReviewPlanModal } from "./components/plan/ReviewPlanModal";
 import { AiSettingsModal } from "./components/settings/AiSettingsModal";
 import { Header } from "./components/Header";
 import { MetricsDialog } from "./components/common/MetricsDialog";
@@ -24,6 +25,8 @@ export function App() {
   const [createOpen, setCreateOpen] = useState(false);
   const [createType, setCreateType] = useState<"story" | "task">("story");
   const [projectModalOpen, setProjectModalOpen] = useState(false);
+  const [editProject, setEditProject] = useState<Project | null>(null);
+  const [reviewOpen, setReviewOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [metricsOpen, setMetricsOpen] = useState(false);
@@ -172,6 +175,17 @@ export function App() {
         onOpenTask={openTask}
         onCreate={() => setCreateOpen(true)} onMetrics={() => setMetricsOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
+        onEditProject={(name) => {
+          const prj = projects.find((x) => x.name === name) || null;
+          setEditProject(prj);
+          setProjectModalOpen(true);
+        }}
+        onDeleteProject={(name) => {
+          const prj = projects.find((x) => x.name === name) || null;
+          setEditProject(prj);
+          setProjectModalOpen(true);
+        }}
+        onOpenReview={() => setReviewOpen(true)}
         view={view} setView={setView}
         onFlag={(name, method) => {
           if (project && fnr) api.setFlag(name, method)
@@ -182,7 +196,7 @@ export function App() {
       {!state
         ? <div className="page"><p className="empty">
             {projects.length === 0
-              ? "Проектов нет — добавьте каталог воркспейса в ~/.sa-helper/workspaces.json"
+              ? "Проектов нет — добавьте проект кнопкой «＋» в шапке (пустая папка инициализируется автоматически)"
               : "загрузка Story…"}</p></div>
         : view === "board"
           ? <Board state={state} onOpenTask={openTask} justMovedId={justMoved}
@@ -221,12 +235,16 @@ export function App() {
           onCreated={reloadAll} stories={stories} preselectedFnr={fnr} />
       )}
       {projectModalOpen && (
-        <ProjectModal onClose={() => setProjectModalOpen(false)}
-          onAdded={(name) => {
-            const prj = projects.find((x) => x.name === name);
-            if (prj?.stories[0]) openStory(name, prj.stories[0].fnr);
-            else refresh();
-          }} />
+        <ProjectModal project={editProject ?? undefined}
+          onClose={() => { setProjectModalOpen(false); setEditProject(null); }}
+          onAdded={() => refresh()} />
+      )}
+      {reviewOpen && state && (
+        <ReviewPlanModal state={state}
+          onOpenTask={openTask}
+          onAddTask={() => { setCreateType("task"); setCreateOpen(true); }}
+          onChanged={reloadAll}
+          onClose={() => setReviewOpen(false)} />
       )}
       {settingsOpen && <AiSettingsModal onClose={() => setSettingsOpen(false)} />}
       {metricsOpen && (

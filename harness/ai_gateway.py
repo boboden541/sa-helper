@@ -405,6 +405,7 @@ def start(config: dict) -> Gateway:
 # --- синглтон для демона/витрины (модификация 3: живёт с владельцем) --------
 
 _ACTIVE: dict = {}  # {"sig": str, "srv": Gateway}
+_GATEWAY_LOCK = threading.Lock()   # СТ FNR-11: параллельные спавны — без гонки
 
 
 def _sig(eff: dict) -> str:
@@ -417,6 +418,11 @@ def ensure_for(eff: dict) -> str | None:
     Конфигурация (адрес/токен/модель) сменилась — шлюз перезапускается.
     Ошибка старта → None (сессия получит понятную ошибку, конвейер не падает).
     """
+    with _GATEWAY_LOCK:
+        return _ensure_for_locked(eff)
+
+
+def _ensure_for_locked(eff: dict) -> str | None:
     if eff.get("protocol") != "openai" or not eff.get("base_url"):
         return None
     sig = _sig(eff)

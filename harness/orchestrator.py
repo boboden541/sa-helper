@@ -29,6 +29,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -119,6 +120,13 @@ def decide(manifest: dict, flags: set[str], state: dict) -> list[tuple]:
     tasks = manifest.get("tasks", [])
     by_id = {t.get("id"): t for t in tasks}
     running = state.get("running_task_id")
+    # СТ FNR-11 4.3.1: многослотовость — running_ids (список) + max_parallel.
+    # Старые ключи (lane_free/running_task_id) остаются совместимыми: без них
+    # поведение идентично однослотовому.
+    running_ids = list(state.get("running_ids") or [])
+    if running and running not in running_ids:
+        running_ids.insert(0, running)
+    max_parallel = int(state.get("max_parallel") or 1)
     paused = "PAUSE" in flags
 
     if status == "AWAITING_APPROVAL" and "APPROVE_PLAN" in flags:
@@ -141,7 +149,7 @@ def decide(manifest: dict, flags: set[str], state: dict) -> list[tuple]:
     for task in tasks:
         tid = task["id"]
         pipeline = task["pipeline"]
-        lane_free = bool(state.get("lane_free")) and not running
+        lane_free = bool(state.get("lane_free")) and len(running_ids) < max_parallel
         if task.get("paused"):
             continue
 
@@ -152,9 +160,13 @@ def decide(manifest: dict, flags: set[str], state: dict) -> list[tuple]:
         if pipeline == sm.BLOCKED:
             if state["now"] < float(task.get("retry_after_ts") or 0):
                 continue
-            if (task.get("retries") or 0) >= state.get("max_retries", 3):
+            # СТ FNR-11 4.4.1: бюджет повторов считается по долгу
+            # (эпизодный счётчик + накопленный долг между эпизодами)
+            total = (task.get("retries") or 0) + (task.get("retry_debt") or 0)
+            if total >= state.get("max_retries", 3):
                 decisions.append(("event", tid, sm.EV_BLOCKED_ESCALATED,
-                                  f"retries={task.get('retries')} — исчерпаны"))
+                                  f"повторов {total} — исчерпаны (долг "
+                                  f"{task.get('retry_debt') or 0})"))
             else:
                 decisions.append(("event", tid, sm.EV_RETRY,
                                   f"backoff истёк (retries={task.get('retries')})"))
@@ -183,18 +195,18 @@ def decide(manifest: dict, flags: set[str], state: dict) -> list[tuple]:
             if lane_free and not paused:
                 decisions.append(("stage", tid,
                                   "implementing" if pipeline == sm.IMPLEMENTING else "review"))
-                running = tid
+                running_ids.append(tid)
             continue
 
         if pipeline == sm.READY and lane_free and not paused:
             decisions.append(("event", tid, sm.EV_START, "слот свободен"))
             decisions.append(("stage", tid, "implementing"))
-            running = tid
+            running_ids.append(tid)
 
     if (tasks and all(t["pipeline"] in (sm.DONE, sm.VERIFIED, sm.ABORTED) for t in tasks)
             and any(t["pipeline"] == sm.DONE for t in tasks)
             and not state.get("verification_report") and not state.get("verify_attempted")
-            and not running and lane_free and not paused):
+            and not running_ids and lane_free and not paused):
         decisions.append(("stage", None, "verify"))
 
     return decisions
@@ -237,6 +249,7 @@ def manifest_view(conn, story_id: int) -> dict:
             "depends_on": t["depends_on"], "paused": bool(t["paused"]),
             "skip_review": bool(t["skip_review"]), "origin": t["origin"],
             "decomposed": bool(t["decomposed"]), "retries": t["retries"],
+            "retry_debt": t.get("retry_debt", 0),
             "review_iterations": t["review_iterations"],
             "retry_after_ts": t["retry_after_ts"],
             "review_verdict": t["review_verdict"],
@@ -408,7 +421,12 @@ def spawn_stage(workspace: Path, hdir: Path, task_id: str | None, stage: str,
         stdout_fh.close()
     session_row = dbmod.session_start(conn, story_id, task_id, stage, proc.pid,
                                       os.uname().nodename if not IS_WINDOWS else "win",
-                                      str(log_path))
+                                      str(log_path),
+                                      attempt_uid=uuid.uuid4().hex[:12])
+    # прозрачность: человек видит, с каким промптом запущена стадия
+    ev(conn, story_id, task_id,
+       f"стадия {stage}: промпт — {prompt[:220]}" + ("…" if len(prompt) > 220 else ""),
+       kind="prompt")
     threading.Thread(target=_stream_watch, args=(log_path, proc, conn, session_row),
                      daemon=True).start()
     return proc, session_row, log_path
@@ -450,6 +468,36 @@ def _stream_watch(log_path: Path, proc: subprocess.Popen,
             proc.stdout.close()
     except OSError:
         pass
+
+
+def surface_provider_error(conn, story_id: int, tid: str | None,
+                           log_path: Path | None) -> str | None:
+    """Прозрачность (урок FNR-11 прод-инцидента): ошибки провайдера сессии —
+    в Хронику (events, kind='error'), чтобы молчание кончившегося ключа
+    было видно человеку, а не только в хвосте .run-лога."""
+    if not log_path or not Path(log_path).is_file():
+        return None
+    err_re = re.compile(
+        r"(?i)(401|403|429|unauthorized|forbidden|insufficient|quota|"
+        r"credit|balance|rate.?limit|invalid.{0,12}api.?key|billing|exceeded)")
+    try:
+        with Path(log_path).open("rb") as fh:
+            fh.seek(0, 2)
+            size = fh.tell()
+            fh.seek(max(0, size - 65536))
+            tail = fh.read().decode("utf-8", errors="replace")
+    except OSError:
+        return None
+    # только голые строки ошибок CLI («API Error: …»); JSON-поток — это
+    # содержимое инструментов агента, не ошибки API (урок ложной тревоги)
+    hits = [ln.strip()[:300] for ln in tail.splitlines()
+            if err_re.search(ln) and not ln.lstrip().startswith("{")
+            and not ln.lstrip().startswith('"')]
+    if not hits:
+        return None
+    msg = f"{tid or 'FNR'}: провайдер вернул ошибку — {hits[-1]}"
+    ev(conn, story_id, tid, msg, kind="error")
+    return msg
 
 
 def _pick_usage(log_path: Path | None) -> dict | None:
@@ -596,7 +644,11 @@ def create_manual_task(conn, story_id: int, payload: dict) -> tuple[bool, str]:
 # --- цикл по воркспейсу ----------------------------------------------------
 
 class WorkspaceLane:
-    """Слот исполнения: одна живая стадия на проект (канон v3)."""
+    """Слот исполнения: одна живая стадия на проект (канон v3).
+
+    workers > 1 (СТ FNR-11 4.3.1): slots — до K одновременных стадий,
+    каждая в собственной рабочей копии задачи; lane_free/proc — слот №1
+    (однослотовый путь process_workspace их не смешивает с slots)."""
 
     def __init__(self, root: Path, conn, project_id: int, name: str) -> None:
         self.root = root
@@ -612,6 +664,7 @@ class WorkspaceLane:
         self.task_id: str | None = None
         self.stage: str | None = None
         self.started_at = 0.0
+        self.slots: list[dict] = []     # многослотовый путь (workers > 1)
 
 
 def _beat_age(conn, session_row: int | None, started_at: float) -> float:
@@ -647,6 +700,7 @@ def process_workspace(lane: WorkspaceLane, opts: argparse.Namespace) -> None:
         usage = _pick_usage(Path(s["log_path"]))
         dbmod.session_finish(conn, s["id"], -1, status="orphan", usage=usage,
                              claude_session_id=_pick_session_id(Path(s["log_path"])))
+        surface_provider_error(conn, s["story_id"], s["tid"], Path(s["log_path"]))
         if s["tid"] and s["stage"] in ("implementing", "review"):
             summary = reconcile_after_stage(conn, s["story_id"], s["tid"], -1,
                                             max_retries=opts.max_retries)
@@ -654,6 +708,7 @@ def process_workspace(lane: WorkspaceLane, opts: argparse.Namespace) -> None:
 
     # 1. текущая стадия слота: живость, watchdog, завершение
     lane_busy = False   # слот занят живой стадией
+    lane_silent = False  # стадия убита по тишине (карантинный счёт, СТ 4.4.2)
     if lane.proc is not None:
         code = lane.proc.poll()
         quiet_for = _beat_age(conn, lane.session_row, lane.started_at)
@@ -662,6 +717,8 @@ def process_workspace(lane: WorkspaceLane, opts: argparse.Namespace) -> None:
                   f"убиваю стадию {lane.stage} {lane.task_id}")
             _kill_tree(lane.proc)
             code = lane.proc.wait(timeout=30)
+            _add_retry_debt(conn, lane.story_id, lane.task_id)
+            lane_silent = True
         if code is None:
             if time.time() - lane.started_at > opts.stage_timeout:
                 print(f"  [watchdog] stage_timeout — убиваю {lane.stage} {lane.task_id}")
@@ -678,6 +735,8 @@ def process_workspace(lane: WorkspaceLane, opts: argparse.Namespace) -> None:
                                  status="finished" if code == 0 else "killed",
                                  usage=usage, claude_session_id=csid)
             sid = lane.story_id
+            # прозрачность: ошибка провайдера — в Хронику и на карточку
+            perr = surface_provider_error(conn, sid, lane.task_id, lane.log_path)
             if lane.task_id and csid:
                 # session_id последней сессии задачи — чат через claude --resume
                 dbmod.task_set_v3(conn, sid, lane.task_id, {"session_id": csid})
@@ -722,6 +781,24 @@ def process_workspace(lane: WorkspaceLane, opts: argparse.Namespace) -> None:
                 summary = reconcile_after_stage(conn, sid, lane.task_id, code,
                                                 max_retries=opts.max_retries)
                 print(f"  [stage] {summary}")
+                # прозрачность: причина блокировки — на карточку
+                if perr:
+                    row = dbmod.read_task(conn, sid, lane.task_id, with_card=False)
+                    if row.get("pipeline") in (sm.BLOCKED, sm.NEEDS_HUMAN):
+                        dbmod.task_set_v3(conn, sid, lane.task_id,
+                                          {"blocked_reason": perr[:200]})
+                # СТ FNR-11 4.4.2: исчерпание повторов тишины → карантин
+                # (нужен человек с ручным решением, без авто-вариантов)
+                if lane_silent and lane.task_id:
+                    qtask = dbmod.read_task(conn, sid, lane.task_id, with_card=False)
+                    debt = (qtask.get("retry_debt") or 0) + (qtask.get("retries") or 0)
+                    if debt >= opts.max_stale_retries:
+                        apply_transition(conn, sid, lane.task_id,
+                                         sm.EV_BLOCKED_ESCALATED,
+                                         "карантин: исчерпаны повторы тишины")
+                        dbmod.task_set_v3(conn, sid, lane.task_id,
+                                          {"blocked_reason": "карантин: исчерпаны повторы тишины"})
+                        print(f"  [quarantine] {lane.task_id}: {fnr}")
             try:
                 if lane.proc and lane.proc.stdout:
                     lane.proc.stdout.close()
@@ -794,6 +871,8 @@ def process_workspace(lane: WorkspaceLane, opts: argparse.Namespace) -> None:
                 if dbmod.steward_options_get(conn, sid, r["tid"]) is None:
                     task = dbmod.read_task(conn, sid, r["tid"], with_card=False)
                     task["id"] = r["tid"]
+                    if (task.get("blocked_reason") or "").startswith("карантин"):
+                        continue  # СТ 4.4.2: карантин — без авто-вариантов
                     threading.Thread(target=_steward_options, daemon=True,
                                      args=(conn, sid, r["tid"],
                                            task.get("blocked_reason") or "требуется решение")).start()
@@ -831,8 +910,14 @@ def process_workspace(lane: WorkspaceLane, opts: argparse.Namespace) -> None:
                     with dbmod.tx(conn):
                         conn.execute("UPDATE stories SET status='APPROVED', updated_at=?"
                                      " WHERE id=?", (now_iso(), sid))
-                    ev(conn, sid, None, "план утверждён (APPROVE_PLAN) — конвейер запущен")
-                    print(f"  [{fnr}] план утверждён — конвейер запущен")
+                        cur = conn.execute(
+                            "UPDATE tasks SET pipeline='BACKLOG', updated_at=?"
+                            " WHERE story_id=? AND pipeline='PROPOSED'",
+                            (now_iso(), sid))
+                        n_drafts = cur.rowcount
+                    ev(conn, sid, None, f"план утверждён (APPROVE_PLAN): черновики "
+                                        f"переведены в бэклог — {n_drafts}; конвейер запущен")
+                    print(f"  [{fnr}] план утверждён: черновиков в бэклог — {n_drafts}")
             elif kind == "event":
                 _, tid, event, reason = d
                 if lane_busy and tid == lane.task_id:
@@ -885,6 +970,272 @@ def process_workspace(lane: WorkspaceLane, opts: argparse.Namespace) -> None:
                     print(f"  [{fnr}] ожидание: {d[1]}")
 
 
+# --- многослотовый путь (СТ FNR-11 4.3.1, Фаза 2) ---------------------------
+
+def _add_retry_debt(conn, story_id: int, tid: str | None) -> None:
+    """Тишина/блок идут в долг повторов (СТ 4.4.1): не сбрасывается возвратом."""
+    if not tid:
+        return
+    cur = conn.execute("SELECT retry_debt FROM tasks WHERE story_id=? AND tid=?",
+                       (story_id, tid)).fetchone()
+    if cur is None:
+        return
+    dbmod.task_set_v3(conn, story_id, tid,
+                      {"retry_debt": (cur["retry_debt"] or 0) + 1})
+
+
+def _finish_slot(lane: WorkspaceLane, slot: dict, code: int, opts) -> None:
+    """Завершение слота: та же логика стадий, что и однослотовый путь."""
+    conn = lane.conn
+    usage = _pick_usage(Path(slot["log_path"]))
+    csid = _pick_session_id(Path(slot["log_path"]))
+    dbmod.session_finish(conn, slot["session_row"], code,
+                         status="finished" if code == 0 else "killed",
+                         usage=usage, claude_session_id=csid)
+    sid = slot["story_id"]
+    if slot["task_id"] and csid:
+        dbmod.task_set_v3(conn, sid, slot["task_id"], {"session_id": csid})
+    fnr = slot["fnr"]
+    # прозрачность: ошибка провайдера — в Хронику и на карточку
+    perr = surface_provider_error(conn, sid, slot["task_id"],
+                                  Path(slot["log_path"]))
+    if perr and slot["task_id"]:
+        row = dbmod.read_task(conn, sid, slot["task_id"], with_card=False)
+        if row.get("pipeline") in (sm.BLOCKED, sm.NEEDS_HUMAN):
+            dbmod.task_set_v3(conn, sid, slot["task_id"],
+                              {"blocked_reason": perr[:200]})
+    if slot["stage"] == "handoff":
+        n_tasks = conn.execute("SELECT COUNT(*) c FROM tasks WHERE story_id=?",
+                               (sid,)).fetchone()["c"]
+        story = conn.execute("SELECT status FROM stories WHERE id=?", (sid,)).fetchone()
+        if n_tasks:
+            if story["status"] == "PLANNED":
+                with dbmod.tx(conn):
+                    conn.execute("UPDATE stories SET status='AWAITING_APPROVAL',"
+                                 " updated_at=? WHERE id=? AND status='PLANNED'",
+                                 (now_iso(), sid))
+            ev(conn, sid, None, "Story готова: план построен, ждёт утверждения")
+            print(f"  [handoff] {fnr}: план готов — ждёт утверждения")
+        else:
+            with dbmod.tx(conn):
+                conn.execute(
+                    "INSERT INTO meta(key, value) VALUES (?,?)"
+                    " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    (f"handoff_failed:{sid}", now_iso()))
+            ev(conn, sid, None, "handoff завершился без плана — gap-report")
+    elif slot["stage"] == "verify":
+        if dbmod.doc_get(conn, sid, "verification_report") is not None:
+            for t in conn.execute("SELECT tid FROM tasks WHERE story_id=?"
+                                  " AND pipeline='DONE'", (sid,)).fetchall():
+                apply_transition(conn, sid, t["tid"], sm.EV_VERIFY_PASSED,
+                                 "verification_report готов")
+            print(f"  [verify] {fnr}: задачи → VERIFIED")
+        else:
+            with dbmod.tx(conn):
+                conn.execute(
+                    "INSERT INTO meta(key, value) VALUES (?,?)"
+                    " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    (f"verify_attempted:{sid}", now_iso()))
+            ev(conn, sid, None, "verify завершился без verification_report")
+    elif slot["task_id"]:
+        summary = reconcile_after_stage(conn, sid, slot["task_id"], code,
+                                        max_retries=opts.max_retries)
+        print(f"  [stage] {summary}")
+    if slot["proc"].stdout:
+        try:
+            slot["proc"].stdout.close()
+        except OSError:
+            pass
+
+
+def process_workspace_parallel(lane: WorkspaceLane, opts) -> None:
+    """Многослотовый тик (workers > 1): до K одновременных стадий на проект.
+
+    Однослотовый путь (workers = 1) — process_workspace, поведение идентично
+    предыдущей версии; снимки решений — критерий сдачи (СТ 4.3.1)."""
+    conn = lane.conn
+    ws = lane.root
+
+    # 0. осиротевшие сессии проекта (как в однослотовом пути)
+    for s in conn.execute("SELECT id, story_id, tid, stage, pid, log_path FROM sessions"
+                          " WHERE status='running'").fetchall():
+        story = conn.execute("SELECT project_id FROM stories WHERE id=?",
+                             (s["story_id"],)).fetchone()
+        if story is None or int(story["project_id"]) != lane.project_id:
+            continue
+        try:
+            alive = pid_alive(int(s["pid"] or 0))
+        except (TypeError, ValueError):
+            alive = False
+        if alive:
+            continue  # чужая живая сессия — fencing
+        usage = _pick_usage(Path(s["log_path"]))
+        dbmod.session_finish(conn, s["id"], -1, status="orphan", usage=usage,
+                             claude_session_id=_pick_session_id(Path(s["log_path"])))
+        surface_provider_error(conn, s["story_id"], s["tid"], Path(s["log_path"]))
+        if s["tid"] and s["stage"] in ("implementing", "review"):
+            summary = reconcile_after_stage(conn, s["story_id"], s["tid"], -1,
+                                            max_retries=opts.max_retries)
+            print(f"  [orphan] {summary}")
+
+    # 1. слоты: watchdog тишины/таймаута и завершение
+    silent_done: set[int] = set()
+    for slot in list(lane.slots):
+        proc = slot["proc"]
+        code = proc.poll()
+        quiet_for = _beat_age(conn, slot["session_row"], slot["started_at"])
+        if code is None and quiet_for > opts.heartbeat_timeout:
+            print(f"  [watchdog] тишина {int(quiet_for)}с > {opts.heartbeat_timeout}с — "
+                  f"убиваю {slot['stage']} {slot['task_id']}")
+            _kill_tree(proc)
+            code = proc.wait(timeout=30)
+            _add_retry_debt(conn, slot["story_id"], slot["task_id"])
+            silent_done.add(id(slot))
+        if code is None and time.time() - slot["started_at"] > opts.stage_timeout:
+            print(f"  [watchdog] stage_timeout — убиваю {slot['stage']} {slot['task_id']}")
+            _kill_tree(proc)
+            code = proc.wait(timeout=30)
+        if code is not None:
+            _finish_slot(lane, slot, code, opts)
+            # СТ 4.4.2: исчерпание повторов тишины → карантин (нужен человек,
+            # без авто-вариантов); с флагом восстановления — авто-перезапуск
+            if id(slot) in silent_done:
+                task = dbmod.read_task(conn, slot["story_id"], slot["task_id"],
+                                       with_card=False) if slot["task_id"] else {}
+                debt = (task.get("retry_debt") or 0) + (task.get("retries") or 0)
+                if debt >= opts.max_stale_retries and slot["task_id"]:
+                    apply_transition(conn, slot["story_id"], slot["task_id"],
+                                     sm.EV_BLOCKED_ESCALATED,
+                                     "карантин: исчерпаны повторы тишины")
+                    dbmod.task_set_v3(conn, slot["story_id"], slot["task_id"],
+                                      {"blocked_reason": "карантин: исчерпаны повторы тишины"})
+                    print(f"  [quarantine] {slot['task_id']}: {slot['fnr']}")
+                elif opts.agent_recovery_enabled and slot["task_id"] \
+                        and task.get("pipeline") in (sm.IMPLEMENTING, sm.REVIEW):
+                    print(f"  [recovery] авто-перезапуск {slot['stage']} {slot['task_id']}")
+                    _spawn_slot(lane, opts, slot["story_id"], slot["fnr"],
+                                slot["hdir"], slot["task_id"], slot["stage"])
+            lane.slots.remove(slot)
+
+    # 2. выбор работы: свободные слоты — handoff, затем решение по Story
+    free = opts.workers - len(lane.slots)
+    for s in conn.execute("SELECT id, fnr FROM stories WHERE project_id=? AND"
+                          " status='PENDING_HANDOFF' ORDER BY id",
+                          (lane.project_id,)).fetchall():
+        if free <= 0:
+            return
+        sid, fnr = int(s["id"]), s["fnr"]
+        hdir = ws / "sa_documentation" / "FNR" / fnr / "harness"
+        if not claim_lock(hdir):
+            continue
+        print(f"  [{fnr}] стадия handoff: построение плана из СТ")
+        spawned = _spawn_slot(lane, opts, sid, fnr, hdir, None, "handoff")
+        if spawned:
+            free -= 1
+
+    for s in conn.execute("SELECT id, fnr, status FROM stories WHERE project_id=?"
+                          " AND status != 'PENDING_HANDOFF' ORDER BY id",
+                          (lane.project_id,)).fetchall():
+        if free <= 0:
+            return
+        sid, fnr = int(s["id"]), s["fnr"]
+        hdir = ws / "sa_documentation" / "FNR" / fnr / "harness"
+        if not claim_lock(hdir):
+            continue
+        active_tids = [sl["task_id"] for sl in lane.slots
+                       if sl["story_id"] == sid and sl["task_id"]]
+        orphan_running = any(r["alive"] for r in dbmod.live_sessions(conn, sid))
+        exclude_tid = active_tids[0] if active_tids else None
+        if opts.dry_run:
+            flags = set(dbmod.pending_flags_view(conn, sid))
+        else:
+            consumed = dbmod.consume_commands(conn, sid, exclude_tid=exclude_tid)
+            flags = set()
+            for cmd in consumed:
+                if cmd["name"] == "task.edit_desc":
+                    apply_task_edit_desc(conn, sid,
+                                         str((cmd["payload"] or {}).get("task_id") or ""),
+                                         cmd["payload"] or {})
+                    continue
+                if cmd["name"] == "task.new":
+                    ok, info = create_manual_task(conn, sid, cmd["payload"] or {})
+                    print(f"  [{fnr}] TASK_NEW: {'создана ' + info if ok else 'ОТКАЗ — ' + info}")
+                    continue
+                flags.add(cmd["name"])
+        has_report, verify_attempted = _verify_flags(conn, sid, ws, fnr)
+        state = {
+            "lane_free": free > 0,
+            "running_task_id": active_tids[0] if active_tids else None,
+            "running_ids": active_tids,
+            "max_parallel": free,
+            "now": time.time(),
+            "verification_report": has_report,
+            "verify_attempted": verify_attempted,
+            "max_retries": opts.max_retries,
+            "orphan_running": orphan_running or bool(active_tids),
+        }
+        decisions = decide(manifest_view(conn, sid), flags, state)
+        if opts.dry_run or opts.verbose:
+            for d in decisions:
+                print(f"  [dry-run] {fnr}: {d}")
+        for d in decisions:
+            kind = d[0]
+            if kind == "flag":
+                pass
+            elif kind == "set":
+                _, tid, field, value = d
+                dbmod.task_set_v3(conn, sid, tid, {field: value})
+                ev(conn, sid, tid, f"{tid}: {field}={value} (команда задачи)")
+            elif kind == "approve_plan":
+                story = conn.execute("SELECT status FROM stories WHERE id=?",
+                                     (sid,)).fetchone()
+                if story["status"] == "AWAITING_APPROVAL":
+                    with dbmod.tx(conn):
+                        conn.execute("UPDATE stories SET status='APPROVED', updated_at=?"
+                                     " WHERE id=?", (now_iso(), sid))
+                        cur = conn.execute(
+                            "UPDATE tasks SET pipeline='BACKLOG', updated_at=?"
+                            " WHERE story_id=? AND pipeline='PROPOSED'",
+                            (now_iso(), sid))
+                    ev(conn, sid, None, f"план утверждён: черновиков в бэклог — {cur.rowcount}")
+            elif kind == "event":
+                _, tid, event, reason = d
+                if tid in active_tids:
+                    continue  # живой слот — единственный писатель задачи
+                task = dbmod.read_task(conn, sid, tid, with_card=False)
+                pre_event_effects(conn, sid, tid, event, task)
+                apply_transition(conn, sid, tid, event, reason)
+            elif kind == "stage" and free > 0:
+                _, tid, stage = d
+                if tid in active_tids:
+                    continue
+                fresh = dbmod.read_task(conn, sid, tid, with_card=False)
+                expected = {"implementing": {sm.IMPLEMENTING, sm.READY},
+                            "review": {sm.REVIEW},
+                            "decompose": {sm.PROPOSED}}.get(stage)
+                if fresh is None or (expected and fresh.get("pipeline") not in expected):
+                    continue
+                if _spawn_slot(lane, opts, sid, fnr, hdir, tid, stage):
+                    free -= 1
+
+
+def _spawn_slot(lane: WorkspaceLane, opts, sid: int, fnr: str, hdir: Path,
+                tid: str | None, stage: str) -> bool:
+    """Запуск стадии в новый слот lane (workers > 1)."""
+    ev(conn=lane.conn, story_id=sid, tid=tid,
+       text=f"запуск стадии {stage}: {tid or fnr}")
+    spawned = spawn_stage(lane.root, hdir, tid, stage, opts, sid, lane.conn)
+    if spawned is None:
+        return False
+    proc, session_row, log_path = spawned
+    lane.slots.append({"task_id": tid, "stage": stage, "proc": proc,
+                       "session_row": session_row, "log_path": log_path,
+                       "story_id": sid, "fnr": fnr, "hdir": hdir,
+                       "started_at": time.time()})
+    print(f"  [{fnr}] стадия {stage}: {tid or 'вся FNR'}")
+    return True
+
+
 # --- точка входа -----------------------------------------------------------
 
 def load_lanes(conn, workspace: str | None, project_name: str | None = None,
@@ -905,6 +1256,37 @@ def load_lanes(conn, workspace: str | None, project_name: str | None = None,
     return lanes
 
 
+def refresh_lanes(conn, lanes: list[WorkspaceLane]) -> list[WorkspaceLane]:
+    """СТ FNR-11 4.1.4: проекты перечитываются каждый цикл демона —
+    «Создать проект» из витрины подхватывается без рестарта; отложенно
+    удалённый проект дорабатывает живую стадию, затем стирается (4.1.2)."""
+    rows = {int(r["id"]): r for r in conn.execute(
+        "SELECT id, name, path, deleted FROM projects ORDER BY name").fetchall()}
+    kept: list[WorkspaceLane] = []
+    for lane in lanes:
+        row = rows.get(lane.project_id)
+        if row is None:                 # проект стёрт каскадом
+            if lane.proc is None:
+                continue                # lane больше не нужен
+            kept.append(lane)           # дорабатывает — уберём позже
+            continue
+        if row["deleted"] and lane.proc is None \
+                and dbmod.project_live_stages(conn, row["name"]) == 0:
+            dbmod.project_delete_now(conn, row["name"])
+            continue                    # отложенный каскад выполнен
+        kept.append(lane)
+    known = {l.project_id for l in kept}
+    for pid, row in rows.items():
+        if pid in known:
+            continue
+        if row["deleted"] and dbmod.project_live_stages(conn, row["name"]) == 0:
+            dbmod.project_delete_now(conn, row["name"])
+            continue                    # стёрт сразу, lane не нужен
+        kept.append(WorkspaceLane(Path(row["path"]), conn, pid, row["name"]))
+    kept.sort(key=lambda l: l.name)
+    return kept
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Демон-координатор AI Harness v3 (SQLite)")
     parser.add_argument("--workspace", help="корень воркспейса (иначе — проекты из БД)")
@@ -915,6 +1297,13 @@ def main() -> int:
     parser.add_argument("--heartbeat-timeout", type=int, default=1200)
     parser.add_argument("--max-retries", type=int, default=3)
     parser.add_argument("--max-turns", type=int, default=400)
+    parser.add_argument("--workers", type=int, default=1,
+                        help="слотов параллельного исполнения (СТ FNR-11 4.3.1; "
+                             "квота ИИ-провайдера делится на воркеров)")
+    parser.add_argument("--max-stale-retries", type=int, default=3,
+                        help="повторов тишины до карантина (СТ FNR-11 4.4.2)")
+    parser.add_argument("--agent-recovery-enabled", action="store_true",
+                        help="авто-перезапуск зависших стадий (по умолчанию выключен)")
     parser.add_argument("--skip-permissions", action="store_true")
     parser.add_argument("--claude-bin", default="claude")
     parser.add_argument("--dry-run", action="store_true",
@@ -930,9 +1319,14 @@ def main() -> int:
           f"poll={opts.poll_interval}с, dry-run={opts.dry_run}")
     try:
         while True:
+            if not opts.workspace:
+                lanes = refresh_lanes(conn, lanes)
             for lane in lanes:
                 if lane.root.is_dir():
-                    process_workspace(lane, opts)
+                    if opts.workers > 1:
+                        process_workspace_parallel(lane, opts)
+                    else:
+                        process_workspace(lane, opts)
                 else:
                     print(f"  [warn] проект недоступен: {lane.root}")
             if opts.once:

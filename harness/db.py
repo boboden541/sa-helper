@@ -26,7 +26,7 @@ import cards  # noqa: E402
 
 DB_PATH_DEFAULT = Path.home() / ".sa-helper" / "harness.db"
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 4
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS meta(
@@ -36,6 +36,10 @@ CREATE TABLE IF NOT EXISTS projects(
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL UNIQUE,
   path TEXT NOT NULL UNIQUE,
+  alias TEXT,                                    -- короткое отображаемое имя [FNR-11]
+  description TEXT,                              -- произвольное описание [FNR-11]
+  auto_registered INTEGER NOT NULL DEFAULT 0,    -- 1 = зарегистрирован системой [FNR-11]
+  deleted INTEGER NOT NULL DEFAULT 0,            -- 1 = помечен удалённым (отложенный каскад) [FNR-11]
   created_at TEXT NOT NULL
 );
 
@@ -43,6 +47,7 @@ CREATE TABLE IF NOT EXISTS stories(
   id INTEGER PRIMARY KEY,
   project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   fnr TEXT NOT NULL,
+  task_seq INTEGER NOT NULL DEFAULT 0,   -- счётчик номеров задач: без переиспользования [FNR-11]
   story_title TEXT,
   source_md TEXT,                        -- СТ: markdown-контент [H]
   source_name TEXT,
@@ -93,6 +98,7 @@ CREATE TABLE IF NOT EXISTS tasks(
   decomposed INTEGER NOT NULL DEFAULT 0,          -- [S-decompose]
   iteration_count INTEGER NOT NULL DEFAULT 0,     -- [S] circuit-breaker счётчик
   blocked_from TEXT, retries INTEGER NOT NULL DEFAULT 0, review_iterations INTEGER NOT NULL DEFAULT 0,
+  retry_debt INTEGER NOT NULL DEFAULT 0,          -- долг повторов между эпизодами блока [FNR-11]
   retry_after_ts REAL, pipeline_since TEXT,
   paused INTEGER NOT NULL DEFAULT 0, skip_review INTEGER NOT NULL DEFAULT 0,
   owner TEXT CHECK(owner IS NULL OR owner IN ('ai','human')),
@@ -123,9 +129,8 @@ CREATE TABLE IF NOT EXISTS acceptance_criteria(
 CREATE TABLE IF NOT EXISTS task_deps(                                  -- DAG
   story_id INTEGER NOT NULL, tid TEXT NOT NULL, dep_tid TEXT NOT NULL,
   PRIMARY KEY(story_id, tid, dep_tid),
-  FOREIGN KEY(story_id, tid) REFERENCES tasks(story_id, tid) ON DELETE CASCADE,
-  FOREIGN KEY(story_id, dep_tid) REFERENCES tasks(story_id, tid) ON DELETE CASCADE
-);
+  FOREIGN KEY(story_id, tid) REFERENCES tasks(story_id, tid) ON DELETE CASCADE
+);  -- dep_tid без FK: ссылки «вперёд» внутри плана, валидация в коде [FNR-11]
 
 CREATE TABLE IF NOT EXISTS task_frs(                                   -- fr_ids
   story_id INTEGER NOT NULL, tid TEXT NOT NULL, fr_id TEXT NOT NULL,
@@ -221,6 +226,7 @@ CREATE TABLE IF NOT EXISTS sessions(
   stage TEXT NOT NULL CHECK(stage IN ('implementing','review','verify','handoff','decompose')),
   pid INTEGER, host TEXT,
   log_path TEXT NOT NULL,
+  attempt_uid TEXT,                      -- неизменяемый идентификатор попытки [FNR-11]
   claude_session_id TEXT,
   status TEXT NOT NULL DEFAULT 'running' CHECK(status IN ('running','finished','killed','orphan')),
   started_at TEXT, last_beat_at TEXT, finished_at TEXT, exit_code INTEGER,
@@ -333,6 +339,37 @@ def connect(path: str | Path | None = None) -> sqlite3.Connection:
         except sqlite3.OperationalError:
             pass  # колонка уже есть (свежая БД из SCHEMA_SQL)
         conn.execute("UPDATE meta SET value='3' WHERE key='schema_version'")
+    if ver < 4:
+        # FNR-11: проекты (alias/описание/авто/удаление), счётчик задач Story,
+        # попытки и долг повторов. Аддитивно, существующие данные не трогаются.
+        for stmt in (
+            "ALTER TABLE projects ADD COLUMN alias TEXT",
+            "ALTER TABLE projects ADD COLUMN description TEXT",
+            "ALTER TABLE projects ADD COLUMN auto_registered INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE projects ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE stories ADD COLUMN task_seq INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE sessions ADD COLUMN attempt_uid TEXT",
+            "ALTER TABLE tasks ADD COLUMN retry_debt INTEGER NOT NULL DEFAULT 0",
+        ):
+            try:
+                conn.execute(stmt)
+            except sqlite3.OperationalError:
+                pass
+        # task_deps: снять FK с dep_tid (перестройка таблицы) — ссылки «вперёд»
+        # внутри плана; существование/циклы проверяет код (СТ FNR-11 4.2.3)
+        fks = [r[3] for r in conn.execute("PRAGMA foreign_key_list(task_deps)")]
+        if "dep_tid" in fks:
+            conn.execute(
+                "CREATE TABLE task_deps_new(story_id INTEGER NOT NULL,"
+                " tid TEXT NOT NULL, dep_tid TEXT NOT NULL,"
+                " PRIMARY KEY(story_id, tid, dep_tid),"
+                " FOREIGN KEY(story_id, tid) REFERENCES tasks(story_id, tid)"
+                " ON DELETE CASCADE)")
+            conn.execute("INSERT INTO task_deps_new SELECT story_id, tid, dep_tid"
+                         " FROM task_deps")
+            conn.execute("DROP TABLE task_deps")
+            conn.execute("ALTER TABLE task_deps_new RENAME TO task_deps")
+        conn.execute("UPDATE meta SET value='4' WHERE key='schema_version'")
     conn.commit()
     return conn
 
@@ -441,11 +478,13 @@ def tx(conn: sqlite3.Connection, immediate: bool = True):
 # ─── проекты ────────────────────────────────────────────────────────────────
 
 def upsert_project(conn: sqlite3.Connection, name: str, path: str,
-                   update_path: bool = True) -> int:
+                   update_path: bool = True, auto_registered: bool = False) -> int:
     """[H/M] Реестр проектов (поглощает workspaces.json). Ключи — и имя, и путь.
 
     update_path=False — контейнерный контур: канонический путь в БД остаётся
-    хостовым, монтирование (/work) не затирает его."""
+    хостовым, монтирование (/work) не затирает его.
+    auto_registered=True — регистрация системой (attach/lanes), не человеком
+    (СТ FNR-11 4.1.1: гвард проектов-самозванцев)."""
     path = str(Path(path).resolve())
     name = (name or "").strip() or Path(path).name   # пустое имя — имя каталога
     with tx(conn):
@@ -459,9 +498,64 @@ def upsert_project(conn: sqlite3.Connection, name: str, path: str,
             conn.execute("UPDATE projects SET name=? WHERE id=?", (name, row["id"]))
             return int(row["id"])
         cur = conn.execute(
-            "INSERT INTO projects(name, path, created_at) VALUES (?,?,?)",
-            (name, path, now_iso()))
+            "INSERT INTO projects(name, path, auto_registered, created_at)"
+            " VALUES (?,?,?,?)",
+            (name, path, 1 if auto_registered else 0, now_iso()))
         return int(cur.lastrowid)
+
+
+def project_update(conn: sqlite3.Connection, name: str,
+                   alias: str | None = None, description: str | None = None) -> bool:
+    """[H] Правка alias/описания; незаданные поля остаются без изменений (СТ 4.1.2)."""
+    sets, vals = [], []
+    if alias is not None:
+        sets.append("alias=?"); vals.append(alias)
+    if description is not None:
+        sets.append("description=?"); vals.append(description)
+    if not sets:
+        return False
+    vals.append(name)
+    with tx(conn):
+        cur = conn.execute(f"UPDATE projects SET {', '.join(sets)} WHERE name=?", vals)
+    return cur.rowcount > 0
+
+
+def project_cascade_info(conn: sqlite3.Connection, name: str) -> dict | None:
+    """Масштаб каскада удаления: истории и задачи проекта (СТ 4.1.2, правило 2)."""
+    row = get_project(conn, name)
+    if row is None:
+        return None
+    pid = int(row["id"])
+    stories = int(conn.execute("SELECT COUNT(*) c FROM stories WHERE project_id=?",
+                               (pid,)).fetchone()["c"])
+    tasks = int(conn.execute(
+        "SELECT COUNT(*) c FROM tasks WHERE story_id IN"
+        " (SELECT id FROM stories WHERE project_id=?)", (pid,)).fetchone()["c"])
+    return {"stories": stories, "tasks": tasks}
+
+
+def project_live_stages(conn: sqlite3.Connection, name: str) -> int:
+    """Живые сессии проекта (общая БД — видно из любого контура, СТ 4.1.2 правило 3)."""
+    row = get_project(conn, name)
+    if row is None:
+        return 0
+    return int(conn.execute(
+        "SELECT COUNT(*) c FROM sessions s JOIN stories st ON st.id=s.story_id"
+        " WHERE st.project_id=? AND s.status='running'", (int(row["id"]),)).fetchone()["c"])
+
+
+def project_mark_deleted(conn: sqlite3.Connection, name: str) -> bool:
+    """[H] Отложенное удаление: пометить проект; каскад выполнит Демон (СТ 4.1.2 правило 3)."""
+    with tx(conn):
+        cur = conn.execute("UPDATE projects SET deleted=1 WHERE name=?", (name,))
+    return cur.rowcount > 0
+
+
+def project_delete_now(conn: sqlite3.Connection, name: str) -> bool:
+    """[H] Фактический каскад: строка проекта + все связанные данные (FK CASCADE)."""
+    with tx(conn):
+        cur = conn.execute("DELETE FROM projects WHERE name=?", (name,))
+    return cur.rowcount > 0
 
 
 def list_projects(conn: sqlite3.Connection) -> list[sqlite3.Row]:
@@ -571,7 +665,7 @@ def list_story_ids(conn: sqlite3.Connection, project_id: int) -> list[sqlite3.Ro
 V2_ALLOWED_SET = {"status": "v2_status", "iteration_count": "iteration_count"}
 V3_SET_COLS = ("pipeline", "blocked_from", "retries", "review_iterations",
                "retry_after_ts", "pipeline_since", "paused", "skip_review",
-               "session_id", "review_verdict", "blocked_reason")
+               "session_id", "review_verdict", "blocked_reason", "retry_debt")
 
 
 def _bump(conn: sqlite3.Connection, story_id: int, tid: str) -> None:
@@ -606,51 +700,104 @@ def read_task(conn: sqlite3.Connection, story_id: int, tid: str,
     return t
 
 
+def _deps_have_cycle(conn: sqlite3.Connection, story_id: int, tid: str) -> str | None:
+    """Цепочка цикла зависимостей, в которую попадает tid (или None)."""
+    edges: dict[str, list[str]] = {}
+    for r in conn.execute("SELECT tid, dep_tid FROM task_deps WHERE story_id=?",
+                          (story_id,)).fetchall():
+        edges.setdefault(r["tid"], []).append(r["dep_tid"])
+    seen: set[str] = set()
+    stack = [tid]
+    while stack:
+        cur = stack.pop()
+        if cur == tid and seen:
+            return " → ".join([tid, *sorted(seen), tid])
+        if cur in seen:
+            continue
+        seen.add(cur)
+        stack.extend(edges.get(cur, []))
+    return None
+
+
 def task_create(conn: sqlite3.Connection, story_id: int, spec: dict,
                 origin: str = "plan") -> str:
-    """[S] Новая задача с валидацией (regex/DAG/system) — атомарный tid."""
+    """[S] Новая задача с валидацией (regex/DAG/system) — атомарный tid.
+
+    СТ FNR-11 4.2.1: Story в ожидании утверждения → задача-черновик (PROPOSED)
+    независимо от источника; 4.2.2: номера задач не переиспользуются
+    (счётчик stories.task_seq); 4.2.3: зависимости проверяются в точке записи
+    (существование предков; циклы — после вставки)."""
     tid = str(spec.get("id") or "").strip()
     title = str(spec.get("title") or "").strip()
     if not title:
         raise ValueError("нужен title")
+    deps = [str(d).strip() for d in (spec.get("depends_on") or []) if str(d).strip()]
     with tx(conn):
-        if not tid:
+        story = conn.execute("SELECT status, task_seq FROM stories WHERE id=?",
+                             (story_id,)).fetchone()
+        if story is None:
+            raise ValueError("нет такой Story")
+        if tid:
+            try:
+                seq = int(tid[1:])
+            except ValueError:
+                seq = 0
+        else:
             row = conn.execute(
                 "SELECT tid FROM tasks WHERE story_id=? ORDER BY"
                 " CAST(SUBSTR(tid, 2) AS INTEGER) DESC LIMIT 1", (story_id,)).fetchone()
-            n = int(row["tid"][1:]) if row else 0
-            tid = f"T{n + 1}"
+            seq = max(int(story["task_seq"] or 0),
+                      int(row["tid"][1:]) if row else 0)
+            tid = f"T{seq + 1}"
+            seq += 1
         dup = conn.execute("SELECT id FROM tasks WHERE story_id=? AND tid=?",
                            (story_id, tid)).fetchone()
         if dup:
             raise ValueError(f"задача {tid} уже существует")
+        # зависимости: предок обязан существовать и иметь номер не впереди
+        # (ссылки «вперёд» внутри одного плана допустимы — проверяются циклом ниже)
+        for d in deps:
+            if d == tid:
+                raise ValueError(f"{tid}: задача не может зависеть от себя")
+            prow = conn.execute("SELECT tid FROM tasks WHERE story_id=? AND tid=?",
+                                (story_id, d)).fetchone()
+            if prow is None and seq and d[1:].isdigit() and int(d[1:]) <= seq:
+                raise ValueError(f"{tid}: зависимость на несуществующую задачу {d}")
         now = now_iso()
+        # СТ 4.2.1: Story в ожидании утверждения → черновик (PROPOSED) —
+        # независимо от источника; иначе как сегодня
+        pipeline = ("PROPOSED" if (origin == "agent"
+                                   or story["status"] == "AWAITING_APPROVAL")
+                    else "BACKLOG")
         conn.execute(
             "INSERT INTO tasks(story_id, tid, title, description, system, phase,"
-            " branch, origin, decomposed, created_at, updated_at)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            " branch, origin, decomposed, pipeline, created_at, updated_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (story_id, tid, title, str(spec.get("description") or ""),
              spec.get("system"), str(spec.get("phase") or "regular"),
              str(spec.get("branch") or ""), origin,
-             0, now, now))  # decomposed=False — декомпозирует стадия/сессия
-        pipeline = "PROPOSED" if origin == "agent" else "BACKLOG"
-        conn.execute("UPDATE tasks SET pipeline=? WHERE story_id=? AND tid=?",
-                     (pipeline, story_id, tid))
+             0, pipeline, now, now))  # decomposed=False — декомпозирует стадия/сессия
+        conn.execute("UPDATE stories SET task_seq=? WHERE id=?",
+                     (max(int(story["task_seq"] or 0), seq), story_id))
         for ac in spec.get("acceptance_criteria") or []:
             conn.execute(
                 "INSERT OR IGNORE INTO acceptance_criteria(story_id, tid, ac_id, seq,"
                 " desc_md, test, status) VALUES (?,?,?,?,?,?, 'PENDING')",
                 (story_id, tid, ac.get("id"), int(ac.get("seq") or 0),
                  ac.get("desc") or "", ac.get("test")))
-        for d in spec.get("depends_on") or []:
+        for d in deps:
             conn.execute("INSERT OR IGNORE INTO task_deps(story_id, tid, dep_tid)"
-                         " VALUES (?,?,?)", (story_id, tid, str(d)))
+                         " VALUES (?,?,?)", (story_id, tid, d))
         for fr in spec.get("fr_ids") or []:
             conn.execute("INSERT OR IGNORE INTO task_frs(story_id, tid, fr_id)"
                          " VALUES (?,?,?)", (story_id, tid, str(fr)))
         for g in ("build", "test", "lint", "coverage", "review"):
             conn.execute("INSERT OR IGNORE INTO gates(story_id, tid, gate)"
                          " VALUES (?,?,?)", (story_id, tid, g))
+        if deps:
+            cycle = _deps_have_cycle(conn, story_id, tid)
+            if cycle:
+                raise ValueError(f"циклические зависимости: {cycle}")
     return tid
 
 
@@ -875,14 +1022,59 @@ def doc_get(conn: sqlite3.Connection, story_id: int, kind: str,
 # ─── сессии стадий (вместо .pid/.hb/.session) ───────────────────────────────
 
 def session_start(conn: sqlite3.Connection, story_id: int, tid: str | None,
-                  stage: str, pid: int, host: str, log_path: str) -> int:
-    """[D] Стадия запущена (log_path — файл .run/*.log остаётся)."""
+                  stage: str, pid: int, host: str, log_path: str,
+                  attempt_uid: str | None = None) -> int:
+    """[D] Стадия запущена (log_path — файл .run/*.log остаётся).
+
+    attempt_uid — неизменяемый идентификатор попытки (СТ FNR-11 4.4.1):
+    переживает рестарт Демона, разграничивает результаты соседних попыток."""
     with tx(conn):
         cur = conn.execute(
             "INSERT INTO sessions(story_id, tid, stage, pid, host, log_path,"
-            " status, started_at, last_beat_at) VALUES (?,?,?,?,?,?,'running',?,?)",
-            (story_id, tid, stage, pid, host, log_path, now_iso(), now_iso()))
+            " attempt_uid, status, started_at, last_beat_at)"
+            " VALUES (?,?,?,?,?,?,?,'running',?,?)",
+            (story_id, tid, stage, pid, host, log_path, attempt_uid,
+             now_iso(), now_iso()))
         return int(cur.lastrowid)
+
+
+def task_delete_draft(conn: sqlite3.Connection, story_id: int, tid: str) -> tuple[bool, list[str], int]:
+    """[H] Удалить черновик задачи (СТ FNR-11 4.2.2): диалог и вложения —
+    в журнал Story, зависимости на задачу снимаются, номер не переиспользуется
+    (stories.task_seq продолжается). Возвращает (ok, freed_dependents, archived)."""
+    row = conn.execute("SELECT id FROM tasks WHERE story_id=? AND tid=?",
+                       (story_id, tid)).fetchone()
+    if row is None:
+        return False, [], 0
+    freed = [r["tid"] for r in conn.execute(
+        "SELECT tid FROM task_deps WHERE story_id=? AND dep_tid=?",
+        (story_id, tid)).fetchall()]
+    with tx(conn):
+        n_comments = int(conn.execute(
+            "SELECT COUNT(*) c FROM comments WHERE story_id=? AND tid=?",
+            (story_id, tid)).fetchone()["c"])
+        for r in conn.execute(
+                "SELECT author, body FROM comments WHERE story_id=? AND tid=?"
+                " ORDER BY id", (story_id, tid)).fetchall():
+            conn.execute(
+                "INSERT INTO events(story_id, tid, ts, actor, kind, text)"
+                " VALUES (?,NULL,?,'human','archive',?)",
+                (story_id, now_iso(),
+                 f"[архив {tid}] комментарий {r['author']}: {r['body']}"))
+        n_att = int(conn.execute(
+            "SELECT COUNT(*) c FROM attachments WHERE story_id=? AND tid=?",
+            (story_id, tid)).fetchone()["c"])
+        if n_att:
+            names = ", ".join(r["name"] for r in conn.execute(
+                "SELECT name FROM attachments WHERE story_id=? AND tid=?",
+                (story_id, tid)).fetchall())
+            conn.execute(
+                "INSERT INTO events(story_id, tid, ts, actor, kind, text)"
+                " VALUES (?,NULL,?,'human','archive',?)",
+                (story_id, now_iso(),
+                 f"[архив {tid}] вложения (файлы остались на диске): {names}"))
+        conn.execute("DELETE FROM tasks WHERE story_id=? AND tid=?", (story_id, tid))
+    return True, freed, n_comments + n_att
 
 
 def session_beat(conn: sqlite3.Connection, session_row_id: int) -> None:

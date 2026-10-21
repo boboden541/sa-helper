@@ -344,13 +344,17 @@ def _session_diagnosis(hdir: Path, task_id: str) -> str | None:
     return perm or api or terminal
 
 
-def _readable_tail(path: Path, max_events: int = 60) -> str:
-    """Stream-json сессии -> человекочитаемая хроника (как в v3)."""
+def _readable_tail(path: Path, max_events: int = 80) -> str:
+    """Stream-json сессии -> человекочитаемая хроника (как в v3).
+
+    СТ FNR-11 прозрачность: 🧠 мышление агента и 📋 промпт стадии видны
+    человеку так же, как текст и инструменты."""
     try:
         tail = path.read_bytes()[-524288:].decode("utf-8", errors="replace")
     except OSError:
         return "(лог недоступен)"
     lines: list[str] = []
+    prompt_line = None
     duration_min = None
     result_text = None
     for raw in tail.splitlines():
@@ -363,6 +367,9 @@ def _readable_tail(path: Path, max_events: int = 60) -> str:
                 if b.get("type") == "text" and b.get("text", "").strip():
                     txt = " ".join(b["text"].split())
                     lines.append("🤖 " + (txt[:220] + ("…" if len(txt) > 220 else "")))
+                elif b.get("type") == "thinking" and b.get("thinking", "").strip():
+                    th = " ".join(b["thinking"].split())
+                    lines.append("🧠 " + (th[:220] + ("…" if len(th) > 220 else "")))
                 elif b.get("type") == "tool_use":
                     name = b.get("name", "?")
                     inp = b.get("input") or {}
@@ -370,9 +377,17 @@ def _readable_tail(path: Path, max_events: int = 60) -> str:
                               or inp.get("pattern")
                               or str(inp.get("command") or ""))[:90]
                     lines.append(f"🔧 {name}: {detail}" if detail else f"🔧 {name}")
+        elif d.get("type") == "user" and prompt_line is None:
+            c0 = d.get("message", {}).get("content")
+            if isinstance(c0, list) and c0 and isinstance(c0[0], dict) \
+                    and c0[0].get("type") == "text" and c0[0].get("text", "").strip():
+                txt = " ".join(c0[0]["text"].split())
+                prompt_line = "📋 Промпт: " + (txt[:300] + ("…" if len(txt) > 300 else ""))
         elif d.get("type") == "result":
             duration_min = round(d.get("duration_ms", 0) / 60000, 1)
             result_text = " ".join(str(d.get("result") or "").split())
+    if prompt_line:
+        lines.insert(0, prompt_line)
     if duration_min is not None:
         lines.append(f"🏁 Сессия завершена ({duration_min} мин).")
         if result_text:
@@ -607,7 +622,11 @@ class Handler(BaseHTTPRequestHandler):
                     task_count += s["tasks"]
                     for k in usage:
                         usage[k] = round(usage[k] + float((s.get("usage") or {}).get(k) or 0), 4)
-                out.append({"name": p["name"], "path": p["path"], "stories": stories,
+                out.append({"name": p["name"], "path": p["path"],
+                            "alias": p["alias"], "description": p["description"],
+                            "auto_registered": bool(p["auto_registered"]),
+                            "deleted": bool(p["deleted"]),
+                            "stories": stories,
                             "task_count": task_count, "usage": usage})
             self._send(200, json.dumps({"projects": out},
                        ensure_ascii=False).encode("utf-8"), "application/json")
@@ -888,15 +907,44 @@ class Handler(BaseHTTPRequestHandler):
                                actor="human", kind="attachment")
             self._send(200, b'{"ok":true}', "application/json")
         elif path == "/api/projects":
+            # СТ FNR-11 4.1.3: регистрация проекта; пустая папка получает
+            # базовую структуру (идемпотентно), непустая — как сегодня
             body = self._json_body()
             name = str(body.get("name") or "").strip()
             ppath = str(body.get("path") or "").strip()
-            if not name or not Path(ppath).is_dir():
+            alias = str(body.get("alias") or "").strip() or None
+            descr = str(body.get("description") or "").strip() or None
+            if not name or not ppath or not Path(ppath).is_dir():
                 self._send(400, '{"ok":false,"error":"нужны имя и существующий каталог"}'.encode("utf-8"),
                            "application/json")
                 return
+            entries = [e for e in os.listdir(ppath)
+                       if e not in (".DS_Store", "Thumbs.db", "desktop.ini")]
+            initialized = False
+            if not entries:
+                # инициализация базовой структуры (идемпотентно, СТ 8.1.2)
+                root = Path(ppath)
+                (root / "README.md").write_text(
+                    f"# {name}\n\nПроект инициализирован витриной AI Harness.\n",
+                    encoding="utf-8")
+                (root / ".gitignore").write_text(
+                    ".DS_Store\nThumbs.db\n__pycache__/\nnode_modules/\ndist/\n",
+                    encoding="utf-8")
+                if not (root / ".git").exists():
+                    subprocess.run(["git", "init"], cwd=ppath,
+                                   capture_output=True, timeout=60)
+                initialized = True
             dbmod.upsert_project(c, name, str(Path(ppath).resolve()))
-            self._send(200, b'{"ok":true}', "application/json")
+            if alias or descr:
+                dbmod.project_update(c, name, alias=alias, description=descr)
+            info = f"проект {name} зарегистрирован"
+            if initialized:
+                info += " (папка была пуста — создана базовая структура)"
+            self._send(200, json.dumps({"ok": True, "initialized": initialized,
+                                        "info": info,
+                                        "project": {"name": name, "alias": alias}},
+                                       ensure_ascii=False).encode("utf-8"),
+                       "application/json")
         elif path == "/api/steward/message":
             body = self._json_body()
             msg = str(body.get("text") or "").strip()
@@ -1188,6 +1236,24 @@ class Handler(BaseHTTPRequestHandler):
 
     def _do_PATCH(self) -> None:
         path, params = self._route()
+        if path.startswith("/api/projects/"):
+            # СТ FNR-11 4.1.2: правка alias/описания проекта
+            name = unquote(path[len("/api/projects/"):])
+            body = self._json_body()
+            alias = body.get("alias")
+            descr = body.get("description")
+            if dbmod.get_project(c := conn(), name) is None:
+                self._send(404, json.dumps({"error": "проект не найден"},
+                           ensure_ascii=False).encode("utf-8"), "application/json")
+                return
+            if alias is None and descr is None:
+                self._send(400, json.dumps({"error": "нечего менять: задайте alias "
+                                            "или description"},
+                           ensure_ascii=False).encode("utf-8"), "application/json")
+                return
+            dbmod.project_update(c, name, alias=alias, description=descr)
+            self._send(200, b'{"ok":true}', "application/json")
+            return
         if path.startswith("/api/checklist/item/"):
             item_id = path.rsplit("/", 1)[1]
             if not item_id.isdigit():
@@ -1223,6 +1289,88 @@ class Handler(BaseHTTPRequestHandler):
     def _do_DELETE(self) -> None:
         path, params = self._route()
         c = conn()
+        if path.startswith("/api/projects/"):
+            # СТ FNR-11 4.1.2: удаление проекта — гварды каскада/авто/занятости
+            name = unquote(path[len("/api/projects/"):])
+            proj = dbmod.get_project(c, name)
+            if proj is None:
+                self._send(404, json.dumps({"error": "проект не найден"},
+                           ensure_ascii=False).encode("utf-8"), "application/json")
+                return
+            body = self._json_body() if self.headers.get("Content-Length") else {}
+            confirm = bool(body.get("confirm"))
+            include_auto = bool(body.get("include_auto"))
+            if not confirm:
+                info = dbmod.project_cascade_info(c, name) or {"stories": 0, "tasks": 0}
+                self._send(400, json.dumps(
+                    {"error": f"удаление сотрёт {info['stories']} истории и "
+                              f"{info['tasks']} задач — подтвердите",
+                     "cascade": info}, ensure_ascii=False).encode("utf-8"),
+                    "application/json")
+                return
+            if proj["auto_registered"] and not include_auto:
+                self._send(409, json.dumps(
+                    {"error": "проект зарегистрирован автоматически — "
+                              "подтвердите include_auto"},
+                    ensure_ascii=False).encode("utf-8"), "application/json")
+                return
+            if dbmod.project_live_stages(c, name) > 0:
+                dbmod.project_mark_deleted(c, name)
+                self._send(200, json.dumps(
+                    {"ok": True, "deferred": True,
+                     "info": "живая стадия дорабатывает — стирание после её завершения"},
+                    ensure_ascii=False).encode("utf-8"), "application/json")
+                return
+            dbmod.project_delete_now(c, name)
+            self._send(200, json.dumps({"ok": True, "deferred": False},
+                                       ensure_ascii=False).encode("utf-8"),
+                       "application/json")
+            return
+        if path.startswith("/api/task/"):
+            # СТ FNR-11 4.2.2: удаление черновика задачи (только в ожидании
+            # утверждения Story); диалог и вложения — в журнал, номера без
+            # переиспользования, зависимости на задачу снимаются
+            tid = unquote(path.rsplit("/", 1)[1])
+            project = self._project(params)
+            story = self._story(project, params) if project else None
+            if story is None:
+                self._send(404, json.dumps({"error": "нет такой Story"},
+                           ensure_ascii=False).encode("utf-8"), "application/json")
+                return
+            task_row = c.execute("SELECT pipeline FROM tasks WHERE story_id=? AND tid=?",
+                                 (int(story["id"]), tid)).fetchone()
+            if task_row is None:
+                self._send(404, json.dumps({"error": f"задача {tid} не найдена"},
+                           ensure_ascii=False).encode("utf-8"), "application/json")
+                return
+            if story["status"] != "AWAITING_APPROVAL":
+                self._send(409, json.dumps(
+                    {"error": "Story утверждена — состав меняется снятием задачи "
+                              "(флаг снятия), а не стиранием"},
+                    ensure_ascii=False).encode("utf-8"), "application/json")
+                return
+            if task_row["pipeline"] != "PROPOSED":
+                self._send(409, json.dumps(
+                    {"error": f"задача {tid} в работе ({task_row['pipeline']}) — "
+                              f"удаление невозможно"},
+                    ensure_ascii=False).encode("utf-8"), "application/json")
+                return
+            live = c.execute("SELECT COUNT(*) c FROM sessions WHERE story_id=? AND"
+                             " tid=? AND status='running'",
+                             (int(story["id"]), tid)).fetchone()["c"]
+            if live:
+                self._send(409, json.dumps({"error": f"у задачи {tid} живая сессия"},
+                           ensure_ascii=False).encode("utf-8"), "application/json")
+                return
+            ok, freed, archived = dbmod.task_delete_draft(c, int(story["id"]), tid)
+            dbmod.append_event(c, int(story["id"]), None,
+                               f"{tid}: черновик удалён человеком на ревью плана"
+                               f" (диалог в журнале: {archived})",
+                               actor="human", kind="plan_review")
+            self._send(200, json.dumps(
+                {"ok": True, "freed_dependents": freed, "archived_items": archived},
+                ensure_ascii=False).encode("utf-8"), "application/json")
+            return
         if path.startswith("/api/checklist/item/"):
             item_id = path.rsplit("/", 1)[1]
             if not item_id.isdigit():

@@ -32,7 +32,8 @@ function ThemeToggle() {
 /** Шапка-пульт: лого, селектор Story (обзор внутри), вид, метрики, действия. */
 export function Header({ fnr, stories, projects, activeProject, state, conn = "…",
   onOpenStory, onOpenProject, onAllStories, onAddProject, onOpenTask,
-  onCreate, onMetrics, view, setView, onFlag, onOpenSettings }: {
+  onCreate, onMetrics, view, setView, onFlag, onOpenSettings,
+  onEditProject, onDeleteProject, onOpenReview }: {
   fnr: string | null;
   stories: Story[];
   projects: Project[];
@@ -50,6 +51,9 @@ export function Header({ fnr, stories, projects, activeProject, state, conn = "�
   setView: (v: "board" | "list") => void;
   onFlag: (name: string, method?: "POST" | "DELETE") => void;
   onOpenSettings: () => void;
+  onEditProject: (name: string) => void;
+  onDeleteProject: (name: string) => void;
+  onOpenReview: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [storiesOpen, setStoriesOpen] = useState(false);
@@ -91,12 +95,18 @@ export function Header({ fnr, stories, projects, activeProject, state, conn = "�
             {projects.map((prj) => (
               <div className="s-item" key={prj.name}
                 onClick={() => { onOpenProject(prj.name); setMenuOpen(false); }}>
-                <span className="fnr">{prj.name}</span>
+                <span className="fnr">{prj.alias || prj.name}</span>
+                {prj.auto_registered && <span className="meta"> · авто</span>}
+                {prj.deleted && <span className="meta" style={{ color: "var(--warn)" }}> · удаляется…</span>}
                 <span style={{ flex: 1, minWidth: 0 }}>
                   <span className="meta">{prj.task_count} задач · 🪙 {fmtTokens(prj.usage.tokens_total)} · {fmtUsd(prj.usage.cost_usd)}</span>
                 </span>
                 <span className="bar"><i style={{
                   width: `${prj.task_count ? Math.round(100 * (prj.stories.reduce((a, s) => a + (s.counts.DONE || 0) + (s.counts.VERIFIED || 0), 0) / prj.task_count)) : 0}%` }} /></span>
+                <button title="Изменить проект"
+                  onClick={(e) => { e.stopPropagation(); onEditProject(prj.name); }}>✎</button>
+                <button title="Удалить проект" style={{ color: "var(--bad)" }}
+                  onClick={(e) => { e.stopPropagation(); onDeleteProject(prj.name); }}>🗑</button>
               </div>
             ))}
             {activeProject && stories.length > 0 && (
@@ -206,6 +216,10 @@ export function Header({ fnr, stories, projects, activeProject, state, conn = "�
           <span className="flag-chip" key={f}>{f === "APPROVE_PLAN" ? "ждёт утверждения плана" : f}</span>
         ))}
       </span>
+      {fnr && state?.manifest.status === "AWAITING_APPROVAL" && (
+        <button title="Ревью состава плана до апрува (СТ FNR-11 5.1.2)"
+          onClick={onOpenReview}>🔎 Ревью плана</button>
+      )}
       {fnr && (
         <>
           <button className="ghost" disabled={flags.includes("APPROVE_PLAN")}

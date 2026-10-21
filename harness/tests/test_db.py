@@ -142,12 +142,16 @@ class TestCommandsEvents(DbFixture):
                           row["usage_sessions"]), (15, 0.5, 1))
 
     def test_dangling_dep_blocked_by_fk(self):
-        # несуществующая зависимость отсекается самой схемой (FK)
+        # FNR-11 4.2.3: FK на dep_tid снят (ссылки «вперёд» внутри плана);
+        # существование предка проверяет код в точке записи
         self.mk_task("T1")
-        with self.assertRaises(sqlite3.IntegrityError):
-            with dbmod.tx(self.conn):
-                self.conn.execute("INSERT INTO task_deps(story_id, tid, dep_tid)"
-                                  " VALUES (?,?,?)", (self.sid, "T1", "T9"))
+        with dbmod.tx(self.conn):
+            self.conn.execute("INSERT INTO task_deps(story_id, tid, dep_tid)"
+                              " VALUES (?,?,?)", (self.sid, "T1", "T9"))
+        rows = self.conn.execute(
+            "SELECT COUNT(*) c FROM task_deps WHERE story_id=? AND tid=? AND dep_tid=?",
+            (self.sid, "T1", "T9")).fetchone()["c"]
+        self.assertEqual(rows, 1)  # строка легла — контроль перенесён в код
 
     def test_cycle_detected_by_validate(self):
         self.mk_task("T1")

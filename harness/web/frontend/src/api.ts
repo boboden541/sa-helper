@@ -82,12 +82,32 @@ export const api = {
       body: JSON.stringify(payload),
     }).then((r) => json<{ ok: boolean }>(r)),
 
-  addProject: (name: string, path: string) =>
+  addProject: (name: string, path: string, alias?: string, description?: string) =>
     fetch("/api/projects", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, path }),
-    }).then((r) => json<{ ok: boolean; info: string }>(r)),
+      body: JSON.stringify({ name, path, alias, description }),
+    }).then((r) => json<{ ok: boolean; initialized: boolean; info: string;
+                          project: { name: string; alias: string | null } }>(r)),
+
+  patchProject: (name: string, patch: { alias?: string; description?: string }) =>
+    fetch(`/api/projects/${encodeURIComponent(name)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    }).then((r) => json<{ ok: boolean }>(r)),
+
+  deleteProject: (name: string, confirm: boolean, includeAuto = false) =>
+    fetch(`/api/projects/${encodeURIComponent(name)}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirm, include_auto: includeAuto }),
+    }).then((r) => r.json().then((b) => ({
+      ok: r.ok && !!(b as { ok?: boolean }).ok,
+      deferred: !!(b as { deferred?: boolean }).deferred,
+      cascade: (b as { cascade?: { stories: number; tasks: number } }).cascade,
+      error: (b as { error?: string }).error,
+    }))),
 
   stewardChat: () =>
     fetch(withFnr("/api/steward/chat")).then((r) =>
@@ -184,6 +204,15 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     }).then((r) => json<AiTestResult>(r)),
+
+  deleteTask: (tid: string) =>
+    fetch(withFnr(`/api/task/${encodeURIComponent(tid)}`), { method: "DELETE" })
+      .then((r) => r.json().then((b) => ({
+        ok: r.ok && !!(b as { ok?: boolean }).ok,
+        freed_dependents: (b as { freed_dependents?: string[] }).freed_dependents || [],
+        archived_items: (b as { archived_items?: number }).archived_items ?? 0,
+        error: (b as { error?: string }).error,
+      }))),
 };
 
 export function pipelineOf(t: {

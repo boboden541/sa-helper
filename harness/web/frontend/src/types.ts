@@ -171,6 +171,10 @@ export interface JournalEntry {
 export interface Project {
   name: string;
   path: string;
+  alias: string | null;
+  description: string | null;
+  auto_registered: boolean;
+  deleted: boolean;
   task_count: number;
   usage: Usage;
   stories: Story[];

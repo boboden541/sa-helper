@@ -191,6 +191,13 @@ def pre_event_effects(conn, story_id: int, tid: str, event: str, task: dict) -> 
         backoff = min(300 * (2 ** (task.get("retries") or 0)), 3600)
         dbmod.task_set_v3(conn, story_id, tid,
                           {"retry_after_ts": time.time() + backoff})
+    # СТ FNR-11 4.4.1: долг повторов копится при каждом блоке и не
+    # сбрасывается возвратом; обнуляется при полном завершении задачи
+    if event == sm.EV_IMPL_BLOCKED:
+        dbmod.task_set_v3(conn, story_id, tid,
+                          {"retry_debt": (task.get("retry_debt") or 0) + 1})
+    if event in (sm.EV_IMPL_PASSED, sm.EV_REVIEW_APPROVED, sm.EV_VERIFY_PASSED):
+        dbmod.task_set_v3(conn, story_id, tid, {"retry_debt": 0})
 
 
 def apply_transition(conn, story_id: int, tid: str, event: str, reason: str,
