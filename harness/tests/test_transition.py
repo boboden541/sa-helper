@@ -98,13 +98,29 @@ class TestFence(TransitionFixture):
         r = tr.human_apply(self.conn, self.sid, "T1", "PAUSE")
         self.assertTrue(r["ok"])  # PAUSE проходит и при живой сессии
 
-    def test_dead_pid_is_not_fence(self):
+    def test_dead_pid_stale_beat_is_not_fence(self):
+        dbmod.task_create(self.conn, self.sid, {"id": "T1", "title": "T"}, origin="plan")
+        dbmod.task_set_v3(self.conn, self.sid, "T1", {"pipeline": "READY"})
+        row = dbmod.session_start(self.conn, self.sid, "T1", "implementing",
+                                  999999, "test", "t.log")
+        # heartbeat протух (контейнерный кейс: pid невидим, beat старый)
+        with dbmod.tx(self.conn):
+            self.conn.execute(
+                "UPDATE sessions SET last_beat_at=? WHERE id=?",
+                (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 7200)),
+                 row))
+        r = tr.human_apply(self.conn, self.sid, "T1", "ABORT")
+        self.assertTrue(r["ok"])  # мёртвый pid + протухший beat — не живая
+
+    def test_dead_pid_fresh_beat_is_fence(self):
+        # контейнерный кейс: web не видит pid демона, но beat свежий
         dbmod.task_create(self.conn, self.sid, {"id": "T1", "title": "T"}, origin="plan")
         dbmod.task_set_v3(self.conn, self.sid, "T1", {"pipeline": "READY"})
         dbmod.session_start(self.conn, self.sid, "T1", "implementing",
-                            999999, "test", "t.log")
+                            999999, "daemon-host", "t.log")
         r = tr.human_apply(self.conn, self.sid, "T1", "ABORT")
-        self.assertTrue(r["ok"])  # мёртвый pid — сессия не живая
+        self.assertFalse(r["ok"])
+        self.assertEqual(r["code"], "fence")
 
 
 class TestGate(TransitionFixture):

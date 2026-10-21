@@ -913,18 +913,33 @@ def session_finish(conn: sqlite3.Connection, session_row_id: int, exit_code: int
                      sid["story_id"], sid["tid"]))
 
 
-def live_sessions(conn: sqlite3.Connection, story_id: int) -> list[dict]:
-    """Живые стадии Story (для 409-гейта карточки и лив-индикаторов)."""
+def live_sessions(conn: sqlite3.Connection, story_id: int,
+                  beat_window_s: int = 1200) -> list[dict]:
+    """Живые стадии Story (409-гейты витрины, лив-индикаторы, fencing).
+
+    Живость = pid существует ИЛИ свежий heartbeat (окно beat_window_s
+    совпадает с heartbeat_timeout демона). В контейнерах web не видит
+    pid демона (раздельные PID-namespace) — живость решает beat.
+    """
     rows = conn.execute(
         "SELECT id, tid, stage, pid, host, last_beat_at FROM sessions"
         " WHERE story_id=? AND status='running'", (story_id,)).fetchall()
     out = []
+    now = time.time()
     for r in rows:
         alive = False
         try:
             alive = pid_alive(int(r["pid"]))
         except (TypeError, ValueError):
             alive = False
+        if not alive and r["last_beat_at"]:
+            try:
+                beat = datetime.fromisoformat(r["last_beat_at"])
+                if beat.tzinfo is None:
+                    beat = beat.replace(tzinfo=timezone.utc)
+                alive = (now - beat.timestamp()) <= beat_window_s
+            except ValueError:
+                pass
         out.append({**dict(r), "alive": alive})
     return out
 
