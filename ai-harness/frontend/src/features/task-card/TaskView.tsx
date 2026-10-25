@@ -76,7 +76,6 @@ function TaskBody({ code }: { code: string }) {
   const [descDraft, setDescDraft] = useState('')
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
-  const [forceOpen, setForceOpen] = useState(false)
   const [forceTo, setForceTo] = useState('')
   const [forceReason, setForceReason] = useState('')
 
@@ -212,8 +211,8 @@ function TaskBody({ code }: { code: string }) {
             ))}
           </div>
         )}
-        <details className="force" open={forceOpen}>
-          <summary onClick={(e) => { setForceOpen(!forceOpen) }}>Форс-переход — с обязательной причиной</summary>
+        <details className="force">
+          <summary>Форс-переход — с обязательной причиной</summary>
           <div className="fb">
             <textarea placeholder="Причина (обязательно)…"
               value={forceReason} onChange={(e) => setForceReason(e.target.value)} />

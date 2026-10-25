@@ -220,8 +220,9 @@ export function Board({ tasks, reload }: { tasks: TaskCard[]; reload: () => void
   const storyBand = (story: TaskCard, closedKids: number, kidCount: number) => (
     <div className="lane-band clickable" title="История движется автоматически по правилам M1–M6"
       style={{ ['--st' as string]: STATUS_COLORS[story.statusKey] ?? '#8792a3' }}
-      onClick={() => setCollapsed((c) => ({ ...c, [story.code]: !c[story.code] }))}>
-      <button className="chev" aria-label={collapsed[story.code] ? 'Развернуть историю' : 'Свернуть историю'}>
+      onClick={() => { window.location.hash = `#${story.code}` }}>
+      <button className="chev" aria-label={collapsed[story.code] ? 'Развернуть историю' : 'Свернуть историю'}
+        onClick={(e) => { e.stopPropagation(); setCollapsed((c) => ({ ...c, [story.code]: !c[story.code] })) }}>
         <svg width="12" height="12" viewBox="0 0 12 12" style={{ transform: collapsed[story.code] ? 'rotate(-90deg)' : 'none' }}><path d="M2.5 4l3.5 4 3.5-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
       </button>
       <span className="code">{story.code}</span>
