@@ -60,6 +60,10 @@ export function App() {
   useEffect(() => {
     void api.projects().then(setProjects).catch(() => {})
   }, [])
+  const [warnings, setWarnings] = useState<{ level: string; message: string; goto?: string }[]>([])
+  useEffect(() => {
+    void api.pipelineStatus().then((r) => setWarnings(r.warnings)).catch(() => {})
+  }, [view])
 
   const onEveCreate = () => setCreateOpen(true)
   useEffect(() => {
@@ -148,6 +152,13 @@ export function App() {
           </button>
         </header>
 
+        {warnings.map((w, i) => (
+          <div key={i} className="warnbar">
+            <span className="wi">⚠</span>
+            <span><b>{w.level === 'danger' ? 'Конвейер приостановлен' : 'Предупреждение'}</b> — {w.message}</span>
+            {w.goto && <button className="btn small" onClick={() => navigate(w.goto!)}>Перейти в настройки</button>}
+          </div>
+        ))}
         {view !== 'settings' && !isTaskPage && filters}
         {(view === 'board' || (view === 'task' && !isTaskPage)) && (
           <Board tasks={tasks} reload={reload} />

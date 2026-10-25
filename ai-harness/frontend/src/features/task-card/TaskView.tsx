@@ -78,6 +78,8 @@ function TaskBody({ code }: { code: string }) {
   const [titleDraft, setTitleDraft] = useState('')
   const [forceTo, setForceTo] = useState('')
   const [forceReason, setForceReason] = useState('')
+  const [tagsEditing, setTagsEditing] = useState(false)
+  const [tagsDraft, setTagsDraft] = useState<string[]>([])
 
   const reload = () => {
     void api.task(code).then((c) => { setCard(c); setDescDraft(c.descriptionMd ?? ''); setTitleDraft(c.title) })
@@ -168,9 +170,15 @@ function TaskBody({ code }: { code: string }) {
           <span className="meta-item" dangerouslySetInnerHTML={{ __html: typeChip(card.type) }} />
           {card.agent && <span className="meta-item"><span className="dot pulse" style={{ background: '#7d4fd1' }} /> в работе у {card.agent.name}</span>}
         </div>
-        <div className="card-tags mt8">{(card.tags ?? []).map((t) => (
-          <span key={t} dangerouslySetInnerHTML={{ __html: tagHtml(t) }} />
-        ))}</div>
+        <div className="card-tags mt8">
+          {(card.tags ?? []).map((t) => <span key={t} dangerouslySetInnerHTML={{ __html: tagHtml(t) }} />)}
+          {!tagsEditing && (
+            <button className="pencil show" title="Редактировать теги"
+              dangerouslySetInnerHTML={{ __html: PENCIL }} onClick={() => { setTagsDraft([...(card.tags ?? [])]); setTagsEditing(true) }} />
+          )}
+        </div>
+        {tagsEditing && <TagsEditor code={code} draft={tagsDraft} setDraft={setTagsDraft}
+          onDone={() => { setTagsEditing(false); reload() }} />}
       </div>
 
       {card.statusKey === 'pending' && (
@@ -260,11 +268,29 @@ function TaskBody({ code }: { code: string }) {
         )}
       </div>
 
+      {(card.relations?.length ?? 0) > 0 && (
+        <div className="blk">
+          <div className="blk-h"><h3>Связанные задачи</h3></div>
+          {(card.relations ?? []).map((r) => (
+            <div key={r.code} className="rel" onClick={() => { window.location.hash = `#${r.code}` }}>
+              <span className="code">{r.code}</span>
+              <span className="rt">{r.title}</span>
+              <span className={`linkchip ${r.kind === 'blocked_by' ? 'hard' : ''}`}>{r.kind}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {typeVisible.developer && <ChecklistBlock code={code} kind="developer" title="Smart чек-лист разработчика" />}
       {typeVisible.reviewer && <ChecklistBlock code={code} kind="reviewer" title="Чек-лист ревьюера" />}
       {typeVisible.tester && <ChecklistBlock code={code} kind="tester" title="Чек-лист тестировщика" />}
 
       {card.type === 'story' && <PsiBlock code={code} reload={reload} />}
+
+      {typeVisible.reviewer && <ArtifactBlock code={code} kind="review_report" title="Отчёт о ревью" />}
+      {typeVisible.tester && card.type !== 'story' && <ArtifactBlock code={code} kind="qa_report" title="Отчёт о тестировании" />}
+
+      <CommentsBlock code={code} />
 
       <div className="blk">
         <div className="blk-h"><h3>Хроники</h3></div>
@@ -455,3 +481,88 @@ function PsiBlock({ code, reload }: { code: string; reload: () => void }) {
 }
 
 export { TYPE, esc }
+
+
+function TagsEditor({ code, draft, setDraft, onDone }: {
+  code: string; draft: string[]; setDraft: (d: string[]) => void; onDone: () => void
+}) {
+  const [input, setInput] = useState('')
+  return (
+    <div className="tags-edit">
+      {draft.map((t) => {
+        const sys = t === 'by_human' || t === 'by_ai'
+        return (
+          <span key={t} className="tagx">#{t}
+            <button title={sys ? 'Авторский тег удалить нельзя' : 'Убрать тег'} disabled={sys}
+              onClick={() => setDraft(draft.filter((x) => x !== t))}>✕</button>
+          </span>
+        )
+      })}
+      <span className="tag-input-wrap">
+        <input value={input} placeholder="новый тег…"
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && input.trim()) {
+              const label = input.trim().replace(/^#/, '')
+              if (!draft.includes(label) && draft.length < 5) setDraft([...draft, label])
+              setInput('')
+            }
+          }} />
+      </span>
+      <button className="btn small" onClick={async () => {
+        await api.patchTags(code, draft); onDone()
+      }}>Сохранить</button>
+      <button className="btn small" onClick={onDone}>Отмена</button>
+    </div>
+  )
+}
+
+function ArtifactBlock({ code, kind, title }: { code: string; kind: string; title: string }) {
+  const [versions, setVersions] = useState<{ version: number; bodyMd: string; at: string }[]>([])
+  const [body, setBody] = useState('')
+  const reload = () => { void api.artifact(code, kind).then((d) => setVersions(d.versions ?? [])) }
+  useEffect(reload, [code, kind])
+  return (
+    <div className="blk">
+      <div className="blk-h"><h3>{title}</h3><span className="progr">{versions.length ? `v${versions[versions.length - 1].version}` : 'нет'}</span></div>
+      {versions.map((v) => (
+        <details key={v.version} className="tech">
+          <summary>Версия v{v.version} · {v.at.slice(0, 16).replace('T', ' ')}</summary>
+          <pre>{v.bodyMd}</pre>
+        </details>
+      ))}
+      <textarea className="psi-fact" rows={3} placeholder="Новый отчёт (markdown)…"
+        value={body} onChange={(e) => setBody(e.target.value)} />
+      <button className="btn small mt8" disabled={!body.trim()} onClick={async () => {
+        await api.addArtifact(code, kind, body); setBody(''); reload()
+      }}>Добавить отчёт</button>
+    </div>
+  )
+}
+
+function CommentsBlock({ code }: { code: string }) {
+  const [items, setItems] = useState<{ id: string; author: string; body: string; at: string }[]>([])
+  const [body, setBody] = useState('')
+  const reload = () => { void api.comments(code).then((d) => setItems(d.items ?? [])) }
+  useEffect(reload, [code])
+  return (
+    <div className="blk">
+      <div className="blk-h"><h3>Комментарии</h3></div>
+      {items.map((c) => (
+        <div key={c.id} className="cmt">
+          <span className="ava">{c.author.slice(0, 1)}</span>
+          <div className="b"><div className="h"><b>{c.author}</b> · {c.at.slice(0, 16).replace('T', ' ')}</div>
+            <div className="tx">{c.body}</div></div>
+        </div>
+      ))}
+      <div className="cmt-add">
+        <input placeholder="Комментарий…" value={body} onChange={(e) => setBody(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && body.trim()) {
+              void api.addComment(code, body).then(() => { setBody(''); reload() })
+            }
+          }} />
+      </div>
+    </div>
+  )
+}

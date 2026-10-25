@@ -208,6 +208,17 @@ function FlowEditor({ reload }: { reload: () => void }) {
           <span className="mini-chip mc-accent">версия v{data.version}{data.isPublished ? '' : ' · черновик'}</span>
           <span className="sp" />
           <button className="btn small" disabled={!dirty} onClick={() => void saveDraft()}>Сохранить черновик</button>
+          <button className="btn small" onClick={async () => {
+            await fetch(`/api/v1/flows/${typeKey}/draft`, { method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ statuses: data.statuses.map((s) => ({ key: s.key, label: s.label,
+                gate: s.gate, entry: s.entry, terminal: s.terminal, alias_column_id: s.aliasColumnId })),
+                transitions: data.transitions.map((t) => ({ from: t.from, to: t.to, runner: t.runner, display: t.display })) }) })
+            const r = await api.validateFlow(typeKey)
+            setNote({ text: r.ok ? 'Валидация пройдена'
+                : 'Ошибки: ' + r.errors.join('; ') + (r.warnings.length ? ' · предупреждения: ' + r.warnings.join('; ') : ''),
+              bad: !r.ok })
+          }}>Проверить</button>
           <button className="btn primary small" onClick={() => void doPublish()}>Опубликовать</button>
           <button className="btn small" onClick={async () => {
             const r = await fetch(`/api/v1/flows/${typeKey}/reset`, { method: 'POST' })

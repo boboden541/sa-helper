@@ -83,7 +83,54 @@ async def save_draft(type_key: str, payload: DraftIn,
     return {"version": draft.version, "isPublished": draft.is_published}
 
 
-@router.post("/flows/{type_key}/publish")
+@router.get("/flows/{type_key}/validate")
+async def flow_validate(type_key: str, session: AsyncSession = Depends(get_session),
+                        actor: User = Depends(get_actor)):
+    """Предварительная валидация рабочей копии без публикации (publish-panel, AC 3.7)."""
+    import sqlalchemy as sa
+
+    from domain.flowvalidation.validator import FlowDraft, validate_draft
+    from repository.models import FlowStatus, FlowTransition
+
+    draft = await flow_uc.get_draft(session, type_key)
+    statuses = (await session.execute(
+        sa.select(FlowStatus).where(FlowStatus.flow_version_id == draft.id))).scalars().all()
+    transitions = (await session.execute(
+        sa.select(FlowTransition).where(FlowTransition.flow_version_id == draft.id))).scalars().all()
+    result = validate_draft(FlowDraft(
+        statuses=[{"key": s.status_key, "label": s.label, "alias": "x",
+                   "is_entry": s.is_entry, "is_terminal": s.is_terminal} for s in statuses],
+        transitions=[{"from": t.from_status, "to": t.to_status, "runner": t.runner,
+                      "display": t.display} for t in transitions]))
+    return {"errors": result.errors, "warnings": result.warnings, "ok": result.ok}
+
+
+@router.get("/pipeline-status")
+async def pipeline_status(session: AsyncSession = Depends(get_session),
+                          actor: User = Depends(get_actor)):
+    """Глобальные предупреждения конвейера (warnbar, ФТ-ah-35/49/70)."""
+    import os
+
+    warnings: list[dict] = []
+    no_active = (await session.execute(sa.text(
+        "SELECT count(*) FROM connection WHERE is_active"))).scalar_one()
+    if not no_active:
+        warnings.append({"level": "warn",
+                         "message": "ИИ-провайдер не подключён: агенты конвейера не запустятся",
+                         "goto": "#settings/providers"})
+    broken = (await session.execute(sa.text(
+        "SELECT mnemonic FROM project WHERE is_archived = false"))).scalars().all()
+    for mnemonic in broken:
+        row = (await session.execute(sa.text(
+            "SELECT path FROM project WHERE mnemonic = :m"), {"m": mnemonic})).scalar_one_or_none()
+        if row and not (os.path.isdir(row) and os.access(row, os.W_OK)):
+            warnings.append({"level": "danger",
+                             "message": f"Путь проекта {mnemonic} недоступен: конвейер приостановлен",
+                             "goto": "#settings/projects"})
+    return {"warnings": warnings}
+
+
+# ---------- провайдеры ----------
 async def publish_flow(type_key: str, payload: PublishIn | None = None,
                        session: AsyncSession = Depends(get_session),
                        actor: User = Depends(get_actor)):

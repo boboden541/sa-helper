@@ -51,28 +51,36 @@ Call log:
         - generic [ref=e33]: поиск
       - generic "Активное подключение к ИИ-провайдеру" [ref=e34]: Подключение не настроено
       - group [ref=e36]:
-        - generic "Уведомления" [ref=e37]: "15"
+        - generic "Уведомления" [ref=e37]: "16"
       - button "Переключить тему" [ref=e41] [cursor=pointer]: ☾
     - generic [ref=e42]:
-      - tablist [ref=e43]:
-        - button "Status-flow" [ref=e44] [cursor=pointer]
-        - button "Проекты" [ref=e45] [cursor=pointer]
-        - button "ИИ-провайдеры" [ref=e46] [cursor=pointer]
-        - button "Агенты и матрица" [ref=e47] [cursor=pointer]
-        - button "Очередь автомата" [ref=e48] [cursor=pointer]
-        - button "Журнал настроек" [ref=e49] [cursor=pointer]
-      - generic [ref=e52]:
-        - generic [ref=e53]:
-          - generic [ref=e54]: Подключения
-          - generic [ref=e55]: Подключений пока нет
-        - generic [ref=e56]:
-          - generic [ref=e57]: Новое подключение
-          - generic [ref=e58]:
-            - generic [ref=e59]: Название
-            - textbox [ref=e60]
-          - generic [ref=e61]:
-            - generic [ref=e62]: Пресет провайдера — подставит адрес, поле остаётся редактируемым
-            - combobox [ref=e63]:
+      - generic [ref=e43]: ⚠
+      - generic [ref=e44]: "Предупреждение — ИИ-провайдер не подключён: агенты конвейера не запустятся"
+      - button "Перейти в настройки" [ref=e45] [cursor=pointer]
+    - generic [ref=e46]:
+      - generic [ref=e47]: ⚠
+      - generic [ref=e48]: "Конвейер приостановлен — Путь проекта AH недоступен: конвейер приостановлен"
+      - button "Перейти в настройки" [ref=e49] [cursor=pointer]
+    - generic [ref=e50]:
+      - tablist [ref=e51]:
+        - button "Status-flow" [ref=e52] [cursor=pointer]
+        - button "Проекты" [ref=e53] [cursor=pointer]
+        - button "ИИ-провайдеры" [ref=e54] [cursor=pointer]
+        - button "Агенты и матрица" [ref=e55] [cursor=pointer]
+        - button "Очередь автомата" [ref=e56] [cursor=pointer]
+        - button "Журнал настроек" [ref=e57] [cursor=pointer]
+      - generic [ref=e60]:
+        - generic [ref=e61]:
+          - generic [ref=e62]: Подключения
+          - generic [ref=e63]: Подключений пока нет
+        - generic [ref=e64]:
+          - generic [ref=e65]: Новое подключение
+          - generic [ref=e66]:
+            - generic [ref=e67]: Название
+            - textbox [ref=e68]
+          - generic [ref=e69]:
+            - generic [ref=e70]: Пресет провайдера — подставит адрес, поле остаётся редактируемым
+            - combobox [ref=e71]:
               - option "— выбрать пресет —" [selected]
               - option "Anthropic"
               - option "Groq"
@@ -80,25 +88,25 @@ Call log:
               - option "OpenAI"
               - option "OpenRouter"
               - option "vLLM (локальный)"
-          - generic [ref=e64]:
-            - generic [ref=e65]: Протокол
-            - combobox [ref=e66]:
+          - generic [ref=e72]:
+            - generic [ref=e73]: Протокол
+            - combobox [ref=e74]:
               - option "Anthropic" [selected]
               - option "OpenAI-совместимый"
-          - generic [ref=e67]:
-            - generic [ref=e68]: URL
-            - textbox [ref=e69]
-          - generic [ref=e70]:
-            - generic [ref=e71]: Модель
-            - textbox [ref=e72]
-          - generic [ref=e73]:
-            - generic [ref=e74]: API-токен
-            - textbox [ref=e75]
-          - generic [ref=e76]:
-            - button "Проверить" [ref=e77] [cursor=pointer]
-            - button "Сохранить" [ref=e78] [cursor=pointer]
-  - button "E Eve · помощник" [ref=e79] [cursor=pointer]:
-    - generic [ref=e80]: E
+          - generic [ref=e75]:
+            - generic [ref=e76]: URL
+            - textbox [ref=e77]
+          - generic [ref=e78]:
+            - generic [ref=e79]: Модель
+            - textbox [ref=e80]
+          - generic [ref=e81]:
+            - generic [ref=e82]: API-токен
+            - textbox [ref=e83]
+          - generic [ref=e84]:
+            - button "Проверить" [ref=e85] [cursor=pointer]
+            - button "Сохранить" [ref=e86] [cursor=pointer]
+  - button "E Eve · помощник" [ref=e87] [cursor=pointer]:
+    - generic [ref=e88]: E
     - text: Eve · помощник
   - region "Чат с Eve":
     - generic:

@@ -56,6 +56,36 @@ async def patch_task(
             task.priority = fields["priority"]
             events.append("приоритет изменён")
 
+    if "tags" in fields and fields["tags"] is not None:
+        from domain.model.enums import AUTHOR_TAGS
+        from domain.model.validators import validate_tags
+        from repository.models import Tag, TaskTag
+
+        labels = validate_tags("by_human", fields["tags"])  # авторский гарантируется
+        if "by_ai" in fields["tags"]:
+            labels = [l for l in labels if l != "by_human"] + ["by_ai"]
+        current = (await session.execute(
+            sa.select(Tag.label).join(TaskTag, TaskTag.tag_id == Tag.id)
+            .where(TaskTag.task_id == task.id))).scalars().all()
+        if set(labels) != set(current):
+            await session.execute(sa.delete(TaskTag).where(TaskTag.task_id == task.id))
+            for label in labels:
+                tag = (await session.execute(sa.select(Tag).where(Tag.label == label))).scalar_one_or_none()
+                if tag is None:
+                    tag = Tag(label=label, is_author=label in AUTHOR_TAGS)
+                    session.add(tag)
+                    await session.flush()
+                session.add(TaskTag(task_id=task.id, tag_id=tag.id))
+            events.append("теги изменены")
+            # осиротевшие теги удаляются (ФТ-ah-6)
+            for label in set(current) - set(labels):
+                orphans = (await session.execute(
+                    sa.select(sa.func.count()).select_from(TaskTag)
+                    .join(Tag, Tag.id == TaskTag.tag_id)
+                    .where(Tag.label == label))).scalar_one()
+                if orphans == 0:
+                    await session.execute(sa.delete(Tag).where(Tag.label == label))
+
     if events:
         task.updated_at = datetime.now(task.updated_at.tzinfo) if task.updated_at.tzinfo else datetime.now()
         for message in events:

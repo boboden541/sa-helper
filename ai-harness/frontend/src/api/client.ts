@@ -12,6 +12,7 @@ export interface TaskCard {
   gate?: { allowed: string[]; denied: { to: string; reason: string }[] }
   descriptionMd?: string
   changedByOther?: boolean
+  relations?: { kind: string; code: string; title: string }[]
   blockedReason?: string | null
   createdAt?: string
   updatedAt?: string
@@ -85,6 +86,20 @@ export const api = {
   psiRun: (code: string, results: { position: number; passed: boolean; actual: string }[]) =>
     request<{ passed: number; failed: number; bugProposals: { position: number; action: string; expected: string; actual: string }[] }>(
       `/api/v1/stories/${code}/psi/runs`, { method: 'POST', body: JSON.stringify({ results }) }),
+  comments: (code: string) =>
+    request<{ items: { id: string; author: string; body: string; at: string }[] }>(`/api/v1/tasks/${code}/comments`),
+  addComment: (code: string, body: string) =>
+    request<{ id: string }>(`/api/v1/tasks/${code}/comments`, { method: 'POST', body: JSON.stringify({ body }) }),
+  artifact: (code: string, kind: string) =>
+    request<{ versions: { version: number; bodyMd: string; at: string }[] }>(`/api/v1/tasks/${code}/artifacts/${kind}`),
+  addArtifact: (code: string, kind: string, bodyMd: string) =>
+    request<{ version: number }>(`/api/v1/tasks/${code}/artifacts/${kind}`, { method: 'POST', body: JSON.stringify({ bodyMd }) }),
+  patchTags: (code: string, tags: string[]) =>
+    request<TaskCard>(`/api/v1/tasks/${code}`, { method: 'PATCH', body: JSON.stringify({ tags }) }),
+  validateFlow: (typeKey: string) =>
+    request<{ errors: string[]; warnings: string[]; ok: boolean }>(`/api/v1/flows/${typeKey}/validate`),
+  pipelineStatus: () =>
+    request<{ warnings: { level: string; message: string; goto?: string }[] }>('/api/v1/pipeline-status'),
   eve: (text: string, screenTaskCode?: string) =>
     request<{ reply?: string; action?: string; intent?: { kind: string; task: string; to: string } }>(
       '/api/v1/assistant/messages', { method: 'POST', body: JSON.stringify({ text, screenTaskCode }) }),

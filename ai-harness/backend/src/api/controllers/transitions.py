@@ -101,6 +101,7 @@ class TaskCardOut(BaseModel):
     createdAt: str
     updatedAt: str
     blockedReason: str | None = None
+    relations: list[dict] = []
     model_config = ConfigDict(populate_by_name=True)
 
 
@@ -134,6 +135,14 @@ async def card_view(code: str,
         sa.select(Tag.label).join(TaskTag, TaskTag.tag_id == Tag.id)
         .where(TaskTag.task_id == task.id)
     )).scalars().all()
+
+    from repository.models import TaskRelation
+
+    relations = (await session.execute(
+        sa.select(TaskRelation.kind, Task.code, Task.title)
+        .join(Task, Task.id == TaskRelation.to_task)
+        .where(TaskRelation.from_task == task.id))).all()
+    rel_out = [{"kind": k, "code": rc, "title": rt} for k, rc, rt in relations]
     story_code = None
     if task.story_id:
         story_code = (await session.execute(
@@ -150,5 +159,5 @@ async def card_view(code: str,
                     for to, d in decisions.items() if not d.allowed],
         ),
         createdAt=task.created_at.isoformat(), updatedAt=task.updated_at.isoformat(),
-        blockedReason=task.blocked_reason,
+        blockedReason=task.blocked_reason, relations=rel_out,
     )

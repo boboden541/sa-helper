@@ -23,6 +23,7 @@ class TaskPatchIn(BaseModel):
     title: str | None = None
     description_md: str | None = Field(default=None, alias="descriptionMd")
     priority: str | None = None
+    tags: list[str] | None = None
     if_updated_at: datetime | None = Field(default=None, alias="ifUpdatedAt")
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 

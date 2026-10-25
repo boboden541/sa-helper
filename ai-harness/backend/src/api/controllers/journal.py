@@ -239,3 +239,99 @@ async def checklist_put(code: str, kind: str, payload: ChecklistPutIn,
                           message=f"Чеклист {kind} обновлён ({position} строк)"))
     await session.commit()
     return {"ok": True, "lines": position}
+
+
+# ---------- Комментарии (ФТ-ah-11) ----------
+
+@router.get("/tasks/{code}/comments")
+async def comments_get(code: str, session: AsyncSession = Depends(get_session),
+                       actor: User = Depends(get_actor)):
+    import sqlalchemy as sa
+
+    from repository.models import Task, TaskComment
+
+    task = (await session.execute(sa.select(Task).where(Task.code == code.upper()))).scalar_one_or_none()
+    if task is None:
+        raise ApiError(404, f"Задача {code} не найдена")
+    rows = (await session.execute(
+        sa.select(TaskComment, User.name).join(User, User.id == TaskComment.author_id)
+        .where(TaskComment.task_id == task.id)
+        .order_by(TaskComment.created_at))).all()
+    return [{"id": str(c.id), "author": name, "body": c.body,
+             "at": c.created_at.isoformat()} for c, name in rows]
+
+
+class CommentIn(BaseModel):
+    body: str
+    model_config = ConfigDict(extra="forbid")
+
+
+@router.post("/tasks/{code}/comments")
+async def comments_add(code: str, payload: CommentIn,
+                       session: AsyncSession = Depends(get_session),
+                       actor: User = Depends(get_actor)):
+    import sqlalchemy as sa
+
+    from repository.models import Task, TaskComment
+
+    if not payload.body.strip():
+        raise ApiError(400, "Комментарий пуст")
+    task = (await session.execute(sa.select(Task).where(Task.code == code.upper()))).scalar_one_or_none()
+    if task is None:
+        raise ApiError(404, f"Задача {code} не найдена")
+    c = TaskComment(task_id=task.id, author_id=actor.id, body=payload.body.strip())
+    session.add(c)
+    await session.commit()
+    return {"id": str(c.id)}
+
+
+# ---------- Артефакты этапов (ФТ-ah-38): отчёты с версиями ----------
+
+@router.get("/tasks/{code}/artifacts/{kind}")
+async def artifact_get(code: str, kind: str,
+                       session: AsyncSession = Depends(get_session),
+                       actor: User = Depends(get_actor)):
+    import sqlalchemy as sa
+
+    from repository.models import Task, TaskArtifact
+
+    if kind not in ("dev_report", "review_report", "qa_report"):
+        raise ApiError(400, "Неизвестный вид артефакта")
+    task = (await session.execute(sa.select(Task).where(Task.code == code.upper()))).scalar_one_or_none()
+    if task is None:
+        raise ApiError(404, f"Задача {code} не найдена")
+    rows = (await session.execute(
+        sa.select(TaskArtifact).where(TaskArtifact.task_id == task.id, TaskArtifact.kind == kind)
+        .order_by(TaskArtifact.version))).scalars().all()
+    return {"versions": [{"version": r.version, "bodyMd": r.body_md,
+                           "at": r.created_at.isoformat()} for r in rows]}
+
+
+class ArtifactIn(BaseModel):
+    body_md: str = Field(alias="bodyMd")
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+
+@router.post("/tasks/{code}/artifacts/{kind}")
+async def artifact_add(code: str, kind: str, payload: ArtifactIn,
+                       session: AsyncSession = Depends(get_session),
+                       actor: User = Depends(get_actor)):
+    import sqlalchemy as sa
+
+    from repository.models import Task, TaskArtifact
+
+    if kind not in ("dev_report", "review_report", "qa_report"):
+        raise ApiError(400, "Неизвестный вид артефакта")
+    task = (await session.execute(sa.select(Task).where(Task.code == code.upper()))).scalar_one_or_none()
+    if task is None:
+        raise ApiError(404, f"Задача {code} не найдена")
+    version = (await session.execute(
+        sa.select(sa.func.coalesce(sa.func.max(TaskArtifact.version), 0))
+        .where(TaskArtifact.task_id == task.id, TaskArtifact.kind == kind))).scalar_one() + 1
+    session.add(TaskArtifact(task_id=task.id, kind=kind, version=version,
+                             body_md=payload.body_md, created_by=actor.id))
+    session.add(Chronicle(task_id=task.id, event_type="field", author_id=actor.id,
+                          author_kind="agent" if actor.user_type == "agent" else "human",
+                          message=f"Артефакт {kind} v{version} добавлен"))
+    await session.commit()
+    return {"version": version}
