@@ -77,6 +77,8 @@ export function App() {
           onClick={() => setTypeFilter(key)}>{label}</button>
       ))}
       <span className="cnt">{tasks.length} задач</span>
+      <button className="chip-f" style={{ marginLeft: 'auto', color: 'var(--accent-text)', borderColor: 'var(--accent)' }}
+        onClick={() => setCreateOpen(true)}>＋ Задача</button>
     </div>
   )
 

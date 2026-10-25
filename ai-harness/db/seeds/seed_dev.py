@@ -92,6 +92,22 @@ async def seed() -> None:
             session.add(User(name="Eve", user_type="agent", is_chat_bot=True))
         await session.commit()
 
+        # Пресеты провайдеров (ФТ-ah-59; как PROV_PRESETS макета)
+        from repository.models import ProviderPreset
+
+        PROVIDER_PRESETS = [
+            ("Anthropic", "anthropic", "https://api.anthropic.com"),
+            ("OpenAI", "openai", "https://api.openai.com/v1"),
+            ("OpenRouter", "openai", "https://openrouter.ai/api/v1"),
+            ("Groq", "openai", "https://api.groq.com/openai/v1"),
+            ("vLLM (локальный)", "openai", "http://localhost:8000/v1"),
+            ("Ollama", "openai", "http://localhost:11434/v1"),
+        ]
+        for name, proto, url in PROVIDER_PRESETS:
+            if await _one(session, ProviderPreset, name=name) is None:
+                session.add(ProviderPreset(name=name, protocol=proto, base_url=url))
+        await session.commit()
+
         # Настройки автомата по умолчанию (ФТ-ah-33…36, ФТ-ah-44)
         defaults = {
             "daemon.tick_seconds": "30",

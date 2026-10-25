@@ -580,10 +580,14 @@ function Projects() {
 
 function Providers() {
   const [list, setList] = useState<{ id: string; name: string; protocol: string; url: string; model: string; tokenTail: string; checkStatus: string; isActive: boolean }[]>([])
+  const [presets, setPresets] = useState<{ name: string; protocol: string; baseUrl: string }[]>([])
   const [form, setForm] = useState({ name: '', protocol: 'anthropic', url: '', model: '', token: '' })
   const [message, setMessage] = useState<{ text: string; bad: boolean } | null>(null)
   const reload = () => void api.requestProviders().then(setList)
   useEffect(reload, [])
+  useEffect(() => {
+    void fetch('/api/v1/provider-presets').then((r) => r.json()).then(setPresets)
+  }, [])
 
   return (
     <div className="set-body">
@@ -610,6 +614,14 @@ function Providers() {
           <div className="q-sec">Новое подключение</div>
           <div className="f-field"><label>Название</label>
             <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
+          <div className="f-field"><label>Пресет провайдера — подставит адрес, поле остаётся редактируемым</label>
+            <select value="" onChange={(e) => {
+              const pr = presets.find((x) => x.name === e.target.value)
+              if (pr) setForm({ ...form, protocol: pr.protocol, url: pr.baseUrl })
+            }}>
+              <option value="">— выбрать пресет —</option>
+              {presets.map((pr) => <option key={pr.name} value={pr.name}>{pr.name}</option>)}
+            </select></div>
           <div className="f-field"><label>Протокол</label>
             <select value={form.protocol} onChange={(e) => setForm({ ...form, protocol: e.target.value })}>
               <option value="anthropic">Anthropic</option>
@@ -788,13 +800,8 @@ function Matrix({ agentsAndUsers }: { agentsAndUsers: { id: string; name: string
                           onClick={() => void setEntries(s.key, entries.filter((x) => x.userId !== e.userId))}>✕</button>
                       </span>
                     ))}
-                    <select value="" onChange={(e) => {
-                      if (e.target.value) void setEntries(s.key, [...entries, { userId: e.target.value, mode }])
-                    }}>
-                      <option value="">＋ назначить…</option>
-                      {agentsAndUsers.filter((p) => !entries.some((e) => e.userId === p.id))
-                        .map((p) => <option key={p.id} value={p.id}>{p.name} ({p.userType === 'agent' ? 'агент' : 'человек'})</option>)}
-                    </select>
+                    <AgCellPopover statusKey={s.key} people={agentsAndUsers} entries={entries}
+                      defaultMode={mode} onApply={(next) => void setEntries(s.key, next)} />
                   </div>
                 </td>
                 <td>
@@ -952,5 +959,44 @@ function TypeWizard({ onClose, onCreated }: { onClose: () => void; onCreated: (k
       </div>
       <div className="muted mt8">Автомат подхватит новый тип сам: сборка flow из пресета, задачи — в alias-колонках.</div>
     </div>
+  )
+}
+
+
+function AgCellPopover({ statusKey, people, entries, defaultMode, onApply }: {
+  statusKey: string
+  people: { id: string; name: string; userType: string }[]
+  entries: { userId: string; name: string; mode: string }[]
+  defaultMode: string
+  onApply: (entries: { userId: string; mode: string }[]) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [picked, setPicked] = useState<Record<string, boolean>>(
+    Object.fromEntries(entries.map((e) => [e.userId, true])))
+
+  return (
+    <span style={{ position: 'relative' }}>
+      <button className="btn small" onClick={() => setOpen(!open)}>＋ назначить</button>
+      {open && (
+        <div className="ag-pop" onClick={(e) => e.stopPropagation()}>
+          {people.map((p) => (
+            <label key={p.id} className="f-check" style={{ display: 'flex' }}>
+              <input type="checkbox" checked={Boolean(picked[p.id])}
+                onChange={(e) => setPicked((prev) => ({ ...prev, [p.id]: e.target.checked }))} />
+              {p.name} <span className="muted">({p.userType === 'agent' ? 'агент' : 'человек'})</span>
+            </label>
+          ))}
+          <div className="edit-actions">
+            <button className="btn small primary" onClick={() => {
+              onApply(Object.entries(picked).filter(([, on]) => on)
+                .map(([userId], i) => ({ userId, mode: defaultMode })))
+              setOpen(false)
+            }}>Применить</button>
+            <button className="btn small" onClick={() => setOpen(false)}>Отмена</button>
+          </div>
+          <div className="muted" style={{ fontSize: 11 }}>Статус: {statusKey}</div>
+        </div>
+      )}
+    </span>
   )
 }

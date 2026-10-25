@@ -136,7 +136,30 @@ function TaskBody({ code }: { code: string }) {
         </div>
         <div className="meta-row">
           <span dangerouslySetInnerHTML={{ __html: stChip(card.statusKey) }} />
-          <span className="meta-item" dangerouslySetInnerHTML={{ __html: prioBadge(card.priority, true) }} />
+          <span className="pop">
+            <button className="meta-item" onClick={(e) => {
+              const menu = e.currentTarget.parentElement?.querySelector('.prio-menu') as HTMLElement
+              if (menu) menu.hidden = !menu.hidden
+            }} style={{ cursor: 'pointer' }}>
+              <span className="lbl">Приоритет</span>
+              <span dangerouslySetInnerHTML={{ __html: prioBadge(card.priority, true) }} />
+            </button>
+            <div className="prio-menu" hidden>
+              {(['low', 'medium', 'high', 'critical'] as const).map((p) => (
+                <button key={p} className={card.priority === p ? 'sel' : ''} onClick={async (e) => {
+                  e.stopPropagation()
+                  const menu = e.currentTarget.closest('.prio-menu') as HTMLElement
+                  menu.hidden = true
+                  await api.patchTask(code, { priority: p })
+                  toast(`Приоритет → ${p}`, 'ok')
+                  reload()
+                }}>
+                  <span dangerouslySetInnerHTML={{ __html: prioBadge(p, true) }} />
+                  {card.priority === p && <span className="d">✓</span>}
+                </button>
+              ))}
+            </div>
+          </span>
           {card.storyCode && (
             <span className="meta-item"><span className="lbl">История</span>
               <span className="story-link" onClick={() => { window.location.hash = `#${card.storyCode}` }}>

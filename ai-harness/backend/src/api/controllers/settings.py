@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sqlalchemy as sa
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -303,6 +305,14 @@ async def matrix_get(type_key: str, session: AsyncSession = Depends(get_session)
     return {"type": type_key, "matrix": matrix}
 
 
+@router.get("/provider-presets")
+async def provider_presets_list(session: AsyncSession = Depends(get_session),
+                                actor: User = Depends(get_actor)):
+    """Пресеты провайдеров: подставляют протокол и URL в форму (ФТ-ah-59)."""
+    presets = await conn_uc.list_presets(session)
+    return [{"name": p.name, "protocol": p.protocol, "baseUrl": p.base_url} for p in presets]
+
+
 # ---------- провайдеры ----------
 
 class ConnectionIn(BaseModel):
@@ -512,9 +522,11 @@ async def matrix_set(type_key: str, status_key: str, payload: MatrixIn,
     if type_id is None:
         raise ApiError(400, f"Тип {type_key} не найден")
     try:
-        await agents_uc.set_assignments(
-            session, type_id, status_key,
-            [{**e, "user_id": uuid_mod.UUID(e["userId"])} for e in payload.entries])
+        entries = [{**e, "user_id": uuid_mod.UUID(str(e["userId"]))} for e in payload.entries]
+    except (ValueError, KeyError):
+        raise ApiError(400, "Некорректный userId в назначениях")
+    try:
+        await agents_uc.set_assignments(session, type_id, status_key, entries)
     except DomainError as err:
         raise ApiError(400, err.message)
     return {"ok": True}
