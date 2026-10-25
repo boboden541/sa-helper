@@ -2,7 +2,10 @@
 // заголовки 1–5, начертания, списки, цитата, код, ссылки, изображения, таблицы.
 
 function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  return s
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    // конвенция подчёркнутого (ФТ-ah-5/14): <u>…</u> рендерится, остальной HTML — нет
+    .replace(/&lt;(\/?u)&gt;/g, '<$1>')
 }
 
 export function renderMarkdown(md: string): string {

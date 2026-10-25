@@ -1,0 +1,75 @@
+// WYSIWYG-редактор описания на TipTap: форматирование к выделению, заголовки 1–5
+// выпадающим списком, списки, цитата, ссылка, изображение, код, таблица (ФТ-ah-5, §14).
+
+import Image from '@tiptap/extension-image'
+import Link from '@tiptap/extension-link'
+import Table from '@tiptap/extension-table'
+import Underline from '@tiptap/extension-underline'
+import { EditorContent, useEditor } from '@tiptap/react'
+import StarterKit from '@tiptap/starter-kit'
+import { useEffect } from 'react'
+import { renderMarkdown } from '../markdown'
+import { htmlToMarkdown } from './serialize'
+
+export interface RichTextProps {
+  markdown: string
+  onChange: (markdown: string) => void
+}
+
+export function RichText({ markdown, onChange }: RichTextProps) {
+  const editor = useEditor({
+    extensions: [
+      StarterKit, Underline, Link, Image,
+      Table.configure({ resizable: false }),
+    ],
+    content: renderMarkdown(markdown),
+    onUpdate: ({ editor }) => onChange(htmlToMarkdown(editor.getHTML())),
+  })
+
+  useEffect(() => {
+    if (editor && markdown !== htmlToMarkdown(editor.getHTML())) {
+      editor.commands.setContent(renderMarkdown(markdown))
+    }
+  }, [markdown]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!editor) return null
+  const cmd = (fn: () => void) => () => { fn(); editor.view.focus() }
+
+  return (
+    <div className="rich">
+      <div className="rich-toolbar">
+        <button onClick={cmd(() => editor.chain().focus().toggleBold().run())}><b>Ж</b></button>
+        <button onClick={cmd(() => editor.chain().focus().toggleItalic().run())}><i>К</i></button>
+        <button onClick={cmd(() => editor.chain().focus().toggleUnderline().run())}><u>П</u></button>
+        <button onClick={cmd(() => editor.chain().focus().toggleStrike().run())}><s>З</s></button>
+        <select onChange={(e) => {
+          const level = Number(e.target.value)
+          if (level === 0) editor.chain().focus().setParagraph().run()
+          else editor.chain().focus().toggleHeading({ level: level as 1 | 2 | 3 | 4 | 5 }).run()
+        }} value={''} aria-label="Уровень заголовка">
+          <option value="" disabled>Заголовок…</option>
+          <option value="0">Обычный текст</option>
+          {[1, 2, 3, 4, 5].map((l) => <option key={l} value={l}>Заголовок {l}</option>)}
+        </select>
+        <button onClick={cmd(() => editor.chain().focus().toggleBulletList().run())}>•—</button>
+        <button onClick={cmd(() => editor.chain().focus().toggleOrderedList().run())}>1.</button>
+        <button onClick={cmd(() => editor.chain().focus().toggleBlockquote().run())}>❝</button>
+        <button onClick={cmd(() => editor.chain().focus().toggleCodeBlock().run())}>{ }</button>
+        <button onClick={cmd(() => {
+          const url = window.prompt('Адрес ссылки')
+          if (url) editor.chain().focus().setLink({ href: url }).run()
+        })}>🔗</button>
+        <button onClick={cmd(() => {
+          const src = window.prompt('Источник изображения')
+          if (src) editor.chain().focus().setImage({ src }).run()
+        })}>🖼</button>
+        <button onClick={cmd(() => editor.chain().focus().insertTable({ rows: 2, cols: 2, withHeaderRow: true }).run())}>⊞</button>
+        <button onClick={cmd(() => editor.chain().focus().addRowAfter().run())}>＋стр</button>
+        <button onClick={cmd(() => editor.chain().focus().deleteRow().run())}>－стр</button>
+        <button onClick={cmd(() => editor.chain().focus().addColumnAfter().run())}>＋стлб</button>
+        <button onClick={cmd(() => editor.chain().focus().deleteColumn().run())}>－стлб</button>
+      </div>
+      <EditorContent editor={editor} className="rich-content" />
+    </div>
+  )
+}

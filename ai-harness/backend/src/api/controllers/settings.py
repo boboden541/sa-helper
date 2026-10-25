@@ -144,6 +144,118 @@ async def alias_columns(session: AsyncSession = Depends(get_session),
              "position": c.position} for c in cols]
 
 
+class AliasColumnIn(BaseModel):
+    label: str
+    color: str | None = None
+    position: int | None = None
+    model_config = ConfigDict(extra="forbid")
+
+
+@router.post("/alias-columns")
+async def alias_columns_create(payload: AliasColumnIn,
+                               session: AsyncSession = Depends(get_session),
+                               actor: User = Depends(get_actor)):
+    """Создание alias-колонки (режим правки доски / редактор flow, ФТ-ah-66)."""
+    import sqlalchemy as sa
+
+    from repository.models import AliasColumn
+    from usecase.journal.settings_journal import record_and_commit
+
+    position = payload.position if payload.position is not None else (
+        (await session.execute(sa.select(sa.func.coalesce(sa.func.max(AliasColumn.position), 0)))
+         ).scalar_one() + 1)
+    col = AliasColumn(label=payload.label.strip()[:32],
+                      color=payload.color or "#888888", position=position)
+    session.add(col)
+    await record_and_commit(session, actor.id, "board",
+                            f"Создана колонка «{col.label}»",
+                            [{"field": "label", "old": None, "new": col.label}])
+    return {"id": str(col.id), "label": col.label, "color": col.color, "position": col.position}
+
+
+@router.patch("/alias-columns/{column_id}")
+async def alias_columns_update(column_id: str, payload: AliasColumnIn,
+                               session: AsyncSession = Depends(get_session),
+                               actor: User = Depends(get_actor)):
+    """Переименование/цвет/порядок колонки; изменения — в журнал настроек (ФТ-ah-66)."""
+    import uuid as uuid_mod
+
+    import sqlalchemy as sa
+
+    from repository.models import AliasColumn
+    from usecase.journal.settings_journal import record_and_commit
+
+    col = await session.get(AliasColumn, uuid_mod.UUID(column_id))
+    if col is None:
+        raise ApiError(404, "Колонка не найдена")
+    diff = []
+    if payload.label and payload.label != col.label:
+        diff.append({"field": "label", "old": col.label, "new": payload.label.strip()[:32]})
+        col.label = payload.label.strip()[:32]
+    if payload.color and payload.color != col.color:
+        diff.append({"field": "color", "old": col.color, "new": payload.color})
+        col.color = payload.color
+    if payload.position is not None and payload.position != col.position:
+        diff.append({"field": "position", "old": col.position, "new": payload.position})
+        col.position = payload.position
+    if diff:
+        await record_and_commit(session, actor.id, "board",
+                                f"Правка колонки «{col.label}»", diff)
+    return {"id": str(col.id), "label": col.label, "color": col.color, "position": col.position}
+
+
+@router.delete("/alias-columns/{column_id}")
+async def alias_columns_delete(column_id: str,
+                               session: AsyncSession = Depends(get_session),
+                               actor: User = Depends(get_actor)):
+    """Удаление запрещено, пока к колонке привязан хоть один статус (ФТ-ah-66)."""
+    import uuid as uuid_mod
+
+    import sqlalchemy as sa
+
+    from repository.models import AliasColumn, FlowStatus
+    from usecase.journal.settings_journal import record_and_commit
+
+    col = await session.get(AliasColumn, uuid_mod.UUID(column_id))
+    if col is None:
+        raise ApiError(404, "Колонка не найдена")
+    bound = (await session.execute(sa.select(sa.func.count()).select_from(FlowStatus)
+                                   .where(FlowStatus.alias_column_id == col.id))).scalar_one()
+    if bound:
+        raise ApiError(400, f"Колонка используется: к ней привязано {bound} статусов — сначала снимите привязки")
+    await session.delete(col)
+    await record_and_commit(session, actor.id, "board",
+                            f"Удалена колонка «{col.label}»",
+                            [{"field": "label", "old": col.label, "new": None}])
+    return {"ok": True}
+
+
+@router.get("/matrix/{type_key}")
+async def matrix_get(type_key: str, session: AsyncSession = Depends(get_session),
+                     actor: User = Depends(get_actor)):
+    """Матрица назначений: статусы актуальной версии flow → исполнители (ФТ-ah-63)."""
+    import sqlalchemy as sa
+
+    from repository.models import Assignment, TaskType, User
+
+    ttype = (await session.execute(
+        sa.select(TaskType).where(TaskType.key == type_key))).scalar_one_or_none()
+    if ttype is None:
+        raise ApiError(400, f"Тип {type_key} не найден")
+    rows = (await session.execute(
+        sa.select(Assignment.status_key, Assignment.user_id, Assignment.mode,
+                  Assignment.position, User.name, User.user_type)
+        .join(User, User.id == Assignment.user_id)
+        .where(Assignment.task_type_id == ttype.id)
+        .order_by(Assignment.status_key, Assignment.position))).all()
+    matrix: dict[str, list[dict]] = {}
+    for status_key, user_id, mode, position, name, user_type in rows:
+        matrix.setdefault(status_key, []).append({
+            "userId": str(user_id), "name": name, "userType": user_type,
+            "mode": mode, "position": position})
+    return {"type": type_key, "matrix": matrix}
+
+
 # ---------- провайдеры ----------
 
 class ConnectionIn(BaseModel):
@@ -325,6 +437,19 @@ async def matrix_set(type_key: str, status_key: str, payload: MatrixIn,
     except DomainError as err:
         raise ApiError(400, err.message)
     return {"ok": True}
+
+
+@router.get("/users")
+async def users_list(session: AsyncSession = Depends(get_session),
+                     actor: User = Depends(get_actor)):
+    """Единый список людей и агентов (ФТ-ah-72) — матрица назначений и адресаты."""
+    import sqlalchemy as sa
+
+    rows = (await session.execute(
+        sa.select(User).where(User.is_service.is_(False))
+        .order_by(User.user_type, User.name))).scalars().all()
+    return [{"id": str(u.id), "name": u.name, "userType": u.user_type,
+             "isChatBot": u.is_chat_bot} for u in rows]
 
 
 # ---------- проекты ----------

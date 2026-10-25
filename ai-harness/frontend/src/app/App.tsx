@@ -9,6 +9,7 @@ import { ListView } from '../features/task-list/ListView'
 import { Settings } from '../features/settings/Settings'
 import { TaskPage } from '../features/task-card/TaskPage'
 import { EveChat } from '../features/assistant/Eve'
+import { Login } from './Login'
 import { installUndoHotkey, lastUndoLabel, subscribeUndo, undoLast } from '../shared/undo'
 import { useApp } from './store'
 
@@ -21,6 +22,7 @@ export function App() {
   const [createOpen, setCreateOpen] = useState(false)
   const [undoLabel, setUndoLabel] = useState<string | null>(null)
   const [projects, setProjects] = useState<{ mnemonic: string; name: string }[]>([])
+  const [needLogin, setNeedLogin] = useState(false)
 
   useEffect(() => {
     applyHash(window.location.hash)
@@ -35,11 +37,21 @@ export function App() {
   const reload = () => {
     void api.tasks({ q: query || undefined, project: useApp.getState().project ?? undefined })
       .then((r) => setTasks(r.items))
+      .catch((err: Error & { status?: number }) => {
+        if (err.status === 401) setNeedLogin(true)
+      })
     void api.notifications().then((r) => setNotifications(r.items))
+      .catch((err: Error & { status?: number }) => {
+        if (err.status === 401) setNeedLogin(true)
+      })
   }
 
   useEffect(reload, [query, view])
   useEffect(() => { void api.projects().then((ps) => setProjects(ps.filter((p) => !p.isArchived))) }, [])
+
+  if (needLogin) {
+    return <Login onDone={() => { setNeedLogin(false); reload() }} />
+  }
 
   return (
     <div className="app">

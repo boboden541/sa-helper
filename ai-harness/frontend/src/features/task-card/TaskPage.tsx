@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react'
 import { api, type TaskCard } from '../../api/client'
 import { renderMarkdown } from '../../shared/markdown'
+import { RichText } from '../../shared/editor/RichText'
 import { ChecklistBlock } from './Checklist'
 
 export function TaskPage() {
@@ -59,7 +60,7 @@ export function TaskPage() {
         {editing && mode === 'md'
           ? <textarea className="desc-edit" value={descDraft} onChange={(e) => setDescDraft(e.target.value)} rows={8} />
           : editing
-            ? <textarea className="desc-edit" value={descDraft} onChange={(e) => setDescDraft(e.target.value)} rows={8} placeholder="Визуальный редактор (TipTap) подключается здесь" />
+            ? <RichText markdown={descDraft} onChange={setDescDraft} />
             : <div className="desc" dangerouslySetInnerHTML={{ __html: renderMarkdown(card.descriptionMd ?? '') }} />}
       </section>
 

@@ -10,7 +10,7 @@ import '@xyflow/react/dist/style.css'
 import { api } from '../../api/client'
 import { pushUndo } from '../../shared/undo'
 
-const TABS = ['flow', 'providers', 'agents', 'projects', 'queue', 'journal'] as const
+const TABS = ['flow', 'providers', 'agents', 'matrix', 'projects', 'queue', 'journal'] as const
 
 export function Settings({ reload }: { reload: () => void }) {
   const tab = useSettingsTab()
@@ -22,6 +22,7 @@ export function Settings({ reload }: { reload: () => void }) {
       {tab === 'flow' && <FlowEditor reload={reload} />}
       {tab === 'providers' && <Providers />}
       {tab === 'agents' && <Agents />}
+      {tab === 'matrix' && <Matrix />}
       {tab === 'projects' && <Projects />}
       {tab === 'queue' && <Queue />}
       {tab === 'journal' && <Journal />}
@@ -259,6 +260,83 @@ function Journal() {
     <div className="journal">
       {rows.map((r, i) => <div key={i} className="chron-row"><b>{r.who}</b> · {r.entity} · {r.summary} · <small>{r.at}</small></div>)}
       {rows.length === 0 && <div className="empty">Журнал пуст</div>}
+    </div>
+  )
+}
+
+
+function Matrix() {
+  const [typeKey, setTypeKey] = useState('common_task')
+  const [statuses, setStatuses] = useState<{ key: string; label: string }[]>([])
+  const [matrix, setMatrix] = useState<Record<string, { userId: string; name: string; mode: string }[]>>({})
+  const [people, setPeople] = useState<{ id: string; name: string }[]>([])
+  const [note, setNote] = useState<string | null>(null)
+
+  useEffect(() => {
+    void api.flow(typeKey).then((f) => setStatuses(f.statuses.map((s) => ({ key: s.key, label: s.label }))))
+    void api.matrix(typeKey).then((m) => setMatrix(m.matrix))
+  }, [typeKey])
+  useEffect(() => {
+    void api.users().then((u) => setPeople(u.map((x) => ({ id: x.id, name: x.name }))))
+      .catch(() => void api.agents().then((a) => setPeople(a.map((x) => ({ id: x.id, name: x.name })))))
+  }, [])
+
+  const setEntries = async (statusKey: string, entries: { userId: string; mode: string }[]) => {
+    try {
+      await api.setMatrix(typeKey, statusKey, entries)
+      setMatrix((m) => ({ ...m, [statusKey]: entries.map((e) => ({
+        userId: e.userId, name: people.find((p) => p.id === e.userId)?.name ?? '?', mode: e.mode })) }))
+      setNote(null)
+    } catch (err) {
+      setNote((err as Error).message)
+    }
+  }
+
+  return (
+    <div className="matrix">
+      <div className="toolbar">
+        <select value={typeKey} onChange={(e) => setTypeKey(e.target.value)}>
+          {['story', 'common_task', 'qa_task', 'bug', 'analyse_task'].map((t) => <option key={t}>{t}</option>)}
+        </select>
+        <span className="note">кто работает на каждом статусе; режимы «параллельно» / «замещение»</span>
+        {note && <span className="note" style={{ color: 'var(--danger)' }}>{note}</span>}
+      </div>
+      <table className="tasklist">
+        <thead><tr><th>Статус</th><th>Исполнители</th></tr></thead>
+        <tbody>
+          {statuses.map((s) => {
+            const entries = matrix[s.key] ?? []
+            const mode = entries[0]?.mode ?? 'replacement'
+            return (
+              <tr key={s.key}>
+                <td><b>{s.label}</b><br /><small>{s.key}</small></td>
+                <td>
+                  {entries.map((e) => (
+                    <span key={e.userId} className="chip clickable" title={`${e.mode}; клик — снять`}
+                      onClick={() => void setEntries(s.key, entries.filter((x) => x.userId !== e.userId)
+                        .map((x, i) => ({ userId: x.userId, mode: i === 0 ? x.mode : mode })))}>
+                      {e.name} · {e.mode} ✕
+                    </span>
+                  ))}
+                  <select value="" onChange={(e) => {
+                    if (!e.target.value) return
+                    void setEntries(s.key, [...entries, { userId: e.target.value, mode }])
+                  }}>
+                    <option value="">＋ назначить…</option>
+                    {people.filter((p) => !entries.some((e) => e.userId === p.id))
+                      .map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                  <select value={mode} onChange={(e) =>
+                    void setEntries(s.key, entries.map((x) => ({ userId: x.userId, mode: e.target.value })))}>
+                    <option value="replacement">замещение</option>
+                    <option value="parallel">параллельно</option>
+                  </select>
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
     </div>
   )
 }

@@ -190,3 +190,51 @@ async def test_project_requires_writable_path(session, actor_id):
     with pytest.raises(Exception, match="недоступен"):
         await create_project(session, ProjectInput(
             name="Плохой путь", mnemonic="QQ", path="/nonexistent/path/xyz"))
+
+
+# ---------- alias-колонки (ФТ-ah-66, режим правки доски) ----------
+
+async def test_alias_column_crud_and_delete_guard(client):
+    r = await client.post("/api/v1/alias-columns",
+                          json={"label": "Новая колонка", "color": "#123456"})
+    assert r.status_code == 200
+    col_id = r.json()["id"]
+
+    r = await client.patch(f"/api/v1/alias-columns/{col_id}", json={"label": "Переименована"})
+    assert r.json()["label"] == "Переименована"
+
+    journal = (await client.get("/api/v1/settings-journal")).json()
+    assert any("колонк" in row["summary"].lower() for row in journal)
+
+    r = await client.delete(f"/api/v1/alias-columns/{col_id}")
+    assert r.status_code == 200
+
+    # защищённая колонка: «К работе» привязана к статусам встроенных flow
+    cols = (await client.get("/api/v1/alias-columns")).json()
+    todo = next(c for c in cols if c["label"] == "К работе")
+    r = await client.delete(f"/api/v1/alias-columns/{todo['id']}")
+    assert r.status_code == 400 and "привязано" in r.json()["message"]
+
+
+async def test_matrix_get_roundtrip(client, session):
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from repository.models import Assignment, TaskType, User
+
+    agent = (await session.execute(
+        sa.select(User).where(User.name == "Ревьюер-1"))).scalar_one_or_none()
+    if agent is None:
+        agent = (await session.execute(pg_insert(User).values(
+            name="Ревьюер-1", user_type="agent").returning(User))).scalar_one()
+        await session.commit()
+    type_id = (await session.execute(
+        sa.select(TaskType.id).where(TaskType.key == "common_task"))).scalar_one()
+    await session.execute(pg_insert(Assignment).values(
+        task_type_id=type_id, status_key="in_review", user_id=agent.id,
+        mode="parallel").on_conflict_do_nothing())
+    await session.commit()
+
+    r = await client.get("/api/v1/matrix/common_task")
+    assert r.status_code == 200
+    entries = r.json()["matrix"].get("in_review", [])
+    assert any(e["name"] == "Ревьюер-1" and e["mode"] == "parallel" for e in entries)

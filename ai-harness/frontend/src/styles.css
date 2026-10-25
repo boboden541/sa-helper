@@ -142,3 +142,28 @@ body { margin: 0; font: 14px/1.45 system-ui, -apple-system, 'Segoe UI', sans-ser
 .cl-row select { font-size: 11px; }
 .cl-row .x { border: 0; background: none; cursor: pointer; color: var(--muted); margin-left: auto; }
 .tag { color: var(--muted); margin-right: 6px; }
+
+/* Экран входа (ФТ-ah-73) и rich-редактор */
+.login-scrim { position: fixed; inset: 0; background: var(--bg); display: flex;
+  align-items: center; justify-content: center; z-index: 100; }
+.login { display: flex; flex-direction: column; gap: 10px; width: 320px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 22px; }
+.login label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.login input { padding: 8px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); }
+.rich { border: 1px solid var(--border); border-radius: 8px; }
+.rich-toolbar { display: flex; gap: 2px; padding: 6px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.rich-toolbar button, .rich-toolbar select { border: 1px solid var(--border); background: var(--bg);
+  color: var(--text); border-radius: 6px; padding: 3px 7px; cursor: pointer; font-size: 12px; }
+.rich-content .tiptap { min-height: 140px; padding: 10px; outline: none; }
+.rich-content .tiptap table { border-collapse: collapse; }
+.rich-content .tiptap td, .rich-content .tiptap th { border: 1px solid var(--border); padding: 4px 8px; }
+.story-band { background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+  border: 1px solid var(--border); border-radius: 10px; padding: 6px 12px; margin: 4px 0;
+  display: flex; gap: 10px; align-items: center; cursor: pointer; position: sticky; left: 0; }
+.story-band .count { color: var(--muted); font-size: 12px; }
+.edit-head { display: flex; gap: 4px; align-items: center; margin-bottom: 6px; }
+.edit-head input[type="text"] { width: 100%; padding: 3px 6px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 12px; }
+.edit-head input[type="color"] { width: 26px; height: 22px; padding: 0; border: 0; background: none; cursor: pointer; }
+.edit-head button { border: 0; background: none; cursor: pointer; color: var(--muted); }

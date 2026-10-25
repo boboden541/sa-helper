@@ -36,6 +36,25 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  login: (name: string, password: string) =>
+    request<{ user: string }>('/api/v1/auth/login', {
+      method: 'POST', body: JSON.stringify({ name, password }),
+    }),
+  logout: () => request<{ ok: boolean }>('/api/v1/auth/logout', { method: 'POST' }),
+  matrix: (typeKey: string) =>
+    request<{ type: string; matrix: Record<string, { userId: string; name: string; mode: string }[]> }>(`/api/v1/matrix/${typeKey}`),
+  setMatrix: (typeKey: string, statusKey: string, entries: { userId: string; mode: string }[]) =>
+    request<{ ok: boolean }>(`/api/v1/matrix/${typeKey}/${statusKey}`, {
+      method: 'PUT', body: JSON.stringify({ statusKey, entries }),
+    }),
+  agents: () => request<{ id: string; name: string; role: string }[]>('/api/v1/agents'),
+  users: () => request<{ id: string; name: string; userType: string }[]>('/api/v1/users'),
+  createColumn: (payload: { label: string; color?: string }) =>
+    request<{ id: string }>('/api/v1/alias-columns', { method: 'POST', body: JSON.stringify(payload) }),
+  updateColumn: (id: string, payload: { label?: string; color?: string; position?: number }) =>
+    request<{ id: string }>(`/api/v1/alias-columns/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  deleteColumn: (id: string) =>
+    request<{ ok: boolean }>(`/api/v1/alias-columns/${id}`, { method: 'DELETE' }),
   tasks: (params: Record<string, string | undefined>) => {
     const q = new URLSearchParams()
     Object.entries(params).forEach(([k, v]) => v && q.set(k, v))
