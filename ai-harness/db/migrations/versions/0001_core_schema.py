@@ -118,7 +118,7 @@ def upgrade() -> None:
         sa.Column("cond_checklist", sa.Boolean(), nullable=False, server_default=sa.text("true")),
         sa.Column("cond_links", sa.Boolean(), nullable=False, server_default=sa.text("true")),
         sa.Column("cond_artifact", sa.Boolean(), nullable=False, server_default=sa.text("false")),
-        sa.Column("rule_code", sa.String(8)),
+        sa.Column("rule_code", sa.String(16)),
         sa.UniqueConstraint("flow_version_id", "from_status", "to_status", name="uq_flow_transition"),
         sa.CheckConstraint("runner IN ('human','agent','auto','auto_or_agent')", name="ck_flow_transition_runner"),
     )
@@ -213,7 +213,7 @@ def upgrade() -> None:
         sa.Column("event_type", sa.String(16), nullable=False),
         sa.Column("author_id", pg.UUID(), sa.ForeignKey("user.id")),
         sa.Column("author_kind", sa.String(8), nullable=False),
-        sa.Column("rule_code", sa.String(8)),
+        sa.Column("rule_code", sa.String(16)),
         sa.Column("message", sa.Text(), nullable=False),
         sa.Column("payload_id", pg.UUID(), sa.ForeignKey("chronicle_payload.id")),
         sa.Column("created_at", pg.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),

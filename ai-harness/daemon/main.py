@@ -1,0 +1,42 @@
+"""Точка входа демона: python -m daemon.main (переиспользует домен backend'а)."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+
+from database import get_sessionmaker
+from daemon.scheduler.scheduler import Daemon
+
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s %(name)s %(levelname)s %(message)s")
+
+
+async def main() -> None:
+    from daemon.runner.agent_runner import ClaudeCodeRunner
+
+    try:
+        runner = ClaudeCodeRunner()
+    except RuntimeError:
+        logging.warning("claude-agent-sdk не установлен — демон работает в режиме без запуска агентов")
+        from daemon.runner.agent_runner import FakeRunner
+
+        runner = FakeRunner(script=lambda req: __import__(
+            "daemon.runner.agent_runner", fromlist=["RunReport"]).RunReport(
+            status="failed", summary_md="раннер агентов не настроен"))
+
+    daemon = Daemon(get_sessionmaker(), runner)
+    tick_seconds = 30
+    logging.info("демон запущен (тик %s с)", tick_seconds)
+    while True:
+        try:
+            summary = await daemon.tick()
+            if any(v for k, v in summary.items() if k != "launched") or summary["launched"]:
+                logging.info("тик: %s", summary)
+        except Exception:  # noqa: BLE001
+            logging.exception("ошибка тика")
+        await asyncio.sleep(tick_seconds)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

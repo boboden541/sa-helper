@@ -31,7 +31,7 @@ class Chronicle(Base):
     event_type: Mapped[str] = mapped_column(String(16))  # field|transition|force|agent|denied|psi|bug
     author_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("user.id"))
     author_kind: Mapped[str] = mapped_column(String(8))  # human|agent|eve|auto
-    rule_code: Mapped[str | None] = mapped_column(String(8))  # M4 и т.п. — обязателен для auto
+    rule_code: Mapped[str | None] = mapped_column(String(16))  # обязателен для author_kind=auto
     message: Mapped[str] = mapped_column(Text)
     payload_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chronicle_payload.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

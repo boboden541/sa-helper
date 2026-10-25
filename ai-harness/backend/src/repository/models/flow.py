@@ -64,7 +64,7 @@ class FlowTransition(Base):
     cond_checklist: Mapped[bool] = mapped_column(Boolean, default=True)
     cond_links: Mapped[bool] = mapped_column(Boolean, default=True)
     cond_artifact: Mapped[bool] = mapped_column(Boolean, default=False)
-    rule_code: Mapped[str | None] = mapped_column(String(8))  # M1…M6, MIG — для автомата
+    rule_code: Mapped[str | None] = mapped_column(String(16))  # M1…M6, MIG, DENY — для автомата
 
 
 class FlowPreset(Base):
