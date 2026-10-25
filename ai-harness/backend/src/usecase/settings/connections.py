@@ -10,6 +10,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
 from domain.model.validators import DomainError
+
+
+def _crypto_key() -> bytes:
+    try:
+        return get_settings().token_key_bytes
+    except RuntimeError as err:
+        raise DomainError(
+            "Шифрование токенов не настроено: задайте AI_HARNESS_TOKEN_KEY в ai-harness/.env",
+            tech=str(err))
 from infrastructure.crypto.aesgcm import decrypt_token, encrypt_token, token_mask
 from repository.models import Connection, ProviderPreset, User
 
@@ -29,7 +38,7 @@ async def create_connection(session: AsyncSession, data: dict) -> Connection:
     conn = Connection(
         name=data["name"], protocol=data["protocol"], url=data["url"],
         model=data["model"],
-        token_encrypted=encrypt_token(get_settings().token_key_bytes, data["token"]),
+        token_encrypted=encrypt_token(_crypto_key(), data["token"]),
         token_tail=token_mask(data["token"]),
         check_status="unchecked",
     )
@@ -47,7 +56,7 @@ async def update_connection(session: AsyncSession, connection_id: uuid.UUID,
         if field in fields and fields[field]:
             setattr(conn, field, fields[field])
     if fields.get("token"):
-        conn.token_encrypted = encrypt_token(get_settings().token_key_bytes, fields["token"])
+        conn.token_encrypted = encrypt_token(_crypto_key(), fields["token"])
         conn.token_tail = token_mask(fields["token"])
         conn.check_status = "unchecked"
     await session.commit()
@@ -76,7 +85,7 @@ async def activate_connection(session: AsyncSession, connection_id: uuid.UUID) -
 
 async def get_decrypted_token(session: AsyncSession, conn: Connection) -> str:
     """Расшифровка ТОЛЬКО на момент вызова провайдера (решение 3.1-12)."""
-    return decrypt_token(get_settings().token_key_bytes, conn.token_encrypted)
+    return decrypt_token(_crypto_key(), conn.token_encrypted)
 
 
 async def check_connection(session: AsyncSession, data: dict) -> dict:

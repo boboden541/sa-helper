@@ -20,6 +20,9 @@ router = APIRouter(prefix="/api/v1", tags=["journal"])
 
 
 def _400(fn):
+    import functools
+
+    @functools.wraps(fn)  # сохраняем сигнатуру — иначе FastAPI требует query args/kw
     async def wrapper(*args, **kw):
         try:
             return await fn(*args, **kw)
@@ -216,6 +219,8 @@ async def checklist_put(code: str, kind: str, payload: ChecklistPutIn,
         await session.flush()
     await session.execute(sa.delete(ChecklistItem).where(ChecklistItem.checklist_id == chk.id))
 
+    from repository.models import Chronicle
+
     position = 0
     for raw in payload.lines.splitlines():
         line = raw.strip()
@@ -227,7 +232,7 @@ async def checklist_put(code: str, kind: str, payload: ChecklistPutIn,
                                       kind="heading", level=len(heading.group(1)),
                                       text=heading.group(2)))
         else:
-            item = re.match(r"^([~-+x!])\s+(.*)$", line)
+            item = re.match(r"^([~+x!\-])\s+(.*)$", line)
             status = {"-": "todo", "~": "in_progress", "x": "closed",
                       "+": "done", "!": "failed"}.get(item.group(1), "todo") if item else "todo"
             text = item.group(2) if item else line
@@ -328,6 +333,8 @@ async def artifact_add(code: str, kind: str, payload: ArtifactIn,
     version = (await session.execute(
         sa.select(sa.func.coalesce(sa.func.max(TaskArtifact.version), 0))
         .where(TaskArtifact.task_id == task.id, TaskArtifact.kind == kind))).scalar_one() + 1
+    from repository.models import Chronicle
+
     session.add(TaskArtifact(task_id=task.id, kind=kind, version=version,
                              body_md=payload.body_md, created_by=actor.id))
     session.add(Chronicle(task_id=task.id, event_type="field", author_id=actor.id,
