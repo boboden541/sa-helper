@@ -70,7 +70,7 @@ async def session(_test_db):
         "TRUNCATE task, task_tag, tag, chronicle, chronicle_payload, notification, "
         "task_run, task_relation, checklist, checklist_item, task_comment, "
         "task_assignee, task_artifact, task_branch, psi_document, psi_run, psi_run_item, "
-        "dead_mnemonic RESTART IDENTITY CASCADE"
+        "assignment, dead_mnemonic RESTART IDENTITY CASCADE"
     ))
     await s.execute(sa.text("UPDATE project SET next_number = 1"))
     await s.commit()

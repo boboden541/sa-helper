@@ -32,9 +32,10 @@ def create_app() -> FastAPI:
     )
     app.add_exception_handler(ApiError, api_error_handler)
     app.add_exception_handler(DomainError, domain_error_handler)
-    from api.controllers import tasks
+    from api.controllers import tasks, transitions
 
     app.include_router(tasks.router)
+    app.include_router(transitions.router)
     return app
 
 
