@@ -16,7 +16,7 @@ export function Settings({ reload }: { reload: () => void }) {
   const tab = useSettingsTab()
   return (
     <div className="settings">
-      <div className="seg">
+      <div className="set-tabs">
         {TABS.map((t) => <TabButton key={t} tab={t} />)}
       </div>
       {tab === 'flow' && <FlowEditor reload={reload} />}
@@ -38,9 +38,13 @@ function useSettingsTab(): string {
 
 function TabButton({ tab }: { tab: string }) {
   const current = useSettingsTab()
+  const names: Record<string, string> = {
+    flow: 'Status-flow', providers: 'Провайдеры', agents: 'Агенты',
+    matrix: 'Матрица', projects: 'Проекты', queue: 'Очередь', journal: 'Журнал',
+  }
   return (
-    <button className={current === tab ? 'active' : ''}
-      onClick={() => { window.location.hash = `#settings/${tab}` }}>{tab}</button>
+    <button className={`set-tab ${current === tab ? 'active' : ''}`}
+      onClick={() => { window.location.hash = `#settings/${tab}` }}>{names[tab] ?? tab}</button>
   )
 }
 
@@ -80,12 +84,12 @@ function FlowEditor({ reload }: { reload: () => void }) {
   }
 
   return (
-    <div className="flow-editor">
-      <div className="toolbar">
+    <div className="set-body">
+      <div className="flow-toolbar">
         <select value={typeKey} onChange={(e) => setTypeKey(e.target.value)}>
           {['story', 'common_task', 'qa_task', 'bug', 'analyse_task'].map((t) => <option key={t}>{t}</option>)}
         </select>
-        <span className="chip">версия v{data.version}{data.isPublished ? '' : ' (черновик)'}</span>
+        <span className="mini-chip mc-accent">версия v{data.version}{data.isPublished ? '' : ' · черновик'}</span>
         <button className="btn" disabled={!dirty} onClick={() => void saveDraft()}>Сохранить черновик</button>
         <button className="btn primary" onClick={async () => {
           await saveDraft()
@@ -99,8 +103,8 @@ function FlowEditor({ reload }: { reload: () => void }) {
         }}>Опубликовать</button>
         {message && <span className="note">{message}</span>}
       </div>
-      <div className="flow-split">
-        <div className="flow-graph" style={{ height: 420 }}>
+      <div className="flow-body">
+        <div className="flow-canvas" style={{ height: 460 }}>
           <ReactFlow
             nodes={nodes} edges={edges} fitView
             onConnect={async (conn: Connection) => {
@@ -120,7 +124,7 @@ function FlowEditor({ reload }: { reload: () => void }) {
             <Background /><Controls />
           </ReactFlow>
         </div>
-        <table className="flow-table">
+        <table className="tasks flow-table">
           <thead><tr><th>Статус</th><th>Что происходит</th><th>Возможные переходы</th></tr></thead>
           <tbody>
             {data.statuses.map((s) => (
@@ -161,50 +165,62 @@ function Providers() {
   useEffect(reload, [])
 
   return (
-    <div className="providers">
-      <h3>Подключения</h3>
-      <table className="tasklist">
-        <thead><tr><th>Название</th><th>Протокол</th><th>Модель</th><th>Токен</th><th>Проверка</th><th></th></tr></thead>
-        <tbody>
+    <div className="set-body">
+      <div className="prov-grid">
+        <div>
+          <div className="q-sec">Подключения</div>
           {list.map((c) => (
-            <tr key={c.id}>
-              <td>{c.name}{c.isActive && <b> · активное</b>}</td>
-              <td>{c.protocol}</td><td>{c.model}</td><td>{c.tokenTail}</td><td>{c.checkStatus}</td>
-              <td>
-                {!c.isActive && <button className="btn small" onClick={async () => {
-                  await fetch(`/api/v1/connections/${c.id}/activate`, { method: 'POST' }); reload()
-                }}>Сделать активным</button>}
-              </td>
-            </tr>
+            <div key={c.id} className={`prov-row ${c.isActive ? 'active' : ''}`}>
+              <div className="pr-main">
+                <b>{c.name}</b> <span className="mini-chip">{c.protocol}</span>
+                <div className="muted">{c.url} · {c.model}</div>
+                <div className="muted">токен {c.tokenTail} · проверка: {c.checkStatus}</div>
+              </div>
+              <div className="pr-actions">
+                {!c.isActive && (
+                  <button className="btn small" onClick={async () => {
+                    await fetch(`/api/v1/connections/${c.id}/activate`, { method: 'POST' }); reload()
+                  }}>Сделать активным</button>
+                )}
+              </div>
+            </div>
           ))}
-        </tbody>
-      </table>
-      <h3>Новое подключение</h3>
-      <div className="form">
-        <input placeholder="название" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-        <select value={form.protocol} onChange={(e) => setForm({ ...form, protocol: e.target.value })}>
-          <option value="anthropic">Anthropic</option>
-          <option value="openai">OpenAI-совместимый</option>
-        </select>
-        <input placeholder="URL" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} />
-        <input placeholder="модель" value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} />
-        <input placeholder="API-токен" type="password" value={form.token} onChange={(e) => setForm({ ...form, token: e.target.value })} />
-        <button className="btn" onClick={async () => {
-          try {
-            const res = await fetch('/api/v1/connections/check', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) })
-            const body = await res.json()
-            setMessage(res.ok ? 'Подключение успешно' : `${body.message}${body.techDetail ? ` — ${body.techDetail}` : ''}`)
-          } catch (err) { setMessage(String(err)) }
-        }}>Проверить</button>
-        <button className="btn primary" onClick={async () => {
-          const res = await fetch('/api/v1/connections', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) })
-          const body = await res.json().catch(() => ({}))
-          if (!res.ok) setMessage(body.message)
-          else { setMessage('Сохранено (не проверено)'); reload() }
-        }}>Сохранить</button>
-        {message && <span className="note">{message}</span>}
+          {list.length === 0 && <div className="muted">Подключений пока нет</div>}
+        </div>
+        <div className="prov-form">
+          <div className="q-sec">Новое подключение</div>
+          <div className="f-field"><label>Название</label>
+            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
+          <div className="f-field"><label>Протокол</label>
+            <select value={form.protocol} onChange={(e) => setForm({ ...form, protocol: e.target.value })}>
+              <option value="anthropic">Anthropic</option>
+              <option value="openai">OpenAI-совместимый</option>
+            </select></div>
+          <div className="f-field"><label>URL</label>
+            <input value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} /></div>
+          <div className="f-field"><label>Модель</label>
+            <input value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} /></div>
+          <div className="f-field"><label>API-токен</label>
+            <input type="password" value={form.token} onChange={(e) => setForm({ ...form, token: e.target.value })} /></div>
+          <div className="flex mt12">
+            <button className="btn" onClick={async () => {
+              try {
+                const res = await fetch('/api/v1/connections/check', {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) })
+                const body = await res.json()
+                setMessage(res.ok ? 'Подключение успешно' : `${body.message}${body.techDetail ? ` — ${body.techDetail}` : ''}`)
+              } catch (err) { setMessage(String(err)) }
+            }}>Проверить</button>
+            <button className="btn primary" onClick={async () => {
+              const res = await fetch('/api/v1/connections', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) })
+              const body = await res.json().catch(() => ({}))
+              if (!res.ok) setMessage(body.message)
+              else { setMessage('Сохранено (не проверено)'); reload() }
+            }}>Сохранить</button>
+          </div>
+          {message && <div className="muted mt8">{message}</div>}
+        </div>
       </div>
     </div>
   )
@@ -214,12 +230,9 @@ function Agents() {
   const [list, setList] = useState<{ id: string; name: string; role: string; skillMd: string }[]>([])
   useEffect(() => { void fetch('/api/v1/agents').then((r) => r.json()).then(setList) }, [])
   return (
-    <div className="agents">
-      <h3>Пользователи-агенты</h3>
-      <table className="tasklist">
-        <thead><tr><th>Имя</th><th>Роль</th></tr></thead>
-        <tbody>{list.map((a) => <tr key={a.id}><td>{a.name}</td><td>{a.role}</td></tr>)}</tbody>
-      </table>
+    <div className="set-body"><div className="agents-grid">{list.map((a) => (
+        <div key={a.id} className="agent-card"><div className="flex"><b>{a.name}</b></div><div className="muted">{a.role}</div></div>
+      ))}</div>
       <p className="note">Матрица назначений: вкладки типов → статусы → агенты (режим параллельно/замещение) — PUT /api/v1/matrix/&#123;type&#125;/&#123;status&#125;</p>
     </div>
   )
@@ -230,7 +243,7 @@ function Projects() {
   const reload = () => void api.projects().then(() => void fetch('/api/v1/projects').then((r) => r.json()).then(setList))
   useEffect(reload, [])
   return (
-    <table className="tasklist">
+    <table className="tasks mx">
       <thead><tr><th>Мнемоника</th><th>Название</th><th>Путь</th><th>Базовая ветка</th></tr></thead>
       <tbody>{list.map((p) => <tr key={p.id}><td>{p.mnemonic}</td><td>{p.name} {p.isArchived && '(архив)'}</td><td>{p.path}</td><td>{p.baseBranch}</td></tr>)}</tbody>
     </table>
@@ -242,13 +255,13 @@ function Queue() {
   useEffect(() => { void api.queue().then(setSnap) }, [])
   if (!snap) return <div className="empty">Загрузка…</div>
   return (
-    <div className="queue">
-      <h3>В работе у агентов</h3>
-      {snap.working.map((w) => <div key={w.code}>{w.code} — {w.agent} · {w.minutes ?? 0} мин</div>)}
-      <h3>Ожидают</h3>
-      {snap.waiting.map((w) => <div key={w.code}>{w.code} · попыток {w.attempts}</div>)}
-      <h3>Заблокированы</h3>
-      {snap.blocked.map((b) => <div key={b.code}>{b.code} — {b.reason}</div>)}
+    <div className="set-body">
+      <div className="q-sec">В работе у агентов</div>
+      {snap.working.map((w) => <div key={w.code} className="q-row"><span className="code">{w.code}</span><span className="q-t">{w.agent}</span><span className="muted">{w.minutes ?? 0} мин</span></div>)}
+      <div className="q-sec">Ожидают</div>
+      {snap.waiting.map((w) => <div key={w.code} className="q-row"><span className="code">{w.code}</span><span className="q-t">{w.status}</span><span className="muted">попыток {w.attempts}</span></div>)}
+      <div className="q-sec">Заблокированы</div>
+      {snap.blocked.map((b) => <div key={b.code} className="q-row"><span className="code">{b.code}</span><span className="q-t">{b.reason}</span></div>)}
     </div>
   )
 }
@@ -257,9 +270,9 @@ function Journal() {
   const [rows, setRows] = useState<{ who: string; entity: string; summary: string; at: string }[]>([])
   useEffect(() => { void fetch('/api/v1/settings-journal').then((r) => r.json()).then(setRows) }, [])
   return (
-    <div className="journal">
-      {rows.map((r, i) => <div key={i} className="chron-row"><b>{r.who}</b> · {r.entity} · {r.summary} · <small>{r.at}</small></div>)}
-      {rows.length === 0 && <div className="empty">Журнал пуст</div>}
+    <div className="set-body">
+      {rows.map((r, i) => <div key={i} className="jr-row"><time>{r.at.slice(0, 16).replace("T", " ")}</time><div className="jr-b"><b>{r.who}</b> · {r.summary}</div></div>)}
+      {rows.length === 0 && <div className="empty"><b>Журнал пуст</b>правки настроек появятся здесь</div>}
     </div>
   )
 }
@@ -293,15 +306,15 @@ function Matrix() {
   }
 
   return (
-    <div className="matrix">
-      <div className="toolbar">
+    <div className="set-body">
+      <div className="flow-toolbar">
         <select value={typeKey} onChange={(e) => setTypeKey(e.target.value)}>
           {['story', 'common_task', 'qa_task', 'bug', 'analyse_task'].map((t) => <option key={t}>{t}</option>)}
         </select>
         <span className="note">кто работает на каждом статусе; режимы «параллельно» / «замещение»</span>
         {note && <span className="note" style={{ color: 'var(--danger)' }}>{note}</span>}
       </div>
-      <table className="tasklist">
+      <table className="tasks mx">
         <thead><tr><th>Статус</th><th>Исполнители</th></tr></thead>
         <tbody>
           {statuses.map((s) => {

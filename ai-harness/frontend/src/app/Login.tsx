@@ -19,11 +19,14 @@ export function Login({ onDone }: { onDone: () => void }) {
 
   return (
     <div className="login-scrim">
-      <form className="login" onSubmit={(e) => { e.preventDefault(); void submit() }}>
-        <h2>AI-Harness — вход</h2>
-        {error && <div className="banner danger">{error}</div>}
-        <label>Имя<input value={name} onChange={(e) => setName(e.target.value)} autoFocus /></label>
-        <label>Пароль<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></label>
+      <form className="login-card" onSubmit={(e) => { e.preventDefault(); void submit() }}>
+        <h2><span className="logo-mark">A</span> AI-Harness — вход</h2>
+        {error && <div className="login-err">{error}</div>}
+        {error && <div className="login-err">{error}</div>}
+        <div className="f-field"><label>Имя</label>
+          <input value={name} onChange={(e) => setName(e.target.value)} autoFocus /></div>
+        <div className="f-field"><label>Пароль</label>
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></div>
         <button className="btn primary" type="submit">Войти</button>
       </form>
     </div>

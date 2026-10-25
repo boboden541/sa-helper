@@ -36,8 +36,8 @@ export function RichText({ markdown, onChange }: RichTextProps) {
   const cmd = (fn: () => void) => () => { fn(); editor.view.focus() }
 
   return (
-    <div className="rich">
-      <div className="rich-toolbar">
+    <div className="rich-wrap">
+      <div className="editbar">
         <button onClick={cmd(() => editor.chain().focus().toggleBold().run())}><b>Ж</b></button>
         <button onClick={cmd(() => editor.chain().focus().toggleItalic().run())}><i>К</i></button>
         <button onClick={cmd(() => editor.chain().focus().toggleUnderline().run())}><u>П</u></button>
@@ -69,7 +69,7 @@ export function RichText({ markdown, onChange }: RichTextProps) {
         <button onClick={cmd(() => editor.chain().focus().addColumnAfter().run())}>＋стлб</button>
         <button onClick={cmd(() => editor.chain().focus().deleteColumn().run())}>－стлб</button>
       </div>
-      <EditorContent editor={editor} className="rich-content" />
+      <div className="rich-edit"><EditorContent editor={editor} /></div>
     </div>
   )
 }

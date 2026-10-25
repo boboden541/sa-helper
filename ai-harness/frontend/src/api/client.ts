@@ -80,7 +80,7 @@ export const api = {
     request<{ items: { id: string; code: string; eventKey: string; message: string; techDetail?: string }[] }>(
       '/api/v1/notifications'),
   psi: (code: string) =>
-    request<{ versions: unknown[]; items: { position: number; kind: string; text: string; expected?: string; actual?: string; status: string }[]; runs: unknown[] }>(
+    request<{ versions: { version: number }[]; items: { position: number; kind: string; text: string; expected?: string; actual?: string; status: string; bugTaskId?: string }[]; runs: { id: string; passed: number; failed: number; at: string }[] }>(
       `/api/v1/stories/${code}/psi`),
   psiRun: (code: string, results: { position: number; passed: boolean; actual: string }[]) =>
     request<{ passed: number; failed: number; bugProposals: { position: number; action: string; expected: string; actual: string }[] }>(

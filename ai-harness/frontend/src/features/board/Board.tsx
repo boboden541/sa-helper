@@ -1,191 +1,260 @@
-// Доска: колонки из alias-колонок, полосы историй с дочерними по колонкам,
-// DnD с предподсветкой разрешённых, режим правки доски (СТ §5.2, ФТ-ah-14/66;
-// эталон design_mockup/app.js:743-854, 1783-1844).
+// Доска — DOM и поведение design_mockup/app.js:726-854:
+// .board-grid, .col-head (cdot/b/.n), .lane-band историй, .lane-cells > .cell,
+// карточки cardHtml (code, type-chip, st-chip, prioBadge, tags, agent, card-sub),
+// нативный DnD с подсветкой .cell.ok/.over и подсказкой .draghint,
+// режим правки доски (.col-head.edit, палитра, colh-x, ghost «＋ колонка»).
 
-import { DndContext, PointerSensor, useSensor, useSensors, useDraggable, useDroppable, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core'
 import { useEffect, useState } from 'react'
 import { api, type TaskCard } from '../../api/client'
+import {
+  ALIAS_LB, ALIAS_OF, esc, prioBadge, stChip, tagHtml, typeChip,
+} from '../../shared/refs'
 import { pushUndo } from '../../shared/undo'
-
-const ALIAS_LABEL: Record<string, string> = {
-  pending: 'На рассмотрении', backlog: 'Бэклог', todo: 'К работе', progress: 'В работе',
-  review: 'На ревью', testing: 'На тестировании', done: 'Готово', canceled: 'Отменено', blocked: 'Заблокировано',
-}
-const LABEL_TO_KEY: Record<string, string> = Object.fromEntries(
-  Object.entries(ALIAS_LABEL).map(([k, v]) => [v, k]))
+import { toast } from '../../shared/toast'
 
 interface Column { id: string; label: string; color: string; position: number }
 
-export function aliasOf(statusKey: string): string {
-  if (statusKey.startsWith('review')) return 'review'
-  if (statusKey.startsWith('qa_ready') || statusKey.startsWith('in_testing')) return 'testing'
-  return { pending: 'pending', backlog: 'backlog', todo: 'todo', in_progress: 'progress',
-    done: 'done', canceled: 'canceled', blocked: 'blocked' }[statusKey] ?? 'progress'
+// ключ alias → колонка (по названию, как в макете ALIAS_LB)
+const KEY_BY_LABEL: Record<string, string> = {
+  'На рассмотрении': 'pending', 'Бэклог': 'backlog', 'К работе': 'todo', 'В работе': 'progress',
+  'На ревью': 'review', 'На тестировании': 'testing', 'Готово': 'done',
+  'Заблокировано': 'blocked', 'Отменено': 'canceled',
+}
+const labelOfKey = (key: string) => ALIAS_LB[key] ?? key
+
+const STATUS_COLORS: Record<string, string> = {
+  pending: '#c07d1e', backlog: '#8792a3', todo: '#1f8fb5', in_progress: '#3d63d2',
+  review_ready: '#7d4fd1', in_review: '#7d4fd1', qa_ready: '#c2601a', in_testing: '#c2601a',
+  done: '#25935b', canceled: '#8792a3', blocked: '#cf4436',
 }
 
-function DraggableCard({ task }: { task: TaskCard }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: task.code })
-  return (
-    <div ref={setNodeRef} {...listeners} {...attributes}
-      className={`card ${isDragging ? 'dragging' : ''}`}
-      onClick={() => { window.location.hash = `#${task.code}` }}>
-      <div className="card-top">
-        <span className="code">{task.code}</span>
-        <span className={`prio prio-${task.priority}`} title={task.priority}>
-          {task.priority === 'critical' ? '⏫' : task.priority === 'high' ? '⏶' : task.priority === 'low' ? '⏷' : '='}
-        </span>
-      </div>
-      <div className="card-title">{task.title}</div>
-      <div className="card-tags">{(task.tags ?? []).map((t) => `#${t}`).join(' ')}</div>
-      {task.agent && <div className="card-agent">⟳ в работе у {task.agent.name}</div>}
+function cardHtml(t: TaskCard): string {
+  return `<article class="card ${t.statusKey === 'blocked' ? 'top' : ''}" draggable="true" data-code="${t.code}" style="--st:${STATUS_COLORS[t.statusKey] ?? '#8792a3'}">
+    <div class="card-top">
+      <span class="code" data-open="${t.code}">${t.code}</span>
+      ${typeChip(t.type)}
+      <span class="sp"></span>
+      ${''}
+      ${prioBadge(t.priority)}
     </div>
-  )
-}
-
-function ColumnView({ column, tasks, denied, editMode, onEdit, onDelete }: {
-  column: Column
-  tasks: TaskCard[]
-  denied?: string
-  editMode: boolean
-  onEdit: (patch: { label?: string; color?: string; position?: number }) => void
-  onDelete: () => void
-}) {
-  const { setNodeRef, isOver } = useDroppable({ id: column.label })
-  return (
-    <div ref={setNodeRef} className={`col ${isOver ? 'over' : ''} ${denied ? 'denied' : ''}`}>
-      {editMode ? (
-        <div className="edit-head">
-          <input type="color" value={column.color} title="Цвет колонки"
-            onChange={(e) => onEdit({ color: e.target.value })} />
-          <input type="text" defaultValue={column.label} title="Имя колонки"
-            onBlur={(e) => e.target.value !== column.label && onEdit({ label: e.target.value })} />
-          <button title="Сдвинуть влево" onClick={() => onEdit({ position: column.position - 1 })}>←</button>
-          <button title="Сдвинуть вправо" onClick={() => onEdit({ position: column.position + 1 })}>→</button>
-          <button title="Удалить колонку" onClick={onDelete}>✕</button>
-        </div>
-      ) : (
-        <div className="col-head" style={{ borderBottom: `2px solid ${column.color}` }}>
-          {column.label} <span className="count">{tasks.length}</span>
-        </div>
-      )}
-      {tasks.map((t) => <DraggableCard key={t.code} task={t} />)}
-      {denied && <div className="col-denied" title={denied}>✕ {denied}</div>}
-    </div>
-  )
+    <div class="card-title">${esc(t.title)}</div>
+    <div class="card-tags">${(t.tags ?? []).map(tagHtml).join('')}</div>
+    ${t.agent ? `<div class="agent"><span class="dot pulse" style="background:#7d4fd1"></span>${esc(t.agent.name)}</div>` : ''}
+    ${t.statusKey === 'blocked' ? `<div class="card-sub">✕ Требуется человек: ${esc(t.blockedReason ?? '')}</div>` : ''}
+  </article>`
 }
 
 export function Board({ tasks, reload }: { tasks: TaskCard[]; reload: () => void }) {
-  const [activeCode, setActiveCode] = useState<string | null>(null)
-  const [denials, setDenials] = useState<Record<string, string>>({})
-  const [hint, setHint] = useState<string | null>(null)
   const [columns, setColumns] = useState<Column[]>([])
   const [editMode, setEditMode] = useState(false)
+  const [dragCode, setDragCode] = useState<string | null>(null)
+  const [okAliases, setOkAliases] = useState<Record<string, boolean>>({})
+  const [deniedReasons, setDeniedReasons] = useState<Record<string, string>>({})
+  const [overLabel, setOverLabel] = useState<string | null>(null)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
-  const sensors = useSensors(useSensor(PointerSensor))
 
-  const reloadColumns = () => { void api.aliasColumns().then((cols) => setColumns(cols.sort((a, b) => a.position - b.position))) }
   useEffect(reloadColumns, [])
-  useEffect(reloadColumns, [editMode])
 
   useEffect(() => {
-    if (!activeCode) { setDenials({}); setHint(null); return }
-    void api.task(activeCode).then((card) => {
-      const d: Record<string, string> = {}
-      card.gate?.denied.forEach((x) => { d[aliasOf(x.to)] = x.reason })
-      setDenials(d)
-      const allowed = card.gate?.allowed.map(aliasOf) ?? []
-      const reasons = card.gate?.denied.map((x) => `→ ${ALIAS_LABEL[aliasOf(x.to)]}: ${x.reason}`) ?? []
-      setHint(allowed.length
-        ? `Разрешено: ${allowed.map((a) => ALIAS_LABEL[a]).join(', ')}. Запрещено: ${Object.values(d).length}`
-        : reasons.join(' · ') || null)
-    }).catch(() => setDenials({}))
-  }, [activeCode])
+    if (!dragCode) { setOkAliases({}); setDeniedReasons({}); return }
+    void api.task(dragCode).then((card) => {
+      const ok: Record<string, boolean> = {}
+      const denied: Record<string, string> = {}
+      card.gate?.allowed.forEach((to) => { ok[to] = true })
+      card.gate?.denied.forEach((x) => { denied[x.to] = x.reason })
+      // сводим к alias-ключам: разрешено, если хоть один таргет колонки разрешён
+      const okAlias: Record<string, boolean> = {}
+      const deniedAlias: Record<string, string> = {}
+      for (const to of card.gate?.allowed ?? []) okAlias[to] = true
+      const aliasTargets: Record<string, { ok: boolean; reason: string }> = {}
+      for (const to of card.gate?.allowed ?? []) aliasTargets[to] = { ok: true, reason: '' }
+      for (const [to, reason] of Object.entries(denied)) {
+        if (!aliasTargets[to]) aliasTargets[to] = { ok: false, reason }
+      }
+      for (const [to, info] of Object.entries(aliasTargets)) {
+        const alias = ALIAS_OF[to] ?? to
+        if (info.ok) okAlias[alias] = true
+        else if (!okAlias[alias]) deniedAlias[alias] = info.reason
+      }
+      setOkAliases(okAlias)
+      setDeniedReasons(deniedAlias)
+      const allowList = Object.keys(okAlias).map((a) => labelOfKey(a))
+      const denyList = Object.entries(deniedAlias)
+        .map(([a, r]) => `${labelOfKey(a)}: ${r}`)
+      setHint(allowList.length
+        ? <>Разрешено: <b>{allowList.join(', ')}</b>{denyList.length ? <> · <span className="no">{denyList.join(' · ')}</span></> : null}</>
+        : <span className="no">{denyList.join(' · ') || 'нет разрешённых переходов'}</span>)
+    }).catch(() => { setOkAliases({}); setDeniedReasons({}) })
+  }, [dragCode])
 
-  const onDragStart = (e: DragStartEvent) => setActiveCode(String(e.active.id))
-  const onDragEnd = (e: DragEndEvent) => {
-    const code = String(e.active.id)
-    const label = String(e.over?.id ?? '')
-    setActiveCode(null)
-    if (!label) return
-    void applyDrop(code, label, reload)
-  }
+  const [hint, setHint] = useState<JSX.Element | null>(null)
 
   const stories = tasks.filter((t) => t.type === 'story')
   const loose = tasks.filter((t) => t.type !== 'story' && !t.storyCode)
-  const childrenOf = (code: string) => tasks.filter((t) => t.storyCode === code)
+  const byAlias = (items: TaskCard[], key: string) =>
+    items.filter((t) => (t as TaskCard & { _alias?: string })._alias === key)
 
-  const renderColumns = (items: TaskCard[]) => columns.map((column) => {
-    const key = LABEL_TO_KEY[column.label] ?? ''
-    const bucket = items.filter((t) => aliasOf(t.statusKey) === key)
+  // alias для каждой задачи считается один раз на рендер
+  for (const t of tasks) {
+    ;(t as TaskCard & { _alias?: string })._alias = ALIAS_OF[t.statusKey] ?? 'progress'
+  }
+
+  const cellsHtml = (items: TaskCard[]) => columns.map((col) => {
+    const key = KEY_BY_LABEL[col.label] ?? ''
+    const bucket = byAlias(items, key)
+    const isOk = Boolean(okAliases[key])
+    const isOver = overLabel === col.label
     return (
-      <ColumnView key={column.id} column={column} tasks={bucket} editMode={editMode}
-        denied={denials[key]}
-        onEdit={(patch) => {
-          void api.updateColumn(column.id, patch).then(() => {
-            reloadColumns(); reload()
-          })
+      <div key={col.id} className={`cell ${isOk ? 'ok' : ''} ${isOver ? 'over' : ''}`}
+        style={{ ['--colc' as string]: col.color }}
+        data-drop={col.label}
+        onDragOver={(e) => {
+          if (!dragCode) return
+          e.preventDefault()
+          setOverLabel(col.label)
         }}
-        onDelete={() => {
-          void api.deleteColumn(column.id)
-            .then(() => { reloadColumns(); reload() })
-            .catch((err: Error) => alert(err.message))
-        }} />
+        onDragLeave={() => setOverLabel((cur) => (cur === col.label ? null : cur))}
+        onDrop={(e) => {
+          e.preventDefault()
+          setOverLabel(null)
+          if (dragCode) void applyDrop(dragCode, col.label, reload)
+          setDragCode(null)
+        }}>
+        {bucket.map((t) => (
+          <div key={t.code} dangerouslySetInnerHTML={{ __html: cardHtml(t) }}
+            onDragStart={(e) => {
+              setDragCode(t.code)
+              document.body.classList.add('is-dragging')
+              e.dataTransfer.effectAllowed = 'move'
+            }}
+            onDragEnd={() => { setDragCode(null); document.body.classList.remove('is-dragging') }}
+            onClick={(e) => {
+              const target = e.target as HTMLElement
+              const open = target.closest('[data-open]') ?? target.closest('.card')
+              if (open) window.location.hash = `#${t.code}`
+            }} />
+        ))}
+        {editMode && bucket.length === 0 && <div className="ghost" />}
+      </div>
     )
   })
 
-  const addColumn = () => {
-    const label = window.prompt('Название новой колонки')
-    if (!label?.trim()) return
-    void api.createColumn({ label: label.trim() }).then(() => reloadColumns())
+  const colHeads = columns.map((col) => {
+    const key = KEY_BY_LABEL[col.label] ?? ''
+    const count = byAlias(tasks, key).length
+    if (editMode) {
+      return (
+        <div key={col.id} className="col-head edit" style={{ ['--st' as string]: col.color }}>
+          <button className="cdot clickable" title="Цвет колонки"
+            onClick={(e) => {
+              const btn = e.currentTarget
+              const pop = document.createElement('div')
+              pop.className = 'palette-pop'
+              ;['#c07d1e', '#8792a3', '#1f8fb5', '#3d63d2', '#7d4fd1', '#c2601a', '#25935b', '#cf4436', '#5a6472'].forEach((c) => {
+                const b = document.createElement('button')
+                b.style.background = c
+                b.onclick = () => {
+                  void api.updateColumn(col.id, { color: c }).then(reloadColumns)
+                  pop.remove()
+                }
+                pop.appendChild(b)
+              })
+              document.body.appendChild(pop)
+              const r = btn.getBoundingClientRect()
+              pop.style.left = `${r.left}px`
+              pop.style.top = `${r.bottom + 6}px`
+              const close = (ev: MouseEvent) => {
+                if (!pop.contains(ev.target as Node)) { pop.remove(); document.removeEventListener('mousedown', close) }
+              }
+              setTimeout(() => document.addEventListener('mousedown', close))
+            }}>
+            <span style={{ background: col.color, width: 8, height: 8, borderRadius: 3, display: 'block' }} />
+          </button>
+          <input className="colh-name" defaultValue={col.label}
+            onBlur={(e) => e.target.value !== col.label &&
+              void api.updateColumn(col.id, { label: e.target.value }).then(reloadColumns)} />
+          <span className="colh-key">{col.position}</span>
+          <button className="colh-x" title="Удалить колонку" onClick={() => {
+            void api.deleteColumn(col.id)
+              .then(() => { reloadColumns(); reload() })
+              .catch((err: Error) => toast(err.message, 'bad'))
+          }}>✕</button>
+        </div>
+      )
+    }
+    return (
+      <div key={col.id} className="col-head" style={{ ['--st' as string]: col.color }}>
+        <span className="cdot" /><b>{col.label}</b>
+        <span className="n num">{count}</span>
+      </div>
+    )
+  })
+
+  const addColumnGhost = editMode ? (
+    <div className="col-head ghost" onClick={() => {
+      const label = window.prompt('Название новой колонки')
+      if (label?.trim()) void api.createColumn({ label: label.trim() }).then(reloadColumns)
+    }}>＋ колонка</div>
+  ) : null
+
+  const storyBand = (story: TaskCard) => {
+    const kids = tasks.filter((t) => t.storyCode === story.code)
+    const closedKids = kids.filter((k) => ['done', 'canceled'].includes(k.statusKey)).length
+    return (
+      <div className={`lane-band clickable ${collapsed[story.code] ? '' : ''}`}
+        style={{ ['--st' as string]: STATUS_COLORS[story.statusKey] ?? '#8792a3' }}
+        onClick={() => setCollapsed((c) => ({ ...c, [story.code]: !c[story.code] }))}>
+        <span className="code">{story.code}</span>
+        <span className="t">{story.title}</span>
+        {stChip(story.statusKey)}
+        <span className="kidscnt num">{closedKids}/{kids.length} закрыто</span>
+        <span className="fill" />
+        <span className="chev">{collapsed[story.code] ? '▸' : '▾'}</span>
+      </div>
+    )
   }
 
   return (
-    <div className="board-wrap">
-      <div className="toolbar">
-        <button className={`btn ${editMode ? 'primary' : ''}`}
-          onClick={() => setEditMode(!editMode)}>
-          {editMode ? 'Готово' : '✎ Правка доски'}
-        </button>
-        {editMode && <button className="btn" onClick={addColumn}>＋ колонка</button>}
-        {hint && <div className="draghint">{hint}</div>}
-      </div>
-      <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
-        {/* полосы историй: на всю доску, дочерние — по колонкам под полосой (ФТ-ah-14) */}
-        {stories.map((story) => (
-          <section key={story.code} className="story-section">
-            <div className="story-band" onClick={() => setCollapsed((c) => ({ ...c, [story.code]: !c[story.code] }))}>
-              <span className="code">{story.code}</span>
-              <b>{story.title}</b>
-              <span className="chip">{story.statusKey}</span>
-              <span className="count">{childrenOf(story.code).length} дочерних</span>
-              <span>{collapsed[story.code] ? '▸' : '▾'}</span>
+    <>
+      {hint && <div className="draghint">{hint}</div>}
+      <section className="board-scroll" aria-label="Kanban-доска">
+        <div className={`board-grid ${editMode ? 'editing' : ''}`}>
+          {colHeads}
+          {addColumnGhost}
+          {stories.map((story) => (
+            <div key={story.code} className="lane">
+              {storyBand(story)}
+              {!collapsed[story.code] && <div className="lane-cells">{cellsHtml(tasks.filter((t) => t.storyCode === story.code))}</div>}
             </div>
-            {!collapsed[story.code] && (
-              <div className="board">{renderColumns(childrenOf(story.code))}</div>
-            )}
-          </section>
-        ))}
-        <div className="board">{renderColumns(loose)}</div>
-      </DndContext>
-    </div>
+          ))}
+          <div className="lane-cells">{cellsHtml(loose)}</div>
+        </div>
+      </section>
+    </>
   )
+
+  function reloadColumns() {
+    void api.aliasColumns().then((cols) =>
+      setColumns([...cols].sort((a, b) => a.position - b.position)))
+  }
 }
 
 async function applyDrop(code: string, columnLabel: string, reload: () => void) {
   const card = await api.task(code)
-  const key = LABEL_TO_KEY[columnLabel]
+  const key = KEY_BY_LABEL[columnLabel]
   if (!key) return
-  const candidate = card.gate?.allowed.find((to) => aliasOf(to) === key)
+  const candidate = card.gate?.allowed.find((to) => (ALIAS_OF[to] ?? to) === key)
   if (!candidate) {
-    const denied = card.gate?.denied.find((x) => aliasOf(x.to) === key)
-    alert(`Переход запрещён: ${denied?.reason ?? 'нет разрешённого ребра в эту колонку'}`)
+    const denied = card.gate?.denied.find((x) => (ALIAS_OF[x.to] ?? x.to) === key)
+    toast(`Переход запрещён: ${denied?.reason ?? 'нет ребра в эту колонку'}`, 'bad')
     return
   }
   const result = await api.transition(code, candidate)
-  if (!result.applied) alert(`Переход не применён: ${result.reason}`)
+  if (!result.applied) toast(`Переход не применён: ${result.reason}`, 'bad')
   else {
+    toast(`<b>${code}</b>: перевод в «${columnLabel}»`, 'ok')
     pushUndo({
-      label: `Перевод ${code} в ${columnLabel}`,
+      label: `Перевод ${code}`,
       undo: async () => {
         await api.force(code, card.statusKey, 'отмена правки (undo)').catch(() => {})
         reload()
