@@ -31,7 +31,7 @@ const STATUS_COLORS: Record<string, string> = {
 function cardHtml(t: TaskCard, merged: boolean): string {
   return `<article class="card ${t.statusKey === 'blocked' ? 'top' : ''}" draggable="true" data-code="${t.code}" style="--st:${STATUS_COLORS[t.statusKey] ?? '#8792a3'}">
     <div class="card-top">
-      <span class="code" data-open="${t.code}">${t.code}</span>
+      <span class="code" data-open-page="${t.code}">${t.code}</span>
       ${typeChip(t.type)}
       <span class="sp"></span>
       ${merged ? stChip(t.statusKey) : ''}
@@ -145,9 +145,14 @@ export function Board({ tasks, reload }: { tasks: TaskCard[]; reload: () => void
             }}
             onDragEnd={() => { setDragCode(null); document.body.classList.remove('is-dragging') }}
             onClick={(e) => {
-              const target = e.target as HTMLElement
-              const open = target.closest('[data-open]') ?? target.closest('.card')
-              if (open) window.location.hash = `#${t.code}`
+              // код задачи → полная страница; карточка → site-page поверх доски
+              if ((e.target as HTMLElement).closest('[data-open-page]')) {
+                window.location.hash = `#${t.code}/page`
+                return
+              }
+              if ((e.target as HTMLElement).closest('.card')) {
+                window.location.hash = `#${t.code}`
+              }
             }} />
         ))}
       </div>

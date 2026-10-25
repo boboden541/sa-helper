@@ -4,10 +4,13 @@
 import Image from '@tiptap/extension-image'
 import Link from '@tiptap/extension-link'
 import Table from '@tiptap/extension-table'
+import TableCell from '@tiptap/extension-table-cell'
+import TableHeader from '@tiptap/extension-table-header'
+import TableRow from '@tiptap/extension-table-row'
 import Underline from '@tiptap/extension-underline'
 import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { renderMarkdown } from '../markdown'
 import { htmlToMarkdown } from './serialize'
 
@@ -17,18 +20,26 @@ export interface RichTextProps {
 }
 
 export function RichText({ markdown, onChange }: RichTextProps) {
+  // редактирование не должно терять каретку: контент из пропа ставится только
+  // когда он пришёл извне (а не из нашего же onUpdate)
+  const lastEmitted = useRef(markdown)
   const editor = useEditor({
     extensions: [
       StarterKit, Underline, Link, Image,
-      Table.configure({ resizable: false }),
+      Table.configure({ resizable: false }), TableRow, TableHeader, TableCell,
     ],
     content: renderMarkdown(markdown),
-    onUpdate: ({ editor }) => onChange(htmlToMarkdown(editor.getHTML())),
+    onUpdate: ({ editor }) => {
+      const md = htmlToMarkdown(editor.getHTML())
+      lastEmitted.current = md
+      onChange(md)
+    },
   })
 
   useEffect(() => {
-    if (editor && markdown !== htmlToMarkdown(editor.getHTML())) {
+    if (editor && markdown !== lastEmitted.current) {
       editor.commands.setContent(renderMarkdown(markdown))
+      lastEmitted.current = markdown
     }
   }, [markdown]) // eslint-disable-line react-hooks/exhaustive-deps
 

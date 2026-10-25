@@ -22,6 +22,7 @@ const TYPE_FILTERS = [
 
 export function App() {
   const { view, theme, toggleTheme, applyHash, navigate, eveOpen, setEve } = useApp()
+  const isTaskPage = view === 'task' && window.location.hash.endsWith('/page')
   const [tasks, setTasks] = useState<TaskCard[]>([])
   const [query, setQuery] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
@@ -144,8 +145,10 @@ export function App() {
           </button>
         </header>
 
-        {view !== 'settings' && view !== 'task' && filters}
-        {view === 'board' && <Board tasks={tasks} reload={reload} />}
+        {view !== 'settings' && !isTaskPage && filters}
+        {(view === 'board' || (view === 'task' && !isTaskPage)) && (
+          <Board tasks={tasks} reload={reload} />
+        )}
         {view === 'list' && <ListView tasks={tasks} />}
         {view === 'task' && <TaskView />}
         {view === 'settings' && <Settings reload={reload} />}

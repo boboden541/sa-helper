@@ -72,7 +72,7 @@ async def patch_task_view(code: str, payload: TaskPatchIn,
                           session: AsyncSession = Depends(get_session),
                           actor: User = Depends(get_actor)):
     try:
-        result = await patch_task(session, actor, code, payload.model_dump(exclude_none=True),
+        result = await patch_task(session, actor, code, payload.model_dump(exclude_none=True, by_alias=True),
                                   if_updated_at=payload.if_updated_at)
     except ApiNotFound:
         raise ApiError(404, f"Задача {code} не найдена")

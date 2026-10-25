@@ -10,6 +10,8 @@ import { renderMarkdown } from '../../shared/markdown'
 import { parseChecklist, serializeChecklist, type ChecklistLine } from '../../shared/checklist'
 import { RichText } from '../../shared/editor/RichText'
 import { ALIAS_OF, esc, prioBadge, stChip, tagHtml, typeChip, xIcon, TYPE, S_LABEL } from '../../shared/refs'
+
+const PENCIL = '<svg width="13" height="13" viewBox="0 0 14 14"><path d="M9.7 1.8l2.5 2.5L4.5 12H2V9.5l7.7-7.7z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>'
 import { toast } from '../../shared/toast'
 
 function useTaskCode(): string | null {
@@ -129,7 +131,7 @@ function TaskBody({ code }: { code: string }) {
                 onBlur={() => void saveTitle()}
                 onKeyDown={(e) => e.key === 'Enter' && void saveTitle()} />
             : <h2>{card.title}
-                <button className="pencil" title="Переименовать" onClick={() => setEditingTitle(true)}>✎</button>
+                <button className="pencil" title="Переименовать" dangerouslySetInnerHTML={{ __html: PENCIL }} onClick={() => setEditingTitle(true)} />
               </h2>}
         </div>
         <div className="meta-row">
@@ -211,7 +213,7 @@ function TaskBody({ code }: { code: string }) {
 
       <div className="blk">
         <div className="blk-h"><h3>Описание</h3><span className="fill" />
-          {!editingDesc && <button className="pencil show" title="Редактировать" onClick={() => setEditingDesc(true)}>✎</button>}
+          {!editingDesc && <button className="pencil show" title="Редактировать" dangerouslySetInnerHTML={{ __html: PENCIL }} onClick={() => setEditingDesc(true)} />}
         </div>
         {editingDesc ? (
           <div className="desc-edit">
@@ -304,9 +306,10 @@ export function ChecklistBlock({ code, kind, title }: { code: string; kind: stri
     <div className="blk">
       <div className="blk-h">
         <h3>{title}</h3>
+        <span className="muted">владелец: {kind === "developer" ? "разработчик" : kind === "reviewer" ? "ревьюер" : "тестировщик"}</span>
         <span className="bar"><i style={{ width: items.length ? `${(closed / items.length) * 100}%` : '0%' }} /></span>
         <span className="progr">{closed}/{items.length}</span>
-        <button className="pencil" title="Текстовый режим" onClick={() => { setDraft(serializeChecklist(lines)); setTextMode(!textMode) }}>⌨</button>
+        <button className="pencil" title="Текстовый режим (markdown со статусами)" aria-label="Текстовый режим" dangerouslySetInnerHTML={{ __html: PENCIL }} onClick={() => { setDraft(serializeChecklist(lines)); setTextMode(!textMode) }} />
       </div>
       {textMode ? (
         <div className="cl-text">
