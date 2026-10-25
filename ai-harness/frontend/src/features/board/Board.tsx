@@ -34,7 +34,6 @@ function cardHtml(t: TaskCard): string {
       <span class="code" data-open="${t.code}">${t.code}</span>
       ${typeChip(t.type)}
       <span class="sp"></span>
-      ${''}
       ${prioBadge(t.priority)}
     </div>
     <div class="card-title">${esc(t.title)}</div>
@@ -134,7 +133,6 @@ export function Board({ tasks, reload }: { tasks: TaskCard[]; reload: () => void
               if (open) window.location.hash = `#${t.code}`
             }} />
         ))}
-        {editMode && bucket.length === 0 && <div className="ghost" />}
       </div>
     )
   })
@@ -206,7 +204,7 @@ export function Board({ tasks, reload }: { tasks: TaskCard[]; reload: () => void
         onClick={() => setCollapsed((c) => ({ ...c, [story.code]: !c[story.code] }))}>
         <span className="code">{story.code}</span>
         <span className="t">{story.title}</span>
-        {stChip(story.statusKey)}
+        <span dangerouslySetInnerHTML={{ __html: stChip(story.statusKey) }} />
         <span className="kidscnt num">{closedKids}/{kids.length} закрыто</span>
         <span className="fill" />
         <span className="chev">{collapsed[story.code] ? '▸' : '▾'}</span>

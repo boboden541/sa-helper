@@ -376,6 +376,40 @@ async def agents_create(payload: AgentIn, session: AsyncSession = Depends(get_se
     return {"id": str(user.id), "name": user.name}
 
 
+@router.post("/agents/{agent_id}/clone")
+async def agents_clone(agent_id: str, session: AsyncSession = Depends(get_session),
+                       actor: User = Depends(get_actor)):
+    """Быстрый старт: клон агента — копия скилла для правки под свою роль (ФТ-ah-62)."""
+    import uuid as uuid_mod
+
+    import sqlalchemy as sa
+
+    from repository.models import AgentProfile
+
+    src_user = await session.get(User, uuid_mod.UUID(agent_id))
+    src_profile = (await session.execute(
+        sa.select(AgentProfile).where(AgentProfile.user_id == src_user.id)
+    )).scalar_one_or_none() if src_user else None
+    if src_profile is None:
+        raise ApiError(404, "Агент не найден")
+    base = f"{src_user.name} (копия)"
+    name = base
+    n = 2
+    while (await session.execute(sa.select(sa.func.count()).select_from(User)
+                                 .where(User.name == name))).scalar_one():
+        name = f"{base} {n}"
+        n += 1
+    user = User(name=name, user_type="agent")
+    session.add(user)
+    await session.flush()
+    session.add(AgentProfile(user_id=user.id, role=src_profile.role,
+                             skill_md=src_profile.skill_md,
+                             connection_id=src_profile.connection_id,
+                             is_preset=False))
+    await session.commit()
+    return {"id": str(user.id), "name": name}
+
+
 @router.patch("/agents/{agent_id}")
 async def agents_update(agent_id: str, payload: AgentIn,
                         session: AsyncSession = Depends(get_session),

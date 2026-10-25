@@ -133,7 +133,7 @@ function TaskBody({ code }: { code: string }) {
               </h2>}
         </div>
         <div className="meta-row">
-          {stChip(card.statusKey)}
+          <span dangerouslySetInnerHTML={{ __html: stChip(card.statusKey) }} />
           <span className="meta-item" dangerouslySetInnerHTML={{ __html: prioBadge(card.priority, true) }} />
           {card.storyCode && (
             <span className="meta-item"><span className="lbl">История</span>
@@ -141,7 +141,7 @@ function TaskBody({ code }: { code: string }) {
                 <span className="code">{card.storyCode}</span></span></span>)}
           <span className="meta-item"><span className="lbl">Создана</span> <time>{card.createdAt?.slice(0, 16).replace('T', ' ')}</time></span>
           <span className="meta-item"><span className="lbl">Обновлена</span> <time>{card.updatedAt?.slice(0, 16).replace('T', ' ')}</time></span>
-          <span className="meta-item">{typeChip(card.type)}</span>
+          <span className="meta-item" dangerouslySetInnerHTML={{ __html: typeChip(card.type) }} />
           {card.agent && <span className="meta-item"><span className="dot pulse" style={{ background: '#7d4fd1' }} /> в работе у {card.agent.name}</span>}
         </div>
         <div className="card-tags mt8">{(card.tags ?? []).map((t) => (
