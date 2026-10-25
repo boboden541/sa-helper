@@ -129,6 +129,53 @@ async def flow_reset(type_key: str, session: AsyncSession = Depends(get_session)
     return {"version": fv.version}
 
 
+class TaskTypeIn(BaseModel):
+    key: str
+    label: str
+    clone_from: str = Field(default="common_task", alias="cloneFrom")
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+
+@router.post("/task-types")
+async def task_types_create(payload: TaskTypeIn,
+                            session: AsyncSession = Depends(get_session),
+                            actor: User = Depends(get_actor)):
+    """Мастер «+ тип задачи»: тип + flow из пресета-основы, без программирования (ФТ-ah-57)."""
+    import re
+
+    import sqlalchemy as sa
+    import yaml
+
+    from db.seeds.flow_seed import PRESETS_DIR, publish_preset
+    from domain.model.validators import DomainError
+    from repository.models import TaskType
+
+    if not re.match(r"^[a-z0-9_]+$", payload.key or ""):
+        raise ApiError(400, "Ключ типа: строчные латиница, цифры, _")
+    if (await session.execute(sa.select(sa.func.count()).select_from(TaskType)
+                              .where(TaskType.key == payload.key))).scalar_one():
+        raise ApiError(400, f"Тип {payload.key!r} уже существует")
+    base = (await session.execute(sa.select(TaskType)
+            .where(TaskType.key == payload.clone_from))).scalar_one_or_none()
+    if base is None:
+        raise ApiError(400, f"Пресет-основа {payload.clone_from!r} не найдена")
+    preset_path = PRESETS_DIR / f"{payload.clone_from}.yaml"
+    if not preset_path.exists():
+        raise ApiError(400, "Встроенный пресет-основа не найден")
+
+    ttype = TaskType(key=payload.key, label=payload.label.strip()[:64] or payload.key,
+                     is_builtin=False)
+    session.add(ttype)
+    await session.flush()
+    definition = yaml.safe_load(preset_path.read_text(encoding="utf-8"))
+    try:
+        await publish_preset(session, ttype, definition, actor)
+    except DomainError as err:
+        raise ApiError(400, err.message)
+    await session.commit()  # publish_preset только готовит изменения — фиксируем здесь
+    return {"key": ttype.key, "label": ttype.label}
+
+
 # ---------- alias-колонки ----------
 
 @router.get("/alias-columns")

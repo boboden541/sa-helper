@@ -5,6 +5,10 @@ WORKDIR /app
 COPY pyproject.toml ./
 COPY backend/src ./backend/src
 COPY daemon ./daemon
+COPY db ./db
+
+# db.seeds.flow_seed (пресеты flow) импортируется контуром «+ тип задачи»
+ENV PYTHONPATH="/app/backend/src:/app"
 
 RUN pip install --no-cache-dir .
 

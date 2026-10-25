@@ -238,3 +238,15 @@ async def test_matrix_get_roundtrip(client, session):
     assert r.status_code == 200
     entries = r.json()["matrix"].get("in_review", [])
     assert any(e["name"] == "Ревьюер-1" and e["mode"] == "parallel" for e in entries)
+
+
+async def test_task_type_wizard_creates_type_and_flow(client, session):
+    """Мастер «+ тип задачи»: тип + опубликованный flow из пресета (ФТ-ah-57)."""
+    r = await client.post("/api/v1/task-types", json={
+        "key": "wizard_test", "label": "Визард-тип", "cloneFrom": "qa_task"})
+    assert r.status_code == 200, r.text
+    flow = (await client.get("/api/v1/flows/wizard_test")).json()
+    assert flow["version"] >= 1 and len(flow["statuses"]) >= 5
+    r2 = await client.post("/api/v1/task-types", json={
+        "key": "wizard_test", "label": "Дубль", "cloneFrom": "qa_task"})
+    assert r2.status_code == 400

@@ -7,6 +7,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'
+import { TYPE } from '../../shared/refs'
 import { pushUndo } from '../../shared/undo'
 import { toast } from '../../shared/toast'
 
@@ -78,6 +79,12 @@ function FlowEditor({ reload }: { reload: () => void }) {
   const canvasRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ key: string; dx: number; dy: number } | null>(null)
   const connRef = useRef<{ from: string; x: number; y: number } | null>(null)
+  const [trAddFor, setTrAddFor] = useState<string | null>(null)
+  const [newColumnMode, setNewColumnMode] = useState(false)
+  const [newColumnName, setNewColumnName] = useState('')
+  const [colsOpen, setColsOpen] = useState(false)
+  const [wizard, setWizard] = useState(false)
+  const [assignees, setAssignees] = useState<Record<string, string[]>>({})
   const [, forceTick] = useState(0)
 
   const reloadFlow = () => {
@@ -86,6 +93,9 @@ function FlowEditor({ reload }: { reload: () => void }) {
       setPositions(loadPositions(typeKey, d.statuses.map((s) => s.key)))
     })
     void api.aliasColumns().then(setColumns)
+    void api.matrix(typeKey).then((m) => setAssignees(
+      Object.fromEntries(Object.entries(m.matrix).map(([k, list]) =>
+        [k, list.map((e: { name: string }) => e.name)]))))
   }
   useEffect(reloadFlow, [typeKey])
 
@@ -122,6 +132,15 @@ function FlowEditor({ reload }: { reload: () => void }) {
     setData((d) => d && { ...d, transitions: d.transitions.map((t, i) => i === idx ? { ...t, ...patch } : t) })
     setDirty(true)
   }
+  const addEdgeRunner = (from: string, to: string, runner: string) => {
+    if (data.transitions.some((t) => t.from === from && t.to === to)) {
+      setNote({ text: 'Такой переход уже существует — дубликаты отклоняются', bad: true })
+      return
+    }
+    setData((d) => d && { ...d, transitions: [...d.transitions, { from, to, runner, display: 'Ручное вмешательство' }] })
+    setDirty(true)
+  }
+
   const addEdge = (from: string, to: string) => {
     if (data.transitions.some((t) => t.from === from && t.to === to)) {
       setNote({ text: 'Такой переход уже существует — дубликаты отклоняются', bad: true })
@@ -197,6 +216,8 @@ function FlowEditor({ reload }: { reload: () => void }) {
         </div>
         {note && <div className={`check-row ${note.bad ? 'err' : 'ok'}`}>{note.bad ? '✗ ' : '✓ '}{note.text}</div>}
       </div>
+      {colsOpen && <ColumnManager onClose={() => { setColsOpen(false); reloadFlow() }} />}
+      {wizard && <TypeWizard onClose={() => { setWizard(false); reload() }} onCreated={(k) => { setTypeKey(k); setWizard(false); reloadFlow() }} />}
 
       <div className="flow-toolbar">
         <div className="seg">
@@ -204,20 +225,24 @@ function FlowEditor({ reload }: { reload: () => void }) {
             <button key={k} className={typeKey === k ? 'active' : ''} onClick={() => setTypeKey(k)}>{l}</button>
           ))}
         </div>
-        <div className="seg">
+        <div className="mode-tabs">
           <button className={mode === 'graph' ? 'active' : ''} onClick={() => setMode('graph')}>Граф</button>
           <button className={mode === 'table' ? 'active' : ''} onClick={() => setMode('table')}>Таблица</button>
         </div>
+        <span className="st-chip" style={{ ['--st' as string]: '#3d63d2' }}>
+          <span className="sdot" />{TYPE[typeKey]?.label ?? typeKey} · v{data.version}
+        </span>
         {mode === 'graph' && (
-          <div className="zoomctl">
+          <span className="zoomctl" title="Масштаб холста">
             <button onClick={() => setZoom((z) => Math.max(0.5, +(z - 0.1).toFixed(2)))}>−</button>
-            <b>{Math.round(zoom * 100)}%</b>
-            <button onClick={() => setZoom((z) => Math.min(1.5, +(z + 0.1).toFixed(2)))}>+</button>
-            <button onClick={() => setZoom(1)}>⟲</button>
-          </div>
+            <b className="num">{Math.round(zoom * 100)}%</b>
+            <button onClick={() => setZoom((z) => Math.min(1.5, +(z + 0.1).toFixed(2)))}>＋</button>
+          </span>
         )}
         <span className="sp" />
-        <span className="muted">{data.statuses.length} статусов · {data.transitions.length} переходов{dirty ? ' · есть правки' : ''}</span>
+        <button className="btn small" onClick={() => setColsOpen(true)}>Колонки доски</button>
+        <button className="btn small" onClick={() => setWizard(true)}>+ тип задачи</button>
+        <button className="btn small primary" onClick={() => void doPublish()}>Проверить и опубликовать</button>
       </div>
 
       {mode === 'graph' ? (
@@ -268,27 +293,59 @@ function FlowEditor({ reload }: { reload: () => void }) {
           <div className="flow-panel">
             {selectedStatus && (
               <>
-                <div className="q-sec">Статус</div>
-                <div className="f-field"><label>Название</label>
-                  <input value={selectedStatus.label}
+                <div className="blk-h"><h3>Статус flow</h3><span className="fill" />
+                  <button className="icon-btn" aria-label="Закрыть" style={{ width: 22, height: 22 }} onClick={() => setSel(null)}>✕</button></div>
+                <div className="f-field"><label>Ключ (не меняется)</label>
+                  <input className="mono" value={selectedStatus.key} disabled /></div>
+                <div className="f-field"><label>Название на интерфейсе</label>
+                  <input value={selectedStatus.label} maxLength={64}
                     onChange={(e) => setStatusField(selectedStatus.key, { label: e.target.value })} /></div>
-                <div className="f-field"><label>Ключ (неизменен)</label>
-                  <input value={selectedStatus.key} disabled /></div>
-                <div className="f-field"><label>Описание этапа</label>
+                <div className="f-field"><label>Что происходит на этом этапе</label>
                   <textarea rows={3} value={selectedStatus.stageDesc ?? ''}
                     onChange={(e) => setStatusField(selectedStatus.key, { stageDesc: e.target.value })} /></div>
+                <div className="f-field"><label>Кто работает на статусе</label>
+                  <div>
+                    {(assignees[selectedStatus.key] ?? []).length
+                      ? (assignees[selectedStatus.key] ?? []).map((n) => <span key={n} className="mini-chip mc-violet">{n}</span>)
+                      : <span className="muted">не назначено</span>}
+                  </div>
+                  <button className="link" style={{ fontSize: 12, marginTop: 4 }}
+                    onClick={() => { window.location.hash = '#settings/agents' }}>изменить в матрице назначений →</button>
+                </div>
                 <div className="f-field"><label>Чеклист-гейт</label>
                   <select value={selectedStatus.gate ?? ''} onChange={(e) => setStatusField(selectedStatus.key, { gate: e.target.value || undefined })}>
                     <option value="">без гейта</option>
-                    <option value="developer">разработчика</option>
-                    <option value="reviewer">ревьюера</option>
-                    <option value="tester">тестировщика</option>
+                    <option value="developer">чеклист разработчика</option>
+                    <option value="reviewer">чеклист ревьюера</option>
+                    <option value="tester">чеклист тестировщика</option>
                   </select></div>
-                <div className="f-field"><label>Alias-колонка</label>
-                  <select value={selectedStatus.aliasColumnId ?? ''} onChange={(e) => setStatusField(selectedStatus.key, { aliasColumnId: e.target.value })}>
-                    <option value="">— не на доске (предупреждение) —</option>
+                <div className="f-field"><label>Alias-колонка на доске</label>
+                  <select value={newColumnMode ? '__new' : (selectedStatus.aliasColumnId ?? '')}
+                    onChange={async (e) => {
+                      if (e.target.value === '__new') { setNewColumnMode(true); return }
+                      setNewColumnMode(false)
+                      const colId = e.target.value
+                      if (colId) { setStatusField(selectedStatus.key, { aliasColumnId: colId }); return }
+                      setStatusField(selectedStatus.key, { aliasColumnId: '' })
+                    }}>
+                    <option value="">— не назначена —</option>
                     {columns.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-                  </select></div>
+                    <option value="__new">＋ новая колонка…</option>
+                  </select>
+                  {newColumnMode && (
+                    <div className="flex mt8">
+                      <input className="cm-name" placeholder="Название новой колонки" value={newColumnName}
+                        onChange={(e) => setNewColumnName(e.target.value)} />
+                      <button className="btn small" onClick={async () => {
+                        if (!newColumnName.trim()) return
+                        const res = await api.createColumn({ label: newColumnName.trim() })
+                        setColumns((c) => [...c, { id: res.id, label: newColumnName.trim() }])
+                        setStatusField(selectedStatus.key, { aliasColumnId: res.id })
+                        setNewColumnMode(false); setNewColumnName('')
+                      }}>Создать</button>
+                    </div>
+                  )}
+                </div>
                 <label className="f-check"><input type="checkbox" checked={selectedStatus.entry}
                   onChange={(e) => setStatusField(selectedStatus.key, { entry: e.target.checked })} /> точка входа</label>
                 <label className="f-check"><input type="checkbox" checked={selectedStatus.terminal}
@@ -328,32 +385,54 @@ function FlowEditor({ reload }: { reload: () => void }) {
           </div>
         </div>
       ) : (
-        <table className="tasks mx">
-          <thead><tr><th className="mx-c1">Статус</th><th>Что происходит на этом статусе</th><th className="mx-c3">Возможные переходы</th><th className="mx-c4">Как происходит переход</th></tr></thead>
-          <tbody>
-            {data.statuses.map((s) => (
-              <tr key={s.key}>
-                <td><b>{s.label}</b><br /><span className="key mono muted">{s.key}</span></td>
-                <td>{s.stageDesc ?? ''}{s.gate && <span className="mini-chip mc-violet" style={{ marginLeft: 6 }}>гейт: {s.gate}</span>}</td>
-                <td className="tr-cell">
-                  {data.transitions.filter((t) => t.from === s.key).map((t) => (
-                    <span key={`${t.from}${t.to}`} className="tr-chip">
-                      <span className="mini-chip">{t.to}</span>
-                      <button className="tr-x" title="Удалить переход" onClick={() => {
-                        setData((d) => d && { ...d, transitions: d.transitions.filter((x) => !(x.from === t.from && x.to === t.to)) })
-                        setDirty(true)
-                      }}>✕</button>
-                    </span>
-                  ))}
-                  <TrAdd statuses={data.statuses.map((x) => x.key)} from={s.key}
-                    existing={data.transitions.filter((t) => t.from === s.key).map((t) => t.to)}
-                    onAdd={(to) => addEdge(s.key, to)} />
-                </td>
-                <td><span className="muted">{autoBadge(s.key, data)}</span></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="flow-canvas flow-table">
+          <table className="tasks">
+            <thead><tr>
+              <th>Статус</th><th>Что происходит на этапе</th><th>Кто работает</th>
+              <th>Чеклист-гейт</th><th>Возможные переходы</th><th>Alias-колонка</th>
+            </tr></thead>
+            <tbody>
+              {data.statuses.map((s) => {
+                const outs = data.transitions.map((t, idx) => ({ t, idx })).filter(({ t }) => t.from === s.key)
+                const who = assignees[s.key] ?? []
+                const col = columns.find((c) => c.id === s.aliasColumnId)
+                return (
+                  <tr key={s.key} style={{ cursor: 'pointer' }} onClick={() => setSel({ kind: 'status', key: s.key })}>
+                    <td><b>{s.label}</b> <span className="key mono muted">{s.key}</span></td>
+                    <td className="muted">{s.stageDesc ?? ''}</td>
+                    <td>{who.length ? who.map((n) => <span key={n} className="mini-chip mc-violet">{n}</span>) : <span className="muted">—</span>}</td>
+                    <td>{s.gate ? <span className="mini-chip mc-accent">{s.gate}</span> : <span className="muted">—</span>}</td>
+                    <td className="tr-cell" onClick={(e) => e.stopPropagation()}>
+                      {outs.map(({ t, idx }) => (
+                        <span key={idx} className="mini-chip tr-chip" title={t.runner}>
+                          → {data.statuses.find((x) => x.key === t.to)?.label ?? t.to}
+                          <button className="tr-x" aria-label={`Убрать переход «${t.to}»`} onClick={() => {
+                            setData((d) => d && { ...d, transitions: d.transitions.filter((_, i) => i !== idx) })
+                            setDirty(true)
+                          }}>✕</button>
+                        </span>
+                      )) || null}
+                      {outs.length === 0 && <span className="muted">—</span>}
+                      <button className="btn small" disabled={s.terminal}
+                        title={s.terminal ? 'У терминального статуса нет исходящих переходов' : undefined}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setTrAddFor(s.key)
+                        }}>{outs.length ? '+' : '＋ переход'}</button>
+                      {trAddFor === s.key && (
+                        <TrAddPopover statuses={data.statuses} from={s.key}
+                          existing={data.transitions.filter((t) => t.from === s.key).map((t) => t.to)}
+                          onAdd={(to, runner) => { addEdgeRunner(s.key, to, runner); setTrAddFor(null) }}
+                          onClose={() => setTrAddFor(null)} />
+                      )}
+                    </td>
+                    <td>{col ? col.label : <span style={{ color: 'var(--danger)' }}>—</span>}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   )
@@ -370,22 +449,56 @@ function autoBadge(key: string, data: FlowData): string {
   return parts.join(' / ')
 }
 
-function TrAdd({ statuses, from, existing, onAdd }: {
-  statuses: string[]; from: string; existing: string[]; onAdd: (to: string) => void
+function edgeRunnerDefault(from: string, to: string): string {
+  if (to === 'canceled') return 'human'
+  if (from === 'pending' || from === 'backlog') return 'human'
+  if (to === 'in_progress' || to === 'review_ready' || to === 'qa_ready' || to === 'in_review' || to === 'in_testing') return 'agent'
+  if (to === 'done') return 'agent'
+  if (to === 'blocked') return 'auto_or_agent'
+  return 'human'
+}
+const RUNNER_LABELS: [string, string][] = [
+  ['human', 'Человек'], ['agent', 'Агент'], ['auto', 'Автомат'], ['auto_or_agent', 'Автомат или агент'],
+]
+
+function TrAddPopover({ statuses, from, existing, onAdd, onClose }: {
+  statuses: { key: string; label: string; terminal: boolean }[]
+  from: string
+  existing: string[]
+  onAdd: (to: string, runner: string) => void
+  onClose: () => void
 }) {
-  const [open, setOpen] = useState(false)
+  const targets = statuses.filter((x) => x.key !== from && !existing.includes(x.key))
+  const [to, setTo] = useState(targets[0]?.key ?? '')
+  const [runner, setRunner] = useState(edgeRunnerDefault(from, targets[0]?.key ?? ''))
+  if (!targets.length) {
+    return (
+      <div className="tr-pop">
+        <div className="muted" style={{ padding: '4px 2px' }}>Все возможные направления уже заданы.</div>
+        <div className="edit-actions"><button className="btn small" onClick={onClose}>Закрыть</button></div>
+      </div>
+    )
+  }
   return (
-    <span style={{ position: 'relative', display: 'inline-block' }}>
-      <button className="mini-chip mc-accent" onClick={() => setOpen(!open)}>＋ переход</button>
-      {open && (
-        <div className="tr-pop">
-          <div className="muted" style={{ marginBottom: 6 }}>Куда:</div>
-          {statuses.filter((s) => s !== from && !existing.includes(s)).map((s) => (
-            <button key={s} className="btn small" style={{ margin: 2 }} onClick={() => { onAdd(s); setOpen(false) }}>{s}</button>
-          ))}
-        </div>
-      )}
-    </span>
+    <div className="tr-pop" onClick={(e) => e.stopPropagation()}>
+      <div className="f-field" style={{ marginBottom: 8 }}><label>Куда — направление: {from} → …</label>
+        <select value={to} onChange={(e) => { setTo(e.target.value); setRunner(edgeRunnerDefault(from, e.target.value)) }}>
+          {targets.map((x) => <option key={x.key} value={x.key}>{x.label}</option>)}
+        </select>
+      </div>
+      <div className="f-field" style={{ marginBottom: 8 }}><label>Кто запускает</label>
+        <select value={runner} onChange={(e) => setRunner(e.target.value)}>
+          {RUNNER_LABELS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+      </div>
+      <div className="edit-actions">
+        <button className="btn small primary" onClick={() => onAdd(to, runner)}>Добавить</button>
+        <button className="btn small" onClick={onClose}>Отмена</button>
+      </div>
+      <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
+        Условия перехода (чеклист-гейт, блокеры, артефакт) настраиваются после добавления — в графе или через клик по статусу.
+      </div>
+    </div>
   )
 }
 
@@ -752,6 +865,92 @@ function Journal() {
         </div>
       ))}
       {rows.length === 0 && <div className="empty"><b>Журнал пуст</b>правки настроек появятся здесь</div>}
+    </div>
+  )
+}
+
+
+/* ==================== Менеджер колонок доски ==================== */
+
+function ColumnManager({ onClose }: { onClose: () => void }) {
+  const [cols, setCols] = useState<{ id: string; label: string; color: string; position: number }[]>([])
+  const [usage, setUsage] = useState<Record<string, number>>({})
+  const [newLabel, setNewLabel] = useState('')
+  const reload = () => {
+    void api.aliasColumns().then((c) => setCols([...c].sort((a, b) => a.position - b.position)))
+  }
+  useEffect(reload, [])
+
+  return (
+    <div className="colmap-panel" aria-label="Колонки доски">
+      <div className="blk-h"><h3>Колонки доски</h3><span className="fill" />
+        <button className="icon-btn" onClick={onClose}>✕</button></div>
+      <div className="col-mgr">
+        {cols.map((c) => (
+          <div key={c.id} className="cm-row">
+            <span className="cdot" style={{ background: c.color }} />
+            <input className="cm-name" defaultValue={c.label}
+              onBlur={(e) => e.target.value !== c.label &&
+                void api.updateColumn(c.id, { label: e.target.value }).then(reload)} />
+            <button className="colh-x" title="Удалить" onClick={async () => {
+              try {
+                await api.deleteColumn(c.id); reload()
+              } catch (err) { toast((err as Error).message, 'bad') }
+            }}>✕</button>
+          </div>
+        ))}
+      </div>
+      <div className="cl-add">
+        <input placeholder="Новая колонка…" value={newLabel}
+          onChange={(e) => setNewLabel(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && newLabel.trim()) {
+              void api.createColumn({ label: newLabel.trim() }).then(() => { setNewLabel(''); reload() })
+            }
+          }} />
+      </div>
+      <div className="muted mt8">Колонка без статусов удаляется автоматически; статус живёт ровно в одной колонке.</div>
+    </div>
+  )
+}
+
+/* ==================== Мастер нового типа задач ==================== */
+
+function TypeWizard({ onClose, onCreated }: { onClose: () => void; onCreated: (key: string) => void }) {
+  const [key, setKey] = useState('')
+  const [label, setLabel] = useState('')
+  const [cloneFrom, setCloneFrom] = useState('common_task')
+  const [note, setNote] = useState<string | null>(null)
+
+  const create = async () => {
+    const res = await fetch('/api/v1/task-types', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, label, cloneFrom }),
+    })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) { setNote(body.message); return }
+    toast(`Тип «${label}» создан, flow опубликован`, 'ok')
+    onCreated(key)
+  }
+
+  return (
+    <div className="colmap-panel" aria-label="Новый тип задач">
+      <div className="blk-h"><h3>Новый тип задач</h3><span className="fill" />
+        <button className="icon-btn" onClick={onClose}>✕</button></div>
+      <div className="f-field"><label>Ключ (строчные латиница, цифры, _)</label>
+        <input className="mono" value={key} onChange={(e) => setKey(e.target.value.toLowerCase())} /></div>
+      <div className="f-field"><label>Название на интерфейсе</label>
+        <input value={label} onChange={(e) => setLabel(e.target.value)} /></div>
+      <div className="f-field"><label>Собрать из пресета</label>
+        <select value={cloneFrom} onChange={(e) => setCloneFrom(e.target.value)}>
+          {FLOW_TYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+        </select></div>
+      {note && <div className="check-row err">{note}</div>}
+      <div className="edit-actions">
+        <button className="btn primary small" onClick={() => void create()}>Создать тип</button>
+        <button className="btn small" onClick={onClose}>Отмена</button>
+      </div>
+      <div className="muted mt8">Автомат подхватит новый тип сам: сборка flow из пресета, задачи — в alias-колонках.</div>
     </div>
   )
 }

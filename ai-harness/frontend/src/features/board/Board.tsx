@@ -28,12 +28,13 @@ const STATUS_COLORS: Record<string, string> = {
   done: '#25935b', canceled: '#8792a3', blocked: '#cf4436',
 }
 
-function cardHtml(t: TaskCard): string {
+function cardHtml(t: TaskCard, merged: boolean): string {
   return `<article class="card ${t.statusKey === 'blocked' ? 'top' : ''}" draggable="true" data-code="${t.code}" style="--st:${STATUS_COLORS[t.statusKey] ?? '#8792a3'}">
     <div class="card-top">
       <span class="code" data-open="${t.code}">${t.code}</span>
       ${typeChip(t.type)}
       <span class="sp"></span>
+      ${merged ? stChip(t.statusKey) : ''}
       ${prioBadge(t.priority)}
     </div>
     <div class="card-title">${esc(t.title)}</div>
@@ -41,6 +42,14 @@ function cardHtml(t: TaskCard): string {
     ${t.agent ? `<div class="agent"><span class="dot pulse" style="background:#7d4fd1"></span>${esc(t.agent.name)}</div>` : ''}
     ${t.statusKey === 'blocked' ? `<div class="card-sub">✕ Требуется человек: ${esc(t.blockedReason ?? '')}</div>` : ''}
   </article>`
+}
+
+function plural(n: number): string {
+  const mod10 = n % 10
+  const mod100 = n % 100
+  if (mod10 === 1 && mod100 !== 11) return 'задача'
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'задачи'
+  return 'задач'
 }
 
 export function Board({ tasks, reload }: { tasks: TaskCard[]; reload: () => void }) {
@@ -100,12 +109,18 @@ export function Board({ tasks, reload }: { tasks: TaskCard[]; reload: () => void
 
   const cellsHtml = (items: TaskCard[]) => columns.map((col) => {
     const key = KEY_BY_LABEL[col.label] ?? ''
-    const bucket = byAlias(items, key)
+    const bucket = [...byAlias(items, key)].sort((a, b) => {
+      const rank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
+      const sa = (rank[a.priority] ?? 9) * 10 + (a.type === 'bug' ? 4 : 0)
+      const sb = (rank[b.priority] ?? 9) * 10 + (b.type === 'bug' ? 4 : 0)
+      return sa !== sb ? sb - sa : a.code.localeCompare(b.code)
+    })
     const isOk = Boolean(okAliases[key])
     const isOver = overLabel === col.label
+    const dragging = Boolean(dragCode)
     return (
       <div key={col.id} className={`cell ${isOk ? 'ok' : ''} ${isOver ? 'over' : ''}`}
-        style={{ ['--colc' as string]: col.color }}
+        style={{ ['--colc' as string]: bucket.length || dragging ? col.color : 'transparent' }}
         data-drop={col.label}
         onDragOver={(e) => {
           if (!dragCode) return
@@ -120,7 +135,9 @@ export function Board({ tasks, reload }: { tasks: TaskCard[]; reload: () => void
           setDragCode(null)
         }}>
         {bucket.map((t) => (
-          <div key={t.code} dangerouslySetInnerHTML={{ __html: cardHtml(t) }}
+          <div key={t.code} dangerouslySetInnerHTML={{
+            __html: cardHtml(t, key === 'review' || key === 'testing'),
+          }}
             onDragStart={(e) => {
               setDragCode(t.code)
               document.body.classList.add('is-dragging')
@@ -195,22 +212,21 @@ export function Board({ tasks, reload }: { tasks: TaskCard[]; reload: () => void
     }}>＋ колонка</div>
   ) : null
 
-  const storyBand = (story: TaskCard) => {
-    const kids = tasks.filter((t) => t.storyCode === story.code)
-    const closedKids = kids.filter((k) => ['done', 'canceled'].includes(k.statusKey)).length
-    return (
-      <div className={`lane-band clickable ${collapsed[story.code] ? '' : ''}`}
-        style={{ ['--st' as string]: STATUS_COLORS[story.statusKey] ?? '#8792a3' }}
-        onClick={() => setCollapsed((c) => ({ ...c, [story.code]: !c[story.code] }))}>
-        <span className="code">{story.code}</span>
-        <span className="t">{story.title}</span>
-        <span dangerouslySetInnerHTML={{ __html: stChip(story.statusKey) }} />
-        <span className="kidscnt num">{closedKids}/{kids.length} закрыто</span>
-        <span className="fill" />
-        <span className="chev">{collapsed[story.code] ? '▸' : '▾'}</span>
-      </div>
-    )
-  }
+  const storyBand = (story: TaskCard, closedKids: number, kidCount: number) => (
+    <div className="lane-band clickable" title="История движется автоматически по правилам M1–M6"
+      style={{ ['--st' as string]: STATUS_COLORS[story.statusKey] ?? '#8792a3' }}
+      onClick={() => setCollapsed((c) => ({ ...c, [story.code]: !c[story.code] }))}>
+      <button className="chev" aria-label={collapsed[story.code] ? 'Развернуть историю' : 'Свернуть историю'}>
+        <svg width="12" height="12" viewBox="0 0 12 12" style={{ transform: collapsed[story.code] ? 'rotate(-90deg)' : 'none' }}><path d="M2.5 4l3.5 4 3.5-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+      </button>
+      <span className="code">{story.code}</span>
+      <span className="t">{story.title}</span>
+      <span dangerouslySetInnerHTML={{ __html: stChip(story.statusKey) }} />
+      <span className="kidscnt num">{closedKids}/{kidCount} {plural(kidCount)}</span>
+      <span className="fill" />
+      <span dangerouslySetInnerHTML={{ __html: prioBadge(story.priority) }} />
+    </div>
+  )
 
   return (
     <>
@@ -219,13 +235,27 @@ export function Board({ tasks, reload }: { tasks: TaskCard[]; reload: () => void
         <div className={`board-grid ${editMode ? 'editing' : ''}`}>
           {colHeads}
           {addColumnGhost}
-          {stories.map((story) => (
-            <div key={story.code} className="lane">
-              {storyBand(story)}
-              {!collapsed[story.code] && <div className="lane-cells">{cellsHtml(tasks.filter((t) => t.storyCode === story.code))}</div>}
+          {stories.map((story) => {
+            const kids = tasks.filter((t) => t.storyCode === story.code)
+            const closedKids = kids.filter((k) => ['done', 'canceled'].includes(k.statusKey)).length
+            return (
+              <div key={story.code} className="lane">
+                {storyBand(story, closedKids, kids.length)}
+                {!collapsed[story.code] && <div className="lane-cells">{cellsHtml(kids)}</div>}
+              </div>
+            )
+          })}
+          {loose.length > 0 && (
+            <div className="lane">
+              <div className="lane-band" style={{ ['--st' as string]: '#8792a3' }}>
+                <span className="chev" style={{ visibility: 'hidden' }} />
+                <span className="t" style={{ color: 'var(--text3)' }}>Без истории</span>
+                <span className="kidscnt num">{loose.length} {plural(loose.length)}</span>
+                <span className="fill" />
+              </div>
+              <div className="lane-cells">{cellsHtml(loose)}</div>
             </div>
-          ))}
-          <div className="lane-cells">{cellsHtml(loose)}</div>
+          )}
         </div>
       </section>
     </>
