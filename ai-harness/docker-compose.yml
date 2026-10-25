@@ -16,6 +16,50 @@ services:
       timeout: 3s
       retries: 20
 
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: ai-harness-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # внутри сети compose постгрес доступен по имени сервиса на своём порту
+      DATABASE_URL: postgresql+asyncpg://harness:harness@postgres:5432/ai_harness
+      AI_HARNESS_TOKEN_KEY: ${AI_HARNESS_TOKEN_KEY:-}
+      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-12}
+    # путь проекта AH монтируется на тот же абсолютный путь, чтобы git-контур
+    # демона работал с ветками в хост-репозитории (ФТ-ah-37)
+    volumes:
+      - ./.harness:/app/host-harness
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: ai-harness-frontend
+    depends_on:
+      - backend
+    ports:
+      - "8088:80"
+
+  daemon:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: ai-harness-daemon
+    profiles: ["daemon"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://harness:harness@postgres:5432/ai_harness
+      DAEMON_TICK_SECONDS: ${DAEMON_TICK_SECONDS:-30}
+    command: ["python", "-m", "daemon.main"]
+
   adminer:
     image: adminer:latest
     container_name: ai-harness-adminer

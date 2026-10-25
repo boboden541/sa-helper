@@ -1,0 +1,13 @@
+# Backend + демон AI-Harness (общая библиотека домена, СТ §2.3)
+FROM python:3.11-slim
+
+WORKDIR /app
+COPY pyproject.toml ./
+COPY backend/src ./backend/src
+COPY daemon ./daemon
+
+RUN pip install --no-cache-dir .
+
+# демон запускается той же библиотекой домена (python -m daemon.main)
+EXPOSE 8000
+CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--app-dir", "/app/backend/src"]
