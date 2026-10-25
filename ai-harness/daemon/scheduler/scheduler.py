@@ -185,6 +185,16 @@ class Daemon:
             retry_at = await _next_retry_at(session, task.id)
             if retry_at and retry_at > now:
                 continue  # ждёт растущей паузы ретрая
+            # массовый отказ провайдера: задачи ждут, не блокируются (ФТ-ah-35)
+            from daemon.runner.circuit import paused_connections
+
+            agent_conn = (await session.execute(
+                sa.text("SELECT connection_id FROM agent_profile WHERE user_id = :u"),
+                {"u": str(agent_row[0])})).scalar_one_or_none()
+            paused = await paused_connections(session)
+            conn_key = str(agent_conn) if agent_conn else "default"
+            if agent_conn is not None and conn_key in paused:
+                continue
             ready.append((*row, *agent_row))
 
         max_attempts = int(cfg["daemon.max_attempts"])
@@ -238,6 +248,18 @@ class Daemon:
                               "work": int(cfg["daemon.timeout_work_seconds"])},
                 )
                 report = await self.runner.run(req)
+                from daemon.runner.circuit import record_failure, record_success
+
+                conn_id = (await session.execute(
+                    sa.text("SELECT connection_id FROM agent_profile WHERE user_id = :u"),
+                    {"u": str(agent_id)})).scalar_one_or_none()
+                if report.status == "success":
+                    record_success(str(conn_id) if conn_id else None)
+                else:
+                    record_failure(str(conn_id) if conn_id else None)
+                    from daemon.runner.circuit import maybe_trip
+
+                    await maybe_trip(session, str(conn_id) if conn_id else None)
                 await self._apply_report(session, task, agent, report, cfg)
             except Exception as err:  # noqa: BLE001 — демон не должен падать
                 log.exception("run failed: %s", task_code)

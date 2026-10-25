@@ -89,6 +89,11 @@ async def apply_transition(session: AsyncSession, actor: User | None, code: str,
         message=f"Перевод: «{prev_label}» → «{graph.statuses[to].label}»"
                 + (f" (правило {rule_code})" if rule_code else ""),
     ))
+    from usecase.journal.notifications import on_transition
+
+    task_for_hook = task
+    task_for_hook.status_key = to
+    await on_transition(session, task_for_hook, to)
     await session.commit()
     return task
 
@@ -117,6 +122,9 @@ async def apply_force(session: AsyncSession, actor: User, code: str, to: str,
         message=f"Форс: «{prev_label}» → «{graph.statuses[to].label}» — {reason.strip()} "
                 "(ручное вмешательство)",
     ))
+    from usecase.journal.notifications import on_transition
+
+    await on_transition(session, task, to)
     await session.commit()
     return task
 
