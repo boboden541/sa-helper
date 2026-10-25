@@ -53,6 +53,9 @@ async def test_mnemonic_of_deleted_project_not_reusable(session):
     """AC-4.1.1.3: мнемоника удалённого проекта отклоняется (dead_mnemonic)."""
     from repository.models import DeadMnemonic, Project
 
+    # проект-справочник не_TRUNCATE'ится фикстурой — прибираем за собой
+    await session.execute(sa.text(
+        "DELETE FROM project WHERE mnemonic = 'ZZ'"))
     await session.execute(sa.text(
         "INSERT INTO project (id, name, mnemonic, path) "
         "VALUES (gen_random_uuid(), 'Тестовый', 'ZZ', '/tmp') "
@@ -65,6 +68,8 @@ async def test_mnemonic_of_deleted_project_not_reusable(session):
         session.add(dup)
         await session.flush()
     await session.rollback()
+    await session.execute(sa.text("DELETE FROM project WHERE mnemonic = 'ZZ'"))
+    await session.commit()
 
 
 async def test_check_constraints_reject_bad_values(session):
