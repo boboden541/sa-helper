@@ -3,6 +3,7 @@
 // + scrim/drawer + eve-btn/eve-panel + modal + undo-chip + toasts.
 
 import { useEffect, useState } from 'react'
+declare const __APP_BUILD__: string
 import { api, type TaskCard } from '../api/client'
 import { Board } from '../features/board/Board'
 import { CreateDialog } from '../features/task-create/CreateDialog'
@@ -82,7 +83,7 @@ export function App() {
   return (
     <div className="app">
       <aside className="side">
-        <div className="logo">
+        <div className="logo" title={`Сборка: ${__APP_BUILD__ ?? 'dev'}`}>
           <span className="logo-mark">
             <svg width="16" height="16" viewBox="0 0 16 16"><path d="M3 10.5L8 3l5 7.5M5.5 13l2.5-4 2.5 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
           </span>

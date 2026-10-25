@@ -1,8 +1,12 @@
 import { defineConfig } from 'vite'
+
+// штамп сборки: видно в подсказке логотипа — защита от устаревшего контейнера
+const APP_BUILD = 'a54ce8b'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
+  define: { __APP_BUILD__: JSON.stringify(APP_BUILD) },
   server: {
     port: 5173,
     proxy: { '/api': 'http://localhost:8000' },
