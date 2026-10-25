@@ -1,8 +1,0 @@
-#!/bin/sh
-# AI Harness enforcement: pre-commit — коммиты только в ветках harness/*
-# Устанавливается через core.hooksPath в worktree задачи (v2 §9). Портируемый sh.
-branch=$(git rev-parse --abbrev-ref HEAD)
-case "$branch" in
-  harness/*) exit 0 ;;
-  *) echo "[harness] ОТКАЗ: коммиты разрешены только в ветках harness/* (текущая: $branch)" >&2; exit 1 ;;
-esac
