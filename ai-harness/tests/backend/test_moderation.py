@@ -46,7 +46,7 @@ async def test_agent_subtask_of_story_skips_pending(session, actor_id):
     await session.commit()
 
     agent = (await session.execute(
-        sa.select(User).where(User.user_type == "agent", User.is_service.is_(False))
+        sa.select(User).where(User.name == "Разработчик")
     )).scalar_one()
     sub = await create_task(session, agent, _inp(title="Подзадача", story_code=story.code))
     assert await _status_of(session, sub.code) == "todo"
