@@ -1,0 +1,65 @@
+# Встроенный пресет flow: история (постановка, «История (type = story)»)
+statuses:
+  - key: pending
+    label: На рассмотрении
+    alias: pending
+    entry: true
+    stage_desc: "Ожидает ручной модерации предложения"
+  - key: backlog
+    label: В бэклоге
+    alias: backlog
+    stage_desc: "Промодерирована, ждёт планового взятия в работу"
+  - key: todo
+    label: Готово к декомпозиции
+    alias: todo
+    stage_desc: "ИИ-агент декомпозирует историю на задачи на разработку"
+  - key: in_progress
+    label: В работе
+    alias: progress
+    stage_desc: "Статус зеркалит дочерние задачи и баги (M1)"
+  - key: qa_ready
+    label: Готово к тестированию
+    alias: testing
+    stage_desc: "Все дочерние закрыты; ждёт автоперехода на сквозное тестирование"
+  - key: in_testing
+    label: На тестировании
+    alias: testing
+    gate: tester
+    stage_desc: "Сквозное тестирование, составление ПСИ и его прогон"
+  - key: done
+    label: Готово
+    alias: done
+    terminal: true
+    stage_desc: "Реализована и протестирована, замечаний нет"
+  - key: canceled
+    label: Отменено
+    alias: canceled
+    terminal: true
+    stage_desc: "История отменена"
+  - key: blocked
+    label: Заблокировано
+    alias: blocked
+    blocking: true
+    stage_desc: "Блокер; автоматика следует за дочерними"
+transitions:
+  - {from: pending, to: backlog, runner: human, display: "Ручное вмешательство"}
+  - {from: pending, to: canceled, runner: human, display: "Ручное вмешательство"}
+  - {from: backlog, to: todo, runner: human, display: "Ручное вмешательство"}
+  - {from: backlog, to: canceled, runner: human, display: "Ручное вмешательство"}
+  - {from: todo, to: in_progress, runner: auto, display: "Автоматически", rule: M1}
+  - {from: todo, to: backlog, runner: human, display: "Ручное вмешательство"}
+  - {from: todo, to: canceled, runner: human, display: "Ручное вмешательство"}
+  - {from: todo, to: blocked, runner: human, display: "Ручное вмешательство"}
+  - {from: in_progress, to: qa_ready, runner: auto, display: "Автоматически", rule: M2}
+  - {from: in_progress, to: blocked, runner: auto, display: "Автоматически", rule: M5}
+  - {from: in_progress, to: canceled, runner: human, display: "Ручное вмешательство"}
+  - {from: qa_ready, to: in_testing, runner: auto, display: "Автоматически", rule: M3}
+  - {from: qa_ready, to: blocked, runner: human, display: "Ручное вмешательство"}
+  - {from: qa_ready, to: canceled, runner: human, display: "Ручное вмешательство"}
+  - {from: in_testing, to: done, runner: human, display: "Зачёт по ПСИ (M6)", rule: M6}
+  - {from: in_testing, to: blocked, runner: auto, display: "Автоматически", rule: M4}
+  - {from: in_testing, to: in_progress, runner: auto, display: "Автоматически", rule: M1}
+  - {from: in_testing, to: canceled, runner: human, display: "Ручное вмешательство"}
+  - {from: blocked, to: in_progress, runner: auto, display: "Автоматически", rule: M1}
+  - {from: blocked, to: qa_ready, runner: auto, display: "Автоматически", rule: M2}
+  - {from: blocked, to: canceled, runner: human, display: "Ручное вмешательство"}

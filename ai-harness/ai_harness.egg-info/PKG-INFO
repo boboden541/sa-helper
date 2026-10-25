@@ -1,0 +1,23 @@
+Metadata-Version: 2.4
+Name: ai-harness
+Version: 0.1.0
+Summary: AI-Harness: task-tracker и конвейер автоматизации реализации фичей (FNR-13)
+Requires-Python: >=3.11
+Requires-Dist: fastapi>=0.115
+Requires-Dist: uvicorn>=0.30
+Requires-Dist: sqlalchemy[asyncio]>=2.0
+Requires-Dist: asyncpg>=0.29
+Requires-Dist: alembic>=1.13
+Requires-Dist: pydantic>=2.7
+Requires-Dist: pydantic-settings>=2.3
+Requires-Dist: pyyaml>=6.0
+Requires-Dist: cryptography>=42.0
+Requires-Dist: argon2-cffi>=23.1
+Requires-Dist: python-multipart>=0.0.9
+Provides-Extra: dev
+Requires-Dist: pytest>=8.2; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.23; extra == "dev"
+Requires-Dist: httpx>=0.27; extra == "dev"
+Requires-Dist: aiosqlite>=0.20; extra == "dev"
+Provides-Extra: daemon
+Requires-Dist: claude-agent-sdk>=0.1; extra == "daemon"

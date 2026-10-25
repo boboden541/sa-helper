@@ -1,0 +1,64 @@
+# Встроенный пресет flow: баг (постановка, «Баг (type = bug)»)
+statuses:
+  - key: pending
+    label: На рассмотрении
+    alias: pending
+    entry: true
+    stage_desc: "Триаж: подтверждение воспроизводимости и модерация"
+  - key: backlog
+    label: В бэклоге
+    alias: backlog
+    stage_desc: "Подтверждённый баг ждёт планового взятия в работу"
+  - key: todo
+    label: Готово к декомпозиции
+    alias: todo
+    stage_desc: "Чеклист: как воспроизвести и как исправить"
+  - key: in_progress
+    label: В работе
+    alias: progress
+    gate: developer
+    stage_desc: "Фикс по TDD; код-ревью не проводится"
+  - key: qa_ready
+    label: Готово к повторному тестированию
+    alias: testing
+    stage_desc: "Формируется чеклист повторного тестирования"
+  - key: in_testing
+    label: На тестировании
+    alias: testing
+    gate: tester
+    stage_desc: "Повторное тестирование исправления"
+  - key: done
+    label: Готово
+    alias: done
+    terminal: true
+    stage_desc: "Баг исправлен и проверен"
+  - key: canceled
+    label: Отменено
+    alias: canceled
+    terminal: true
+    stage_desc: "Баг не подтвердился или неактуален"
+  - key: blocked
+    label: Заблокировано
+    alias: blocked
+    blocking: true
+    stage_desc: "Блокер; возврат после устранения"
+transitions:
+  - {from: pending, to: backlog, runner: human, display: "Ручное вмешательство"}
+  - {from: pending, to: canceled, runner: human, display: "Ручное вмешательство"}
+  - {from: backlog, to: todo, runner: human, display: "Ручное вмешательство"}
+  - {from: backlog, to: canceled, runner: human, display: "Ручное вмешательство"}
+  - {from: todo, to: in_progress, runner: agent, display: "автомат"}
+  - {from: todo, to: backlog, runner: human, display: "Ручное вмешательство"}
+  - {from: todo, to: canceled, runner: human, display: "Ручное вмешательство"}
+  - {from: todo, to: blocked, runner: human, display: "Ручное вмешательство"}
+  - {from: in_progress, to: qa_ready, runner: agent, display: "автомат"}
+  - {from: in_progress, to: blocked, runner: auto_or_agent, display: "Автоматом или ручное вмешательство"}
+  - {from: in_progress, to: canceled, runner: human, display: "Ручное вмешательство"}
+  - {from: qa_ready, to: in_testing, runner: agent, display: "автомат"}
+  - {from: qa_ready, to: blocked, runner: auto_or_agent, display: "Автоматом или ручное вмешательство"}
+  - {from: in_testing, to: done, runner: agent, display: "автомат (этап пройден)"}
+  - {from: in_testing, to: in_progress, runner: agent, display: "автомат (возврат на доработку)"}
+  - {from: in_testing, to: blocked, runner: auto_or_agent, display: "Автоматом или ручное вмешательство"}
+  - {from: blocked, to: in_progress, runner: auto_or_agent, display: "Автоматом или ручное вмешательство"}
+  - {from: blocked, to: in_testing, runner: auto_or_agent, display: "Автоматом или ручное вмешательство"}
+  - {from: blocked, to: canceled, runner: human, display: "Ручное вмешательство"}

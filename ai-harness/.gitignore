@@ -1,0 +1,9 @@
+.venv/
+.env
+.pgdata/
+node_modules/
+dist/
+__pycache__/
+*.pyc
+.pytest_cache/
+.harness/

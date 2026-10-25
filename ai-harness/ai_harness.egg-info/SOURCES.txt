@@ -1,0 +1,6 @@
+pyproject.toml
+ai_harness.egg-info/PKG-INFO
+ai_harness.egg-info/SOURCES.txt
+ai_harness.egg-info/dependency_links.txt
+ai_harness.egg-info/requires.txt
+ai_harness.egg-info/top_level.txt

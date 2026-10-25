@@ -1,0 +1,62 @@
+# Встроенный пресет flow: задача на анализ (постановка, «Задача на анализ»)
+statuses:
+  - key: pending
+    label: На рассмотрении
+    alias: pending
+    entry: true
+    stage_desc: "Ожидает ручной модерации"
+  - key: backlog
+    label: В бэклоге
+    alias: backlog
+    stage_desc: "Ждёт планового взятия в работу"
+  - key: todo
+    label: Сбор требований
+    alias: todo
+    stage_desc: "Собираются и фиксируются требования"
+  - key: in_progress
+    label: Изыскания и проектирование
+    alias: progress
+    stage_desc: "Изыскания по текущему поведению, концепты решения"
+  - key: review_ready
+    label: Спецификация готова к ревью
+    alias: review
+    stage_desc: "Системные требования сформированы"
+  - key: in_review
+    label: Ревью спецификации
+    alias: review
+    gate: reviewer
+    stage_desc: "Проверка полноты и реализуемости спецификации"
+  - key: done
+    label: Спецификация утверждена
+    alias: done
+    terminal: true
+    stage_desc: "Результат — основание для создания истории"
+  - key: canceled
+    label: Отменено
+    alias: canceled
+    terminal: true
+    stage_desc: "Задача отменена"
+  - key: blocked
+    label: Заблокировано
+    alias: blocked
+    blocking: true
+    stage_desc: "Блокер; возврат после устранения"
+transitions:
+  - {from: pending, to: backlog, runner: human, display: "Ручное вмешательство"}
+  - {from: pending, to: canceled, runner: human, display: "Ручное вмешательство"}
+  - {from: backlog, to: todo, runner: human, display: "Ручное вмешательство"}
+  - {from: backlog, to: canceled, runner: human, display: "Ручное вмешательство"}
+  - {from: todo, to: in_progress, runner: agent, display: "автомат"}
+  - {from: todo, to: blocked, runner: human, display: "Ручное вмешательство"}
+  - {from: todo, to: canceled, runner: human, display: "Ручное вмешательство"}
+  - {from: in_progress, to: review_ready, runner: agent, display: "автомат"}
+  - {from: in_progress, to: blocked, runner: auto_or_agent, display: "Автоматом или ручное вмешательство"}
+  - {from: in_progress, to: canceled, runner: human, display: "Ручное вмешательство"}
+  - {from: review_ready, to: in_review, runner: agent, display: "автомат"}
+  - {from: review_ready, to: blocked, runner: auto_or_agent, display: "Автоматом или ручное вмешательство"}
+  - {from: in_review, to: in_progress, runner: agent, display: "автомат (возврат на доработку)"}
+  - {from: in_review, to: done, runner: agent, display: "автомат (спецификация утверждена)"}
+  - {from: in_review, to: blocked, runner: auto_or_agent, display: "Автоматом или ручное вмешательство"}
+  - {from: blocked, to: in_progress, runner: auto_or_agent, display: "Автоматом или ручное вмешательство"}
+  - {from: blocked, to: in_review, runner: auto_or_agent, display: "Автоматом или ручное вмешательство"}
+  - {from: blocked, to: canceled, runner: human, display: "Ручное вмешательство"}
