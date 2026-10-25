@@ -1,0 +1,86 @@
+// Типизированный клиент REST API (СТ §4.1.2, Приложение В)
+
+export interface TaskCard {
+  code: string
+  title: string
+  priority: string
+  type: string
+  statusKey: string
+  storyCode?: string | null
+  tags?: string[]
+  agent?: { name: string } | null
+  gate?: { allowed: string[]; denied: { to: string; reason: string }[] }
+  descriptionMd?: string
+  changedByOther?: boolean
+  blockedReason?: string | null
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface GateInfo { allowed: string[]; denied: { to: string; reason: string }[] }
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(path, {
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    ...init,
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    const err = new Error(body.message || `HTTP ${res.status}`) as Error & { tech?: string; status?: number }
+    err.tech = body.techDetail ?? body.techDetail
+    err.status = res.status
+    throw err
+  }
+  return res.json() as Promise<T>
+}
+
+export const api = {
+  tasks: (params: Record<string, string | undefined>) => {
+    const q = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => v && q.set(k, v))
+    return request<{ total: number; items: TaskCard[] }>(`/api/v1/tasks?${q}`)
+  },
+  task: (code: string) => request<TaskCard>(`/api/v1/tasks/${code}`),
+  createTask: (payload: unknown) =>
+    request<TaskCard>('/api/v1/tasks', { method: 'POST', body: JSON.stringify(payload) }),
+  patchTask: (code: string, payload: unknown) =>
+    request<TaskCard>(`/api/v1/tasks/${code}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  transition: (code: string, to: string) =>
+    request<{ applied: boolean; reason?: string }>(`/api/v1/tasks/${code}/transitions`, {
+      method: 'POST', body: JSON.stringify({ to }),
+    }),
+  force: (code: string, to: string, reason: string) =>
+    request<{ applied: boolean }>(`/api/v1/tasks/${code}/force`, {
+      method: 'POST', body: JSON.stringify({ to, reason }),
+    }),
+  chronicle: (code: string) =>
+    request<{ items: { id: string; type: string; authorKind: string; ruleCode?: string; message: string; at: string }[] }>(
+      `/api/v1/tasks/${code}/chronicle`),
+  notifications: () =>
+    request<{ items: { id: string; code: string; eventKey: string; message: string; techDetail?: string }[] }>(
+      '/api/v1/notifications'),
+  psi: (code: string) =>
+    request<{ versions: unknown[]; items: { position: number; kind: string; text: string; expected?: string; actual?: string; status: string }[]; runs: unknown[] }>(
+      `/api/v1/stories/${code}/psi`),
+  psiRun: (code: string, results: { position: number; passed: boolean; actual: string }[]) =>
+    request<{ passed: number; failed: number; bugProposals: { position: number; action: string; expected: string; actual: string }[] }>(
+      `/api/v1/stories/${code}/psi/runs`, { method: 'POST', body: JSON.stringify({ results }) }),
+  eve: (text: string, screenTaskCode?: string) =>
+    request<{ reply?: string; action?: string; intent?: { kind: string; task: string; to: string } }>(
+      '/api/v1/assistant/messages', { method: 'POST', body: JSON.stringify({ text, screenTaskCode }) }),
+  queue: () => request<{ working: { code: string; status: string; agent: string; minutes?: number }[]; waiting: { code: string; status: string; attempts: number }[]; blocked: { code: string; reason: string }[] }>('/api/v1/queue'),
+  projects: () => request<{ id: string; name: string; mnemonic: string; isArchived: boolean }[]>('/api/v1/projects'),
+  flow: (typeKey: string) =>
+    request<{ version: number; isPublished: boolean; statuses: { key: string; label: string; aliasColumnId: string; gate?: string; entry: boolean; terminal: boolean }[]; transitions: { from: string; to: string; runner: string; display: string; rule?: string }[] }>(
+      `/api/v1/flows/${typeKey}`),
+  requestProviders: () =>
+    request<{ id: string; name: string; protocol: string; url: string; model: string; tokenTail: string; checkStatus: string; isActive: boolean }[]>('/api/v1/connections'),
+  aliasColumns: () => request<{ id: string; label: string; color: string; position: number }[]>('/api/v1/alias-columns'),
+  saveDraft: (typeKey: string, definition: unknown) =>
+    request<{ version: number }>(`/api/v1/flows/${typeKey}/draft`, { method: 'PUT', body: JSON.stringify(definition) }),
+  publishFlow: (typeKey: string, migrations?: Record<string, string>) =>
+    request<{ version: number }>(`/api/v1/flows/${typeKey}/publish`, {
+      method: 'POST', body: JSON.stringify({ migrations: migrations ?? null }),
+    }),
+}

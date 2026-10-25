@@ -151,3 +151,91 @@ async def assistant_history(session: AsyncSession = Depends(get_session),
 async def queue_view(session: AsyncSession = Depends(get_session),
                      actor: User = Depends(get_actor)):
     return await snapshot(session)
+
+
+# ---------- чеклисты карточки (ФТ-ah-9) ----------
+
+@router.get("/tasks/{code}/checklists/{kind}")
+@_400
+async def checklist_get(code: str, kind: str,
+                        session: AsyncSession = Depends(get_session),
+                        actor: User = Depends(get_actor)):
+    import sqlalchemy as sa
+
+    from repository.models import Checklist, ChecklistItem, Task
+
+    if kind not in ("developer", "reviewer", "tester", "psi"):
+        raise ApiError(400, "Неизвестный тип чеклиста")
+    task = (await session.execute(
+        sa.select(Task).where(Task.code == code.upper()))).scalar_one_or_none()
+    if task is None:
+        raise ApiError(404, f"Задача {code} не найдена")
+    items: list[dict] = []
+    chk = (await session.execute(
+        sa.select(Checklist).where(Checklist.task_id == task.id, Checklist.kind == kind)
+    )).scalar_one_or_none()
+    if chk is not None:
+        rows = (await session.execute(
+            sa.select(ChecklistItem).where(ChecklistItem.checklist_id == chk.id)
+            .order_by(ChecklistItem.position))).scalars().all()
+        items = [{"position": i.position, "kind": i.kind, "text": i.text,
+                  "status": i.status, "level": i.level} for i in rows]
+    return {"kind": kind, "items": items}
+
+
+class ChecklistPutIn(BaseModel):
+    lines: str
+    model_config = ConfigDict(extra="forbid")
+
+
+@router.put("/tasks/{code}/checklists/{kind}")
+@_400
+async def checklist_put(code: str, kind: str, payload: ChecklistPutIn,
+                        session: AsyncSession = Depends(get_session),
+                        actor: User = Depends(get_actor)):
+    """Текстовый формат `- ~ x + !` и `#`–`#####` — парсинг на backend (ФТ-ah-9)."""
+    import re
+
+    import sqlalchemy as sa
+
+    from repository.models import Checklist, ChecklistItem, Task
+
+    if kind not in ("developer", "reviewer", "tester", "psi"):
+        raise ApiError(400, "Неизвестный тип чеклиста")
+    task = (await session.execute(
+        sa.select(Task).where(Task.code == code.upper()))).scalar_one_or_none()
+    if task is None:
+        raise ApiError(404, f"Задача {code} не найдена")
+
+    chk = (await session.execute(
+        sa.select(Checklist).where(Checklist.task_id == task.id, Checklist.kind == kind)
+    )).scalar_one_or_none()
+    if chk is None:
+        chk = Checklist(task_id=task.id, kind=kind)
+        session.add(chk)
+        await session.flush()
+    await session.execute(sa.delete(ChecklistItem).where(ChecklistItem.checklist_id == chk.id))
+
+    position = 0
+    for raw in payload.lines.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        heading = re.match(r"^(#{1,5})\s+(.*)$", line)
+        if heading:
+            session.add(ChecklistItem(checklist_id=chk.id, position=position,
+                                      kind="heading", level=len(heading.group(1)),
+                                      text=heading.group(2)))
+        else:
+            item = re.match(r"^([~-+x!])\s+(.*)$", line)
+            status = {"-": "todo", "~": "in_progress", "x": "closed",
+                      "+": "done", "!": "failed"}.get(item.group(1), "todo") if item else "todo"
+            text = item.group(2) if item else line
+            session.add(ChecklistItem(checklist_id=chk.id, position=position,
+                                      kind="item", text=text, status=status))
+        position += 1
+    session.add(Chronicle(task_id=task.id, event_type="field", author_id=actor.id,
+                          author_kind="agent" if actor.user_type == "agent" else "human",
+                          message=f"Чеклист {kind} обновлён ({position} строк)"))
+    await session.commit()
+    return {"ok": True, "lines": position}
