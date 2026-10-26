@@ -47,69 +47,115 @@ function useSettingsTab(): string {
   return m ? m[1] : 'flow'
 }
 
-/* ==================== Status-flow ==================== */
+/* ==================== Status-flow — полноценный редактор ==================== */
 
 interface Fs { key: string; label: string; stageDesc?: string; gate?: string; entry: boolean; terminal: boolean; blocking: boolean; aliasColumnId: string }
 interface Ft { from: string; to: string; runner: string; display: string; rule?: string }
 interface FlowData { version: number; isPublished: boolean; statuses: Fs[]; transitions: Ft[] }
 
-const EDGE_CLASS: Record<string, string> = { human: 'edge-human', auto: 'edge-auto', agent: 'edge-agent', auto_or_agent: 'edge-agent' }
+const GATE_LABELS: Record<string, string> = {
+  developer: 'чеклист разработчика', reviewer: 'чеклист ревьюера', tester: 'чеклист тестировщика',
+}
+const RUNNER_LABELS: [string, string][] = [
+  ['human', 'Человек'], ['agent', 'Агент'], ['auto', 'Автомат'], ['auto_or_agent', 'Автомат или агент'],
+]
 
-function posKey(type: string) { return `flow-pos-${type}` }
+function slugify(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/_{2,}/g, '_').replace(/^_|_$/g, '') || 'new_status'
+}
 
-function loadPositions(type: string, keys: string[]): Record<string, { x: number; y: number }> {
-  const saved = JSON.parse(localStorage.getItem(posKey(type)) ?? '{}')
-  const out: Record<string, { x: number; y: number }> = {}
-  keys.forEach((k, i) => {
-    out[k] = saved[k] ?? { x: 30 + (i % 4) * 230, y: 30 + Math.floor(i / 4) * 130 }
-  })
-  return out
+function posFor(i: number): { x: number; y: number } {
+  return { x: 30 + (i % 4) * 230, y: 30 + Math.floor(i / 4) * 140 }
 }
 
 function FlowEditor({ reload }: { reload: () => void }) {
   const [typeKey, setTypeKey] = useState('common_task')
-  const [data, setData] = useState<FlowData | null>(null)
+  const [data, setData] = useState<FlowData>({ version: 0, isPublished: false, statuses: [], transitions: [] })
   const [mode, setMode] = useState<'graph' | 'table'>('graph')
   const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>({})
-  const [sel, setSel] = useState<{ kind: 'status' | 'edge'; key: string } | null>(null)
+  const [sel, setSel] = useState<{ kind: 'status' | 'edge'; id: string } | null>(null)
   const [dirty, setDirty] = useState(false)
   const [note, setNote] = useState<{ text: string; bad: boolean } | null>(null)
   const [zoom, setZoom] = useState(1)
   const [columns, setColumns] = useState<{ id: string; label: string }[]>([])
-  const canvasRef = useRef<HTMLDivElement>(null)
+  const [newColName, setNewColName] = useState('')
+  const [newColFor, setNewColFor] = useState<string | null>(null)
+  const [validation, setValidation] = useState<{ errors: string[]; warnings: string[]; ok: boolean } | null>(null)
+  const [showValidation, setShowValidation] = useState(false)
   const dragRef = useRef<{ key: string; dx: number; dy: number } | null>(null)
   const connRef = useRef<{ from: string; x: number; y: number } | null>(null)
-  const [trAddFor, setTrAddFor] = useState<string | null>(null)
-  const [newColumnMode, setNewColumnMode] = useState(false)
-  const [newColumnName, setNewColumnName] = useState('')
-  const [colsOpen, setColsOpen] = useState(false)
-  const [wizard, setWizard] = useState(false)
-  const [assignees, setAssignees] = useState<Record<string, string[]>>({})
-  const [, forceTick] = useState(0)
+  const [, tick] = useState(0)
 
   const reloadFlow = () => {
     void api.flow(typeKey).then((d) => {
       setData(d)
-      setPositions(loadPositions(typeKey, d.statuses.map((s) => s.key)))
+      const saved = JSON.parse(localStorage.getItem(`flow-pos-${typeKey}`) ?? '{}')
+      setPositions(Object.fromEntries(
+        d.statuses.map((s, i) => [s.key, saved[s.key] ?? posFor(i)])))
     })
     void api.aliasColumns().then(setColumns)
-    void api.matrix(typeKey).then((m) => setAssignees(
-      Object.fromEntries(Object.entries(m.matrix).map(([k, list]) =>
-        [k, list.map((e: { name: string }) => e.name)]))))
   }
   useEffect(reloadFlow, [typeKey])
 
-  if (!data) return <div className="empty"><b>Загрузка flow…</b></div>
+  const mutate = (fn: (d: FlowData) => Partial<FlowData>) => { setData((d) => d && { ...d, ...fn(d) }); setDirty(true) }
+
+  const addStatus = () => {
+    let i = (data.statuses.length)
+    let key = `new_status_${i}`
+    while ((data.statuses).some((s) => s.key === key)) { i++; key = `new_status_${i}` }
+    mutate((d) => ({ ...d, statuses: [...d.statuses, {
+      key, label: `Новый статус ${i + 1}`, stageDesc: '', gate: undefined,
+      entry: false, terminal: false, blocking: false,
+      aliasColumnId: columns[0]?.id ?? '',
+    }] }))
+    setPositions((p) => ({ ...p, [key]: posFor((data.statuses.length)) }))
+    setSel({ kind: 'status', id: key })
+  }
+
+  const removeStatus = (key: string) => {
+    mutate((d) => ({
+      statuses: d.statuses.filter((s) => s.key !== key),
+      transitions: d.transitions.filter((t) => t.from !== key && t.to !== key),
+    }))
+    setSel(null)
+  }
+
+  const addEdge = (from: string, to: string, runner = 'human') => {
+    if ((data.transitions).some((t) => t.from === from && t.to === to)) {
+      setNote({ text: 'Дубликат перехода отклонён', bad: true })
+      return
+    }
+    mutate((d) => ({ ...d, transitions: [...d.transitions, {
+      from, to, runner, display: runner === 'auto' ? 'Автоматически' : 'Ручное вмешательство' }] }))
+    setSel({ kind: 'edge', id: `${from}→${to}` })
+  }
+
+  const removeEdge = (from: string, to: string) => {
+    mutate((d) => ({ ...d, transitions: d.transitions.filter((t) => !(t.from === from && t.to === to)) }))
+    if (sel?.kind === 'edge' && sel.id === `${from}→${to}`) setSel(null)
+  }
 
   const saveDraft = async (d: FlowData = data) => {
     await api.saveDraft(typeKey, {
       statuses: d.statuses.map((s) => ({ key: s.key, label: s.label, gate: s.gate,
         entry: s.entry, terminal: s.terminal, blocking: s.blocking,
-        alias_column_id: s.aliasColumnId || undefined })),
+        stage_desc: s.stageDesc, alias_column_id: s.aliasColumnId || undefined })),
       transitions: d.transitions.map((t) => ({ from: t.from, to: t.to, runner: t.runner,
         display: t.display, rule: t.rule })),
     })
     setDirty(false)
+    setNote({ text: 'Черновик сохранён', bad: false })
+  }
+
+  const doValidate = async () => {
+    await saveDraft()
+    const r = await api.validateFlow(typeKey)
+    setValidation(r)
+    setShowValidation(true)
+    const msg = r.ok
+      ? 'Валидация пройдена' + (r.warnings.length ? ' · ' + r.warnings.join('; ') : '')
+      : 'Ошибки: ' + r.errors.join('; ')
+    setNote({ text: msg, bad: !r.ok })
   }
 
   const doPublish = async () => {
@@ -117,143 +163,104 @@ function FlowEditor({ reload }: { reload: () => void }) {
     try {
       const r = await api.publishFlow(typeKey)
       setNote({ text: `Опубликовано v${r.version}`, bad: false })
-      reloadFlow(); reload()
+      setValidation(null); setShowValidation(false); reloadFlow(); reload()
     } catch (err) {
       const e = err as Error & { tech?: string }
       setNote({ text: e.message, bad: true })
     }
   }
 
-  const setStatusField = (key: string, patch: Partial<Fs>) => {
-    setData((d) => d && { ...d, statuses: d.statuses.map((s) => s.key === key ? { ...s, ...patch } : s) })
-    setDirty(true)
-  }
-  const setEdgeField = (idx: number, patch: Partial<Ft>) => {
-    setData((d) => d && { ...d, transitions: d.transitions.map((t, i) => i === idx ? { ...t, ...patch } : t) })
-    setDirty(true)
-  }
-  const addEdgeRunner = (from: string, to: string, runner: string) => {
-    if (data.transitions.some((t) => t.from === from && t.to === to)) {
-      setNote({ text: 'Такой переход уже существует — дубликаты отклоняются', bad: true })
-      return
-    }
-    setData((d) => d && { ...d, transitions: [...d.transitions, { from, to, runner, display: 'Ручное вмешательство' }] })
-    setDirty(true)
-  }
+  const selectedStatus = data ? sel?.kind === 'status' ? data.statuses.find((s) => s.key === sel.id) : undefined : undefined
+  const selEdge = data ? sel?.kind === 'edge' ? data.transitions.find((t) => `${t.from}→${t.to}` === sel.id) : undefined : undefined
 
-  const addEdge = (from: string, to: string) => {
-    if (data.transitions.some((t) => t.from === from && t.to === to)) {
-      setNote({ text: 'Такой переход уже существует — дубликаты отклоняются', bad: true })
-      return
-    }
-    const next = { ...data, transitions: [...data.transitions, { from, to, runner: 'human', display: 'Ручное вмешательство' }] }
-    setData(next); setDirty(true)
-    setSel({ kind: 'edge', key: `${from}→${to}` })
-    pushUndo({ label: `Переход ${from}→${to}`, undo: () => {
-      setData((cur) => cur && { ...cur, transitions: cur.transitions.filter((t) => !(t.from === from && t.to === to)) })
-    } })
-  }
-
+  // --- канвас ---
   const onMouseDownCard = (e: React.MouseEvent, key: string) => {
-    if ((e.target as HTMLElement).classList.contains('fs-conn')) return
-    const pos = positions[key]
-    dragRef.current = { key, dx: e.clientX - pos.x * zoom, dy: e.clientY - pos.y * zoom }
-    setSel({ kind: 'status', key })
+    if ((e.target as HTMLElement).closest('.fs-conn, .colh-x')) return
+    dragRef.current = { key, dx: e.clientX - (positions[key]?.x ?? 0) * zoom, dy: e.clientY - (positions[key]?.y ?? 0) * zoom }
+    setSel({ kind: 'status', id: key })
   }
   const onMouseMove = (e: React.MouseEvent) => {
     if (dragRef.current) {
       const { key, dx, dy } = dragRef.current
-      const next = { ...positions, [key]: { x: (e.clientX - dx) / zoom, y: (e.clientY - dy) / zoom } }
-      setPositions(next)
-      localStorage.setItem(posKey(typeKey), JSON.stringify(next))
+      setPositions((p) => { const n = { ...p, [key]: { x: (e.clientX - dx) / zoom, y: (e.clientY - dy) / zoom } }; localStorage.setItem(`flow-pos-${typeKey}`, JSON.stringify(n)); return n })
+      tick((n) => n + 1)
     } else if (connRef.current) {
       connRef.current = { ...connRef.current, x: e.clientX, y: e.clientY }
-      forceTick((n) => n + 1)
+      tick((n) => n + 1)
     }
   }
   const onMouseUp = (e: React.MouseEvent) => {
     if (connRef.current) {
       const { from } = connRef.current
-      const rect = canvasRef.current!.getBoundingClientRect()
-      const x = (e.clientX - rect.left) / zoom
-      const y = (e.clientY - rect.top) / zoom
-      const target = data.statuses.find((s) => {
-        const p = positions[s.key]
-        return x >= p.x && x <= p.x + 184 && y >= p.y && y <= p.y + 64
-      })
-      if (target && target.key !== from) addEdge(from, target.key)
-      connRef.current = null
-      forceTick((n) => n + 1)
+      const rect = canvasRef.current?.getBoundingClientRect()
+      if (rect) {
+        const x = (e.clientX - rect.left) / zoom, y = (e.clientY - rect.top) / zoom
+        const target = (data.statuses).find((s) => {
+          const p = positions[s.key]
+          return p && x >= p.x && x <= p.x + 184 && y >= p.y && y <= p.y + 64
+        })
+        if (target && target.key !== from) addEdge(from, target.key)
+      }
+      connRef.current = null; tick((n) => n + 1)
     }
     dragRef.current = null
   }
   const startConn = (e: React.MouseEvent, from: string) => {
-    e.stopPropagation()
-    connRef.current = { from, x: e.clientX, y: e.clientY }
+    e.stopPropagation(); connRef.current = { from, x: e.clientX, y: e.clientY }
   }
 
+  const canvasRef = useRef<HTMLDivElement>(null)
   const cardCenter = (key: string) => {
-    const p = positions[key]
+    const p = positions[key] ?? { x: 0, y: 0 }
     return { x: p.x + 92, y: p.y + 32 }
   }
 
-  const selectedStatus = sel?.kind === 'status' ? data.statuses.find((s) => s.key === sel.key) : undefined
-  const selEdgeIdx = sel?.kind === 'edge' ? data.transitions.findIndex((t) => `${t.from}→${t.to}` === sel.key) : -1
-  const selectedEdge = selEdgeIdx > -1 ? data.transitions[selEdgeIdx] : undefined
+  const statusField = (key: string, patch: Partial<Fs>) => {
+    mutate((d) => ({ ...d, statuses: d.statuses.map((s) => s.key === key ? { ...s, ...patch } : s) }))
+  }
+  const edgeField = (from: string, to: string, patch: Partial<Ft>) => {
+    mutate((d) => ({ ...d, transitions: d.transitions.map((t) => t.from === from && t.to === to ? { ...t, ...patch } : t) }))
+  }
+
+  if (data.version === 0) return <div className="empty"><b>Загрузка flow…</b></div>
 
   return (
     <div className="set-body">
       <div className="publish-panel">
         <div className="flex">
-          <span className="mini-chip mc-accent">версия v{data.version}{data.isPublished ? '' : ' · черновик'}</span>
+          <span className="mini-chip mc-accent">v{data.version}{data.isPublished ? '' : ' · черновик'}</span>
           <span className="sp" />
           <button className="btn small" disabled={!dirty} onClick={() => void saveDraft()}>Сохранить черновик</button>
-          <button className="btn small" onClick={async () => {
-            await fetch(`/api/v1/flows/${typeKey}/draft`, { method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ statuses: data.statuses.map((s) => ({ key: s.key, label: s.label,
-                gate: s.gate, entry: s.entry, terminal: s.terminal, alias_column_id: s.aliasColumnId })),
-                transitions: data.transitions.map((t) => ({ from: t.from, to: t.to, runner: t.runner, display: t.display })) }) })
-            const r = await api.validateFlow(typeKey)
-            setNote({ text: r.ok ? 'Валидация пройдена'
-                : 'Ошибки: ' + r.errors.join('; ') + (r.warnings.length ? ' · предупреждения: ' + r.warnings.join('; ') : ''),
-              bad: !r.ok })
-          }}>Проверить</button>
+          <button className="btn small" onClick={() => void doValidate()}>Проверить</button>
           <button className="btn primary small" onClick={() => void doPublish()}>Опубликовать</button>
           <button className="btn small" onClick={async () => {
-            const r = await fetch(`/api/v1/flows/${typeKey}/reset`, { method: 'POST' })
-            if (r.ok) { setNote({ text: 'Сброшено к встроенному пресету (новая версия)', bad: false }); reloadFlow() }
-          }}>Сбросить к пресету</button>
+            const res = await fetch(`/api/v1/flows/${typeKey}/reset`, { method: 'POST' })
+            if (res.ok) { setNote({ text: 'Сброшено к пресету', bad: false }); reloadFlow() }
+          }}>Сбросить</button>
         </div>
         {note && <div className={`check-row ${note.bad ? 'err' : 'ok'}`}>{note.bad ? '✗ ' : '✓ '}{note.text}</div>}
+        {showValidation && validation && (
+          <div className="mt8">
+            {validation.errors.map((e, i) => <div key={'e' + i} className="check-row err">✗ {e}</div>)}
+            {validation.warnings.map((w, i) => <div key={'w' + i} className="check-row warn">⚠ {w}</div>)}
+            {validation.ok && validation.warnings.length === 0 && <div className="check-row ok">✓ Ошибок и предупреждений нет</div>}
+          </div>
+        )}
       </div>
-      {colsOpen && <ColumnManager onClose={() => { setColsOpen(false); reloadFlow() }} />}
-      {wizard && <TypeWizard onClose={() => { setWizard(false); reload() }} onCreated={(k) => { setTypeKey(k); setWizard(false); reloadFlow() }} />}
 
       <div className="flow-toolbar">
         <div className="seg">
           {FLOW_TYPES.map(([k, l]) => (
-            <button key={k} className={typeKey === k ? 'active' : ''} onClick={() => setTypeKey(k)}>{l}</button>
+            <button key={k} className={typeKey === k ? 'active' : ''} onClick={() => { setTypeKey(k); setSel(null); setValidation(null) }}>{l}</button>
           ))}
         </div>
         <div className="mode-tabs">
           <button className={mode === 'graph' ? 'active' : ''} onClick={() => setMode('graph')}>Граф</button>
           <button className={mode === 'table' ? 'active' : ''} onClick={() => setMode('table')}>Таблица</button>
         </div>
-        <span className="st-chip" style={{ ['--st' as string]: '#3d63d2' }}>
-          <span className="sdot" />{TYPE[typeKey]?.label ?? typeKey} · v{data.version}
-        </span>
-        {mode === 'graph' && (
-          <span className="zoomctl" title="Масштаб холста">
-            <button onClick={() => setZoom((z) => Math.max(0.5, +(z - 0.1).toFixed(2)))}>−</button>
-            <b className="num">{Math.round(zoom * 100)}%</b>
-            <button onClick={() => setZoom((z) => Math.min(1.5, +(z + 0.1).toFixed(2)))}>＋</button>
-          </span>
-        )}
+        <button className="btn small" onClick={addStatus}>＋ статус</button>
         <span className="sp" />
-        <button className="btn small" onClick={() => setColsOpen(true)}>Колонки доски</button>
-        <button className="btn small" onClick={() => setWizard(true)}>+ тип задачи</button>
-        <button className="btn small primary" onClick={() => void doPublish()}>Проверить и опубликовать</button>
+        <span className="muted">{data.statuses.length} статусов · {data.transitions.length} переходов{dirty ? ' · есть правки' : ''}</span>
       </div>
 
       {mode === 'graph' ? (
@@ -263,31 +270,28 @@ function FlowEditor({ reload }: { reload: () => void }) {
             <div className="paper" style={{ transform: `scale(${zoom})`, width: 1400, height: 700 }}>
               <svg className="edges" width="1400" height="700">
                 {data.transitions.map((t, i) => {
-                  const a = cardCenter(t.from)
-                  const b = cardCenter(t.to)
+                  const a = cardCenter(t.from), b = cardCenter(t.to)
+                  if (!a.x && !b.x) return null
                   const mx = (a.x + b.x) / 2
-                  const dPath = `M ${a.x} ${a.y} C ${mx} ${a.y}, ${mx} ${b.y}, ${b.x} ${b.y}`
+                  const d = `M ${a.x} ${a.y} C ${mx} ${a.y}, ${mx} ${b.y}, ${b.x} ${b.y}`
                   return (
                     <g key={i}>
-                      <path className={`line ${EDGE_CLASS[t.runner] ?? 'edge-human'}`} d={dPath} />
-                      <path className="hit" d={dPath} onClick={() => setSel({ kind: 'edge', key: `${t.from}→${t.to}` })} />
+                      <path className={`line ${t.runner === 'auto' ? 'edge-auto' : t.runner === 'agent' ? 'edge-agent' : 'edge-human'}`} d={d}
+                        onClick={() => setSel({ kind: 'edge', id: `${t.from}→${t.to}` })} />
+                      <path className="hit" d={d} onClick={() => setSel({ kind: 'edge', id: `${t.from}→${t.to}` })} />
                     </g>
                   )
                 })}
-                {connRef.current && (
-                  <path className="edge-new-temp"
-                    d={`M ${cardCenter(connRef.current.from).x} ${cardCenter(connRef.current.from).y} L ${(connRef.current.x - (canvasRef.current?.getBoundingClientRect().left ?? 0)) / zoom} ${(connRef.current.y - (canvasRef.current?.getBoundingClientRect().top ?? 0)) / zoom}`} />
-                )}
+                {connRef.current && <path className="edge-new-temp" d={`M ${cardCenter(connRef.current.from).x} ${cardCenter(connRef.current.from).y} L ${(connRef.current.x - (canvasRef.current?.getBoundingClientRect().left ?? 0)) / zoom} ${(connRef.current.y - (canvasRef.current?.getBoundingClientRect().top ?? 0)) / zoom}`} />}
               </svg>
-              {data.statuses.map((s) => {
-                const p = positions[s.key]
+              {data.statuses.map((s, i) => {
+                const p = positions[s.key] ?? posFor(i)
                 return (
-                  <div key={s.key}
-                    className={`fs-card ${s.terminal ? 'term' : ''} ${sel?.kind === 'status' && sel.key === s.key ? 'sel' : ''}`}
+                  <div key={s.key} className={`fs-card ${s.terminal ? 'term' : ''} ${sel?.kind === 'status' && sel.id === s.key ? 'sel' : ''}`}
                     style={{ left: p.x, top: p.y }}
                     onMouseDown={(e) => onMouseDownCard(e, s.key)}>
                     <div className="lbl">{s.label}</div>
-                    <div className="key">{s.key}{s.gate ? ` · ${s.gate}` : ''}</div>
+                    <div className="key">{s.key}{s.gate ? ` · ${GATE_LABELS[s.gate] ?? s.gate}` : ''}</div>
                     {s.stageDesc && <div className="fs-desc">{s.stageDesc}</div>}
                     <div className="fs-chips">
                       {s.entry && <span className="mini-chip mc-accent">вход</span>}
@@ -305,93 +309,73 @@ function FlowEditor({ reload }: { reload: () => void }) {
             {selectedStatus && (
               <>
                 <div className="blk-h"><h3>Статус flow</h3><span className="fill" />
-                  <button className="icon-btn" aria-label="Закрыть" style={{ width: 22, height: 22 }} onClick={() => setSel(null)}>✕</button></div>
+                  <button className="icon-btn" onClick={() => setSel(null)} style={{ width: 22, height: 22 }}>✕</button></div>
                 <div className="f-field"><label>Ключ (не меняется)</label>
                   <input className="mono" value={selectedStatus.key} disabled /></div>
                 <div className="f-field"><label>Название на интерфейсе</label>
                   <input value={selectedStatus.label} maxLength={64}
-                    onChange={(e) => setStatusField(selectedStatus.key, { label: e.target.value })} /></div>
+                    onChange={(e) => statusField(selectedStatus.key, { label: e.target.value })} /></div>
                 <div className="f-field"><label>Что происходит на этом этапе</label>
                   <textarea rows={3} value={selectedStatus.stageDesc ?? ''}
-                    onChange={(e) => setStatusField(selectedStatus.key, { stageDesc: e.target.value })} /></div>
-                <div className="f-field"><label>Кто работает на статусе</label>
-                  <div>
-                    {(assignees[selectedStatus.key] ?? []).length
-                      ? (assignees[selectedStatus.key] ?? []).map((n) => <span key={n} className="mini-chip mc-violet">{n}</span>)
-                      : <span className="muted">не назначено</span>}
-                  </div>
-                  <button className="link" style={{ fontSize: 12, marginTop: 4 }}
-                    onClick={() => { window.location.hash = '#settings/agents' }}>изменить в матрице назначений →</button>
-                </div>
+                    onChange={(e) => statusField(selectedStatus.key, { stageDesc: e.target.value })} /></div>
                 <div className="f-field"><label>Чеклист-гейт</label>
-                  <select value={selectedStatus.gate ?? ''} onChange={(e) => setStatusField(selectedStatus.key, { gate: e.target.value || undefined })}>
+                  <select value={selectedStatus.gate ?? ''} onChange={(e) => statusField(selectedStatus.key, { gate: e.target.value || undefined })}>
                     <option value="">без гейта</option>
                     <option value="developer">чеклист разработчика</option>
                     <option value="reviewer">чеклист ревьюера</option>
                     <option value="tester">чеклист тестировщика</option>
                   </select></div>
                 <div className="f-field"><label>Alias-колонка на доске</label>
-                  <select value={newColumnMode ? '__new' : (selectedStatus.aliasColumnId ?? '')}
+                  <select value={newColFor === selectedStatus.key ? '__new' : (selectedStatus.aliasColumnId ?? '')}
                     onChange={async (e) => {
-                      if (e.target.value === '__new') { setNewColumnMode(true); return }
-                      setNewColumnMode(false)
-                      const colId = e.target.value
-                      if (colId) { setStatusField(selectedStatus.key, { aliasColumnId: colId }); return }
-                      setStatusField(selectedStatus.key, { aliasColumnId: '' })
+                      if (e.target.value === '__new') { setNewColFor(selectedStatus.key); return }
+                      setNewColFor(null)
+                      statusField(selectedStatus.key, { aliasColumnId: e.target.value })
                     }}>
                     <option value="">— не назначена —</option>
                     {columns.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
                     <option value="__new">＋ новая колонка…</option>
                   </select>
-                  {newColumnMode && (
+                  {newColFor === selectedStatus.key && (
                     <div className="flex mt8">
-                      <input className="cm-name" placeholder="Название новой колонки" value={newColumnName}
-                        onChange={(e) => setNewColumnName(e.target.value)} />
+                      <input className="cm-name" placeholder="Название колонки" value={newColName}
+                        onChange={(e) => setNewColName(e.target.value)} />
                       <button className="btn small" onClick={async () => {
-                        if (!newColumnName.trim()) return
-                        const res = await api.createColumn({ label: newColumnName.trim() })
-                        setColumns((c) => [...c, { id: res.id, label: newColumnName.trim() }])
-                        setStatusField(selectedStatus.key, { aliasColumnId: res.id })
-                        setNewColumnMode(false); setNewColumnName('')
+                        if (!newColName.trim()) return
+                        const res = await api.createColumn({ label: newColName.trim() })
+                        setColumns((c) => [...c, { id: res.id, label: newColName.trim() }])
+                        statusField(selectedStatus.key, { aliasColumnId: res.id })
+                        setNewColFor(null); setNewColName('')
                       }}>Создать</button>
                     </div>
                   )}
                 </div>
                 <label className="f-check"><input type="checkbox" checked={selectedStatus.entry}
-                  onChange={(e) => setStatusField(selectedStatus.key, { entry: e.target.checked })} /> точка входа</label>
+                  onChange={(e) => statusField(selectedStatus.key, { entry: e.target.checked })} /> точка входа</label>
                 <label className="f-check"><input type="checkbox" checked={selectedStatus.terminal}
-                  onChange={(e) => setStatusField(selectedStatus.key, { terminal: e.target.checked })} /> терминальный</label>
+                  onChange={(e) => statusField(selectedStatus.key, { terminal: e.target.checked })} /> терминальный</label>
                 <label className="f-check"><input type="checkbox" checked={selectedStatus.blocking}
-                  onChange={(e) => setStatusField(selectedStatus.key, { blocking: e.target.checked })} /> блокирующий</label>
-                <button className="btn danger small mt12" onClick={() => {
-                  const next = { ...data, statuses: data.statuses.filter((s) => s.key !== selectedStatus.key),
-                    transitions: data.transitions.filter((t) => t.from !== selectedStatus.key && t.to !== selectedStatus.key) }
-                  setData(next); setDirty(true); setSel(null)
-                }}>Удалить статус</button>
+                  onChange={(e) => statusField(selectedStatus.key, { blocking: e.target.checked })} /> блокирующий</label>
+                <button className="btn danger small mt12" onClick={() => removeStatus(selectedStatus.key)}>Удалить статус</button>
               </>
             )}
-            {selectedEdge && (
+            {selEdge && (
               <>
-                <div className="q-sec">Переход</div>
+                <div className="blk-h"><h3>Переход</h3><span className="fill" />
+                  <button className="icon-btn" onClick={() => setSel(null)} style={{ width: 22, height: 22 }}>✕</button></div>
                 <div className="f-field"><label>Направление</label>
-                  <input value={`${selectedEdge.from} → ${selectedEdge.to}`} disabled /></div>
+                  <input value={`${selEdge.from} → ${selEdge.to}`} disabled /></div>
                 <div className="f-field"><label>Кто запускает</label>
-                  <select value={selectedEdge.runner} onChange={(e) => setEdgeField(selEdgeIdx, { runner: e.target.value })}>
-                    <option value="human">человек</option>
-                    <option value="agent">агент своего статуса</option>
-                    <option value="auto">автомат</option>
-                    <option value="auto_or_agent">автомат или человек</option>
+                  <select value={selEdge.runner} onChange={(e) => edgeField(selEdge.from, selEdge.to, { runner: e.target.value })}>
+                    {RUNNER_LABELS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                   </select></div>
                 <div className="f-field"><label>Как отображается</label>
-                  <input value={selectedEdge.display} onChange={(e) => setEdgeField(selEdgeIdx, { display: e.target.value })} /></div>
-                <button className="btn danger small mt12" onClick={() => {
-                  setData((d) => d && { ...d, transitions: d.transitions.filter((_, i) => i !== selEdgeIdx) })
-                  setDirty(true); setSel(null)
-                }}>Удалить переход</button>
+                  <input value={selEdge.display} onChange={(e) => edgeField(selEdge.from, selEdge.to, { display: e.target.value })} /></div>
+                <button className="btn danger small mt12" onClick={() => removeEdge(selEdge.from, selEdge.to)}>Удалить переход</button>
               </>
             )}
-            {!selectedStatus && !selectedEdge && (
-              <div className="muted">Кликните по карточке статуса или по стрелке — панель редактирования откроется здесь. Новый переход: потяните за «+» на краю карточки.</div>
+            {!selectedStatus && !selEdge && (
+              <div className="muted">Кликните по карточке статуса или стрелке — здесь откроется редактирование. Новый переход: потяните за «+» на краю карточки.</div>
             )}
           </div>
         </div>
@@ -399,116 +383,34 @@ function FlowEditor({ reload }: { reload: () => void }) {
         <div className="flow-canvas flow-table">
           <table className="tasks">
             <thead><tr>
-              <th>Статус</th><th>Что происходит на этапе</th><th>Кто работает</th>
-              <th>Чеклист-гейт</th><th>Возможные переходы</th><th>Alias-колонка</th>
+              <th>Статус</th><th>Что происходит на этапе</th><th>Чеклист-гейт</th>
+              <th>Возможные переходы</th><th>Alias-колонка</th><th></th>
             </tr></thead>
             <tbody>
-              {data.statuses.map((s) => {
-                const outs = data.transitions.map((t, idx) => ({ t, idx })).filter(({ t }) => t.from === s.key)
-                const who = assignees[s.key] ?? []
-                const col = columns.find((c) => c.id === s.aliasColumnId)
-                return (
-                  <tr key={s.key} style={{ cursor: 'pointer' }} onClick={() => setSel({ kind: 'status', key: s.key })}>
-                    <td><b>{s.label}</b> <span className="key mono muted">{s.key}</span></td>
-                    <td className="muted">{s.stageDesc ?? ''}</td>
-                    <td>{who.length ? who.map((n) => <span key={n} className="mini-chip mc-violet">{n}</span>) : <span className="muted">—</span>}</td>
-                    <td>{s.gate ? <span className="mini-chip mc-accent">{s.gate}</span> : <span className="muted">—</span>}</td>
-                    <td className="tr-cell" onClick={(e) => e.stopPropagation()}>
-                      {outs.map(({ t, idx }) => (
-                        <span key={idx} className="mini-chip tr-chip" title={t.runner}>
-                          → {data.statuses.find((x) => x.key === t.to)?.label ?? t.to}
-                          <button className="tr-x" aria-label={`Убрать переход «${t.to}»`} onClick={() => {
-                            setData((d) => d && { ...d, transitions: d.transitions.filter((_, i) => i !== idx) })
-                            setDirty(true)
-                          }}>✕</button>
-                        </span>
-                      )) || null}
-                      {outs.length === 0 && <span className="muted">—</span>}
-                      <button className="btn small" disabled={s.terminal}
-                        title={s.terminal ? 'У терминального статуса нет исходящих переходов' : undefined}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setTrAddFor(s.key)
-                        }}>{outs.length ? '+' : '＋ переход'}</button>
-                      {trAddFor === s.key && (
-                        <TrAddPopover statuses={data.statuses} from={s.key}
-                          existing={data.transitions.filter((t) => t.from === s.key).map((t) => t.to)}
-                          onAdd={(to, runner) => { addEdgeRunner(s.key, to, runner); setTrAddFor(null) }}
-                          onClose={() => setTrAddFor(null)} />
-                      )}
-                    </td>
-                    <td>{col ? col.label : <span style={{ color: 'var(--danger)' }}>—</span>}</td>
-                  </tr>
-                )
-              })}
+              {data.statuses.map((s) => (
+                <tr key={s.key} onClick={() => setSel({ kind: 'status', id: s.key })} style={{ cursor: 'pointer' }}>
+                  <td><b>{s.label}</b> <span className="key mono muted">{s.key}</span></td>
+                  <td className="muted">{s.stageDesc ?? ''}</td>
+                  <td>{s.gate ? <span className="mini-chip mc-accent">{GATE_LABELS[s.gate] ?? s.gate}</span> : <span className="muted">—</span>}</td>
+                  <td className="tr-cell" onClick={(e) => e.stopPropagation()}>
+                    {data.transitions.filter((t) => t.from === s.key).map((t) => (
+                      <span key={`${t.from}${t.to}`} className="mini-chip tr-chip" title={t.runner}>
+                        → {data.statuses.find((x) => x.key === t.to)?.label ?? t.to}
+                        <button className="tr-x" onClick={() => removeEdge(t.from, t.to)}>✕</button>
+                      </span>
+                    )) || <span className="muted">—</span>}
+                    <button className="btn small" disabled={s.terminal}
+                      title={s.terminal ? 'У терминального статуса нет исходящих переходов' : undefined}
+                      onClick={(e) => { e.stopPropagation(); setSel({ kind: 'status', id: s.key }) }}>＋</button>
+                  </td>
+                  <td>{columns.find((c) => c.id === s.aliasColumnId)?.label ?? <span style={{ color: 'var(--danger)' }}>—</span>}</td>
+                  <td><button className="btn danger small" onClick={() => removeStatus(s.key)}>✕</button></td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
       )}
-    </div>
-  )
-}
-
-function autoBadge(key: string, data: FlowData): string {
-  const outs = data.transitions.filter((t) => t.from === key)
-  if (!outs.length) return '—'
-  const runners = new Set(outs.map((t) => t.runner))
-  const parts: string[] = []
-  if (runners.has('auto')) parts.push('автоматически')
-  if (runners.has('agent') || runners.has('auto_or_agent')) parts.push('агентом')
-  if (runners.has('human')) parts.push('вручную')
-  return parts.join(' / ')
-}
-
-function edgeRunnerDefault(from: string, to: string): string {
-  if (to === 'canceled') return 'human'
-  if (from === 'pending' || from === 'backlog') return 'human'
-  if (to === 'in_progress' || to === 'review_ready' || to === 'qa_ready' || to === 'in_review' || to === 'in_testing') return 'agent'
-  if (to === 'done') return 'agent'
-  if (to === 'blocked') return 'auto_or_agent'
-  return 'human'
-}
-const RUNNER_LABELS: [string, string][] = [
-  ['human', 'Человек'], ['agent', 'Агент'], ['auto', 'Автомат'], ['auto_or_agent', 'Автомат или агент'],
-]
-
-function TrAddPopover({ statuses, from, existing, onAdd, onClose }: {
-  statuses: { key: string; label: string; terminal: boolean }[]
-  from: string
-  existing: string[]
-  onAdd: (to: string, runner: string) => void
-  onClose: () => void
-}) {
-  const targets = statuses.filter((x) => x.key !== from && !existing.includes(x.key))
-  const [to, setTo] = useState(targets[0]?.key ?? '')
-  const [runner, setRunner] = useState(edgeRunnerDefault(from, targets[0]?.key ?? ''))
-  if (!targets.length) {
-    return (
-      <div className="tr-pop">
-        <div className="muted" style={{ padding: '4px 2px' }}>Все возможные направления уже заданы.</div>
-        <div className="edit-actions"><button className="btn small" onClick={onClose}>Закрыть</button></div>
-      </div>
-    )
-  }
-  return (
-    <div className="tr-pop" onClick={(e) => e.stopPropagation()}>
-      <div className="f-field" style={{ marginBottom: 8 }}><label>Куда — направление: {from} → …</label>
-        <select value={to} onChange={(e) => { setTo(e.target.value); setRunner(edgeRunnerDefault(from, e.target.value)) }}>
-          {targets.map((x) => <option key={x.key} value={x.key}>{x.label}</option>)}
-        </select>
-      </div>
-      <div className="f-field" style={{ marginBottom: 8 }}><label>Кто запускает</label>
-        <select value={runner} onChange={(e) => setRunner(e.target.value)}>
-          {RUNNER_LABELS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-        </select>
-      </div>
-      <div className="edit-actions">
-        <button className="btn small primary" onClick={() => onAdd(to, runner)}>Добавить</button>
-        <button className="btn small" onClick={onClose}>Отмена</button>
-      </div>
-      <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
-        Условия перехода (чеклист-гейт, блокеры, артефакт) настраиваются после добавления — в графе или через клик по статусу.
-      </div>
     </div>
   )
 }
