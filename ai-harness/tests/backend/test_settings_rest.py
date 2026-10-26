@@ -184,12 +184,33 @@ async def test_project_lifecycle(session, actor_id, tmp_path):
             name="Дубль", mnemonic="zz", path=str(target)))
 
 
-async def test_project_requires_writable_path(session, actor_id):
+async def test_project_path_created_and_inited(session, actor_id, tmp_path):
+    """Решение владельца 26.10.2026: несуществующая директория создаётся,
+    новой директории даётся git-репозиторий с начальным коммитом."""
+    import subprocess
+
     from usecase.settings.projects import ProjectInput, create_project
 
-    with pytest.raises(Exception, match="недоступен"):
+    target = tmp_path / "deep" / "nested" / "workspace"
+    proj = await create_project(session, ProjectInput(
+        name="Созданный путь", mnemonic="QQ", path=str(target)))
+    assert target.is_dir()
+    assert proj.path == str(target.resolve())
+    assert subprocess.run(["git", "rev-parse", "--verify", "HEAD"],
+                          cwd=target, capture_output=True).returncode == 0
+
+    # существующая директория-репозиторий не трогается
+    marker = target / "file.txt"
+    marker.write_text("x", encoding="utf-8")
+    proj2 = await create_project(session, ProjectInput(
+        name="Существующая", mnemonic="QW", path=str(target)))
+    assert proj2.path == str(target.resolve())
+    assert marker.read_text(encoding="utf-8") == "x"
+
+    # некреабельный путь — честная ошибка создания
+    with pytest.raises(Exception, match="Не удалось создать"):
         await create_project(session, ProjectInput(
-            name="Плохой путь", mnemonic="QQ", path="/nonexistent/path/xyz"))
+            name="Плохой путь", mnemonic="QE", path="/nonexistent/path/xyz"))
 
 
 # ---------- alias-колонки (ФТ-ah-66, режим правки доски) ----------

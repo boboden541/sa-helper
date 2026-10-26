@@ -26,14 +26,47 @@ class ProjectInput:
     description: str | None = None
 
 
-def check_path(path: str) -> None:
-    p = Path(path)
-    if not p.is_dir() or not os.access(p, os.W_OK):
-        raise DomainError(
-            f"Путь проекта недоступен или не для записи: {path}",
-            tech="path must exist and be writable",
-            field="path",
-        )
+def prepare_path(path: str) -> str:
+    """Рабочая директория проекта — любая на диске (решение владельца 26.10.2026):
+    указанную папку создаём, если её нет; существующие репозиторий/мультирепозиторий
+    не трогаем; новой директории даём git-репозиторий с начальным коммитом, чтобы
+    ветки задач и worktree агентов работали сразу."""
+    import subprocess
+
+    from infrastructure.paths import expand_host, host_to_container
+
+    p = Path(host_to_container(str(expand_host(path))))
+    if p.exists() and not p.is_dir():
+        raise DomainError(f"Путь указывает на файл, а не на директорию: {p}",
+                          tech="path is a file", field="path")
+    if not p.exists():
+        try:
+            p.mkdir(parents=True, exist_ok=True)
+        except OSError as err:
+            raise DomainError(f"Не удалось создать директорию {p}: {err}",
+                              tech=str(err), field="path")
+    if not os.access(p, os.W_OK):
+        raise DomainError(f"Директория не для записи: {p}", tech="no write access",
+                          field="path")
+
+    def git(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", *args], cwd=p, capture_output=True, text=True)
+
+    if git("rev-parse", "--git-dir").returncode != 0:
+        init = git("init", "--initial-branch", "main")
+        if init.returncode != 0:
+            raise DomainError(f"git init не удался в {p}: {init.stderr.strip()}",
+                              tech=init.stderr, field="path")
+        head = git("rev-parse", "--verify", "HEAD")
+        if head.returncode != 0:
+            cfg = git("config", "user.email", "harness@local")
+            cfg2 = git("config", "user.name", "AI Harness")
+            first = git("commit", "--allow-empty", "-m",
+                        "Начальный коммит: рабочая директория проекта AI-Harness")
+            if first.returncode != 0:
+                raise DomainError(f"Не удалось создать начальный коммит в {p}: "
+                                  f"{first.stderr.strip()}", tech=first.stderr, field="path")
+    return str(p)
 
 
 async def create_project(session: AsyncSession, data: ProjectInput) -> Project:
@@ -50,7 +83,7 @@ async def create_project(session: AsyncSession, data: ProjectInput) -> Project:
     if (await session.execute(sa.select(sa.func.count()).select_from(Project)
                               .where(Project.mnemonic == mnemonic))).scalar_one():
         raise DomainError(f"Мнемоника {mnemonic} уже занята", field="mnemonic")
-    check_path(data.path)
+    data.path = prepare_path(data.path)
     project = Project(name=data.name.strip()[:64], mnemonic=mnemonic, path=data.path,
                       base_branch=data.base_branch or "main", description=data.description)
     session.add(project)
@@ -66,8 +99,7 @@ async def update_project(session: AsyncSession, project_id: uuid.UUID,
     if "mnemonic" in fields and fields["mnemonic"].upper() != project.mnemonic:
         raise DomainError("Мнемоника неизменна после создания", field="mnemonic")
     if "path" in fields and fields["path"] != project.path:
-        check_path(fields["path"])
-        project.path = fields["path"]
+        project.path = prepare_path(fields["path"])
     if "name" in fields and fields["name"]:
         project.name = fields["name"].strip()[:64]
     if "description" in fields:

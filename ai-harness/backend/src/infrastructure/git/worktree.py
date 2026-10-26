@@ -36,9 +36,11 @@ async def ensure_task_worktree(project_path: str, task_code: str,
                                base_branch: str = "main") -> Path:
     """Создаёт ветку task/<code> от базовой при первом входе в работу;
     повторный вход продолжает ту же ветку (ФТ-ah-37)."""
-    root = Path(project_path)
+    from infrastructure.paths import host_to_container
+
+    root = Path(host_to_container(project_path))
     branch = f"task/{task_code}"
-    wt = worktree_path_for(project_path, worktree_code(task_code))
+    wt = worktree_path_for(str(root), worktree_code(task_code))
     wt.parent.mkdir(parents=True, exist_ok=True)
     if wt.exists() and (wt / ".git").exists():
         return wt

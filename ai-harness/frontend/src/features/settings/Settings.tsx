@@ -518,7 +518,7 @@ function Projects() {
             <div className="f-field"><label>Мнемоника (2–10, A-Z0-9; неизменна)</label>
               <input value={edit.mnemonic} disabled={Boolean(edit.id)}
                 onChange={(e) => setEdit({ ...edit, mnemonic: e.target.value.toUpperCase() })} /></div>
-            <div className="f-field"><label>Путь на диске (существует и доступен на запись)</label>
+            <div className="f-field"><label>Путь на диске (репозиторий или мультирепозиторий; если папки нет — будет создана с git)</label>
               <input value={edit.path} onChange={(e) => setEdit({ ...edit, path: e.target.value })} /></div>
             <div className="f-field"><label>Базовая ветка</label>
               <input value={edit.baseBranch} onChange={(e) => setEdit({ ...edit, baseBranch: e.target.value })} /></div>

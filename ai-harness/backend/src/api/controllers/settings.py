@@ -120,10 +120,13 @@ async def pipeline_status(session: AsyncSession = Depends(get_session),
                          "goto": "#settings/providers"})
     broken = (await session.execute(sa.text(
         "SELECT mnemonic FROM project WHERE is_archived = false"))).scalars().all()
+    from infrastructure.paths import host_to_container
+
     for mnemonic in broken:
         row = (await session.execute(sa.text(
             "SELECT path FROM project WHERE mnemonic = :m"), {"m": mnemonic})).scalar_one_or_none()
-        if row and not (os.path.isdir(row) and os.access(row, os.W_OK)):
+        real = host_to_container(row) if row else None
+        if real and not (os.path.isdir(real) and os.access(real, os.W_OK)):
             warnings.append({"level": "danger",
                              "message": f"Путь проекта {mnemonic} недоступен: конвейер приостановлен",
                              "goto": "#settings/projects"})

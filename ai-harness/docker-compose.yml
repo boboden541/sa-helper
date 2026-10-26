@@ -29,9 +29,12 @@ services:
       DATABASE_URL: postgresql+asyncpg://harness:harness@postgres:5432/ai_harness
       AI_HARNESS_TOKEN_KEY: ${AI_HARNESS_TOKEN_KEY:-}
       SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-12}
-    # путь проекта AH монтируется на тот же абсолютный путь, чтобы git-контур
-    # демона работал с ветками в хост-репозитории (ФТ-ah-37)
+      HARNESS_HOST_HOME: ${HOME}
+      HARNESS_CONTAINER_HOME: /app/host-home
     volumes:
+      # домашняя директория компьютера видна контейнеру: проекты можно
+      # указывать любыми путями хоста (решение владельца 26.10.2026)
+      - ${HOME}:/app/host-home
       - ./.harness:/app/host-harness
     ports:
       - "8000:8000"
@@ -55,9 +58,13 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    volumes:
+      - ${HOME}:/app/host-home
     environment:
       DATABASE_URL: postgresql+asyncpg://harness:harness@postgres:5432/ai_harness
       DAEMON_TICK_SECONDS: ${DAEMON_TICK_SECONDS:-30}
+      HARNESS_HOST_HOME: ${HOME}
+      HARNESS_CONTAINER_HOME: /app/host-home
     command: ["python", "-m", "daemon.main"]
 
   adminer:
