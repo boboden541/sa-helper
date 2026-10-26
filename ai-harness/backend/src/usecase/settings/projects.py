@@ -35,7 +35,9 @@ def prepare_path(path: str) -> str:
 
     from infrastructure.paths import expand_host, host_to_container
 
-    p = Path(host_to_container(str(expand_host(path))))
+    # в БД и на экране — путь КАК НА КОМПЬЮТЕРЕ; контейнерный — только для FS-операций
+    user_path = Path(expand_host(path))
+    p = Path(host_to_container(str(user_path)))
     if p.exists() and not p.is_dir():
         raise DomainError(f"Путь указывает на файл, а не на директорию: {p}",
                           tech="path is a file", field="path")
@@ -66,7 +68,7 @@ def prepare_path(path: str) -> str:
             if first.returncode != 0:
                 raise DomainError(f"Не удалось создать начальный коммит в {p}: "
                                   f"{first.stderr.strip()}", tech=first.stderr, field="path")
-    return str(p)
+    return str(user_path)
 
 
 async def create_project(session: AsyncSession, data: ProjectInput) -> Project:
