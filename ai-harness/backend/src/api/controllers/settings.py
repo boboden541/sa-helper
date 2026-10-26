@@ -352,6 +352,70 @@ async def matrix_get(type_key: str, session: AsyncSession = Depends(get_session)
     return {"type": type_key, "matrix": matrix}
 
 
+class StatusAliasIn(BaseModel):
+    statusKey: str
+    aliasColumnId: str | None = None
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+
+@router.patch("/flows/{type_key}/status-alias")
+async def flow_status_alias(type_key: str, payload: StatusAliasIn,
+                            session: AsyncSession = Depends(get_session),
+                            actor: User = Depends(get_actor)):
+    """Назначение статуса колонке в текущей версии (colmap-панель, ФТ-ah-67)."""
+    import sqlalchemy as sa
+
+    from repository.models import FlowStatus, FlowVersion
+    from usecase.journal.settings_journal import record_and_commit
+
+    ttype = (await session.execute(sa.select(TaskType).where(TaskType.key == type_key))).scalar_one_or_none()
+    if ttype is None:
+        raise ApiError(400, f"Тип {type_key} не найден")
+    fv = (await session.execute(sa.select(FlowVersion).where(
+        FlowVersion.task_type_id == ttype.id, FlowVersion.is_current.is_(True),
+        FlowVersion.is_published.is_(True)))).scalar_one_or_none()
+    if fv is None:
+        raise ApiError(400, "Нет опубликованной версии flow")
+    st = (await session.execute(sa.select(FlowStatus).where(
+        FlowStatus.flow_version_id == fv.id, FlowStatus.status_key == payload.statusKey))).scalar_one_or_none()
+    if st is None:
+        raise ApiError(400, f"Статус {payload.statusKey!r} не найден")
+    old_col = str(st.alias_column_id or "")
+    new_col = payload.aliasColumnId or ""
+    if old_col == new_col:
+        return {"ok": True, "changed": False}
+    st.alias_column_id = payload.aliasColumnId or None
+    invalidate_cache()
+    await record_and_commit(session, actor.id, "board",
+                            f"Статус «{st.label}» → колонка",
+                            [{"field": "alias", "old": old_col[:8], "new": new_col[:8]}])
+    return {"ok": True, "changed": True}
+
+
+@router.get("/all-statuses")
+async def flow_all_statuses(session: AsyncSession = Depends(get_session),
+                            actor: User = Depends(get_actor)):
+    """Все статусы всех типов с alias-привязками — для colmap-панели."""
+    import sqlalchemy as sa
+
+    from repository.models import FlowStatus, FlowVersion, TaskType
+
+    types = (await session.execute(sa.select(TaskType).order_by(TaskType.id))).scalars().all()
+    out = []
+    for tt in types:
+        fv = (await session.execute(sa.select(FlowVersion).where(
+            FlowVersion.task_type_id == tt.id, FlowVersion.is_current.is_(True),
+            FlowVersion.is_published.is_(True)))).scalar_one_or_none()
+        if fv is None:
+            continue
+        sts = (await session.execute(sa.select(FlowStatus).where(
+            FlowStatus.flow_version_id == fv.id).order_by(FlowStatus.id))).scalars().all()
+        out.append({"type": tt.key, "typeLabel": tt.label,
+                    "statuses": [{"key": s.status_key, "label": s.label,
+                                  "aliasColumnId": str(s.alias_column_id or "")} for s in sts]})
+    return out
+
+
 @router.get("/provider-presets")
 async def provider_presets_list(session: AsyncSession = Depends(get_session),
                                 actor: User = Depends(get_actor)):

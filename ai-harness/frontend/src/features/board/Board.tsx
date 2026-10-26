@@ -94,6 +94,9 @@ export function Board({ tasks, reload }: { tasks: TaskCard[]; reload: () => void
   const [columns, setColumns] = useState<Column[]>([])
   const [editMode, setEditMode] = useState(false)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const [colMapFor, setColMapFor] = useState<string | null>(null)
+  const [colMapAlias, setColMapAlias] = useState<Record<string, string>>({})
+  const [allStatuses, setAllStatuses] = useState<{ type: string; typeLabel: string; statuses: { key: string; label: string; aliasColumnId: string }[] }[]>([])
   const [allowedKeys, setAllowedKeys] = useState<Record<string, boolean> | null>(null)
   const [dragCode, setDragCode] = useState<string | null>(null)
   const [hint, setHint] = useState<string | null>(null)
@@ -181,6 +184,14 @@ export function Board({ tasks, reload }: { tasks: TaskCard[]; reload: () => void
             onBlur={(e) => e.target.value !== col.label &&
               void api.updateColumn(col.id, { label: e.target.value }).then(reloadColumns)} />
           <span className="colh-key">{col.position}</span>
+          <button className="colh-map" title="Какие статусы сводятся в колонку"
+            onClick={(e) => {
+              e.stopPropagation()
+              setColMapFor((cur) => (cur === col.label ? null : col.label))
+              if (col.label !== colMapFor) {
+                void fetch('http://localhost:8088/api/v1/flows/all-statuses').then((r) => r.json()).then(setAllStatuses)
+              }
+            }}>статусы</button>
           <button className="colh-x" title="Удалить колонку" onClick={() => {
             void api.deleteColumn(col.id)
               .then(() => { reloadColumns(); reload() })
@@ -241,7 +252,46 @@ export function Board({ tasks, reload }: { tasks: TaskCard[]; reload: () => void
                 </div>
               )
             })}
-            {loose.length > 0 && (
+            {colMapFor && (
+            <aside className="colmap-panel" aria-label="Статусы колонки">
+              <div className="blk-h"><h3>Колонка «{colMapFor}»</h3><span className="fill" />
+                <button className="icon-btn" onClick={() => setColMapFor(null)} style={{ width: 22, height: 22 }}>✕</button></div>
+              <div className="muted" style={{ fontSize: 12 }}>Отметьте, какие статусы сводятся в эту колонку. Статус живёт в одной колонке.</div>
+              {(() => {
+              const col = columns.find((c) => c.label === colMapFor)
+              if (!col) return null
+              return allStatuses.map((t) => (
+                <div key={t.type} className="cm-type">
+                  <div className="q-sec">{t.typeLabel}</div>
+                  <div className="cm-sts">
+                    {t.statuses.map((s) => {
+                      const mine = s.aliasColumnId && colMapAlias[col.label] === s.key
+                      const other = s.aliasColumnId && !mine
+                      return (
+                        <button key={s.key} className={`cm-st ${mine ? 'mine' : ''}`}
+                          onClick={async () => {
+                            const newAlias = mine ? '' : col.id
+                            await fetch(`/api/v1/flows/${t.type}/status-alias`, {
+                              method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ statusKey: s.key, aliasColumnId: newAlias }),
+                            })
+                            // обновить локальный маппинг
+                            setColMapAlias((m) => { const n = { ...m }; if (newAlias) n[col.label] = s.key; else delete n[col.label]; return n })
+                            reloadColumns(); reload()
+                          }}>
+                          <span className="st-dot" style={{ background: STATUS_COLORS[s.key] ?? '#8792a3' }} />
+                          <span className="cm-l">{s.label}</span>
+                          {mine && <span className="cm-check">✓</span>}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))
+              })()}
+            </aside>
+          )}
+          {loose.length > 0 && (
               <div className="lane">
                 <div className="lane-band" style={{ ['--st' as string]: '#8792a3' }}>
                   <span className="chev" style={{ visibility: 'hidden' }} />

@@ -1,0 +1,453 @@
+# Instructions
+
+- Following Playwright test failed.
+- Explain why, be concise, respect Playwright best practices.
+- Provide a snippet of code with the fix, if possible.
+
+# Test info
+
+- Name: full-sweep.spec.ts >> 08 Карточка: форс-переход без причины невозможен, с причиной — работает
+- Location: e2e/full-sweep.spec.ts:88:1
+
+# Error details
+
+```
+Test timeout of 30000ms exceeded.
+```
+
+```
+Error: page.waitForSelector: Test timeout of 30000ms exceeded.
+Call log:
+  - waiting for locator('.drawer.show .force') to be visible
+
+```
+
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - 'generic "Сборка: a54ce8b" [ref=e5]':
+      - generic [ref=e9]:
+        - generic [ref=e10]: AI-Harness
+        - generic [ref=e11]: конвейер задач
+    - button "Доска" [ref=e12] [cursor=pointer]
+    - button "Список" [ref=e13] [cursor=pointer]
+    - generic [ref=e14]: Проекты
+    - button "AH AI Harness" [ref=e15] [cursor=pointer]:
+      - generic [ref=e16]: AH
+      - generic [ref=e17]: AI Harness
+    - generic [ref=e18]:
+      - generic [ref=e19]: Демон · тик 30 с · агенты на своих статусах
+      - button "⚙ Настройки" [ref=e21] [cursor=pointer]
+  - main [ref=e22]:
+    - generic [ref=e23]:
+      - heading "Доска задач" [level=1] [ref=e24]
+      - tablist "Вид" [ref=e25]:
+        - button "Доска" [ref=e26] [cursor=pointer]
+        - button "Список" [ref=e27] [cursor=pointer]
+      - generic [ref=e28]:
+        - searchbox "Поиск задач" [ref=e32]
+        - generic [ref=e33]: поиск
+      - generic "Активное подключение к ИИ-провайдеру" [ref=e34]: Подключение не настроено
+      - group [ref=e36]:
+        - generic "Уведомления" [ref=e37]: "53"
+      - button "Переключить тему" [ref=e41] [cursor=pointer]: ☾
+    - generic [ref=e42]:
+      - generic [ref=e43]: ⚠
+      - generic [ref=e44]: "Конвейер приостановлен — Путь проекта AH недоступен: конвейер приостановлен"
+      - button "Перейти в настройки" [ref=e45] [cursor=pointer]
+    - group "Фильтр по типу задачи" [ref=e46]:
+      - button "Все" [ref=e47] [cursor=pointer]
+      - button "Истории" [ref=e48] [cursor=pointer]
+      - button "Задачи" [ref=e49] [cursor=pointer]
+      - button "QA" [ref=e50] [cursor=pointer]
+      - button "Баги" [ref=e51] [cursor=pointer]
+      - button "Анализ" [ref=e52] [cursor=pointer]
+      - generic [ref=e53]: 18 задач
+      - button "＋ Задача" [ref=e54] [cursor=pointer]
+    - region "Kanban-доска" [ref=e55]:
+      - generic [ref=e56]:
+        - generic [ref=e57]:
+          - generic [ref=e59]: На рассмотрении
+          - generic [ref=e60]: "4"
+        - generic [ref=e61]:
+          - generic [ref=e63]: Бэклог
+          - generic [ref=e64]: "0"
+        - generic [ref=e65]:
+          - generic [ref=e67]: К работе
+          - generic [ref=e68]: "0"
+        - generic [ref=e69]:
+          - generic [ref=e71]: В работе
+          - generic [ref=e72]: "1"
+        - generic [ref=e73]:
+          - generic [ref=e75]: На ревью
+          - generic [ref=e76]: "0"
+        - generic [ref=e77]:
+          - generic [ref=e79]: На тестировании
+          - generic [ref=e80]: "0"
+        - generic [ref=e81]:
+          - generic [ref=e83]: Готово
+          - generic [ref=e84]: "0"
+        - generic [ref=e85]:
+          - generic [ref=e87]: Отменено
+          - generic [ref=e88]: "13"
+        - generic [ref=e89]:
+          - generic [ref=e91]: Заблокировано
+          - generic [ref=e92]: "0"
+        - generic "История движется автоматически по правилам M1–M6" [ref=e94] [cursor=pointer]:
+          - button "Свернуть историю" [ref=e95]
+          - generic [ref=e98]: AH-1
+          - generic [ref=e99]: Сквозной смок
+          - generic [ref=e100]: Отменено
+          - generic [ref=e103]: 0/0 задач
+          - 'generic "Приоритет: Высокий" [ref=e105]'
+        - generic "История движется автоматически по правилам M1–M6" [ref=e119] [cursor=pointer]:
+          - button "Свернуть историю" [ref=e120]
+          - generic [ref=e123]: AH-2
+          - generic [ref=e124]: Личный кабинет клиента
+          - generic [ref=e125]: Отменено
+          - generic [ref=e128]: 0/0 задач
+          - 'generic "Приоритет: Высокий" [ref=e130]'
+        - generic [ref=e143]:
+          - generic [ref=e144]:
+            - generic [ref=e145]: Без истории
+            - generic [ref=e146]: 16 задач
+          - generic [ref=e147]:
+            - generic [ref=e148]:
+              - button [ref=e149]:
+                - article [ref=e151]:
+                  - generic [ref=e152]:
+                    - generic [ref=e153]: AH-61
+                    - generic [ref=e154]: Задача
+                    - 'generic "Приоритет: Средний" [ref=e155]'
+                  - generic [ref=e158]: E2E DnD 1793011582115
+              - button [ref=e159]:
+                - article [ref=e161]:
+                  - generic [ref=e162]:
+                    - generic [ref=e163]: AH-62
+                    - generic [ref=e164]: Задача
+                    - 'generic "Приоритет: Средний" [ref=e165]'
+                  - generic [ref=e168]: E2E DnD deny 1793011590475
+              - button [ref=e169]:
+                - article [ref=e171]:
+                  - generic [ref=e172]:
+                    - generic [ref=e173]: AH-59
+                    - generic [ref=e174]: Задача
+                    - 'generic "Приоритет: Высокий" [ref=e175]'
+                  - generic [ref=e178]: E2E созданная задача
+              - button [ref=e179]:
+                - article [ref=e181]:
+                  - generic [ref=e182]:
+                    - generic [ref=e183]: AH-60
+                    - generic [ref=e184]: Задача
+                    - 'generic "Приоритет: Высокий" [ref=e185]'
+                  - generic [ref=e188]: E2E созданная задача
+            - button [ref=e192]:
+              - article [ref=e194]:
+                - generic [ref=e195]:
+                  - generic [ref=e196]: AH-3
+                  - generic [ref=e197]: Задача
+                  - 'generic "Приоритет: Средний" [ref=e198]'
+                - generic [ref=e201]: Профиль пользователя
+            - generic [ref=e205]:
+              - button [ref=e206]:
+                - article [ref=e208]:
+                  - generic [ref=e209]:
+                    - generic [ref=e210]: AH-29
+                    - generic [ref=e211]: Задача
+                    - 'generic "Приоритет: Средний" [ref=e212]'
+                  - generic [ref=e215]: DBG DnD
+              - button [ref=e216]:
+                - article [ref=e218]:
+                  - generic [ref=e219]:
+                    - generic [ref=e220]: AH-30
+                    - generic [ref=e221]: Задача
+                    - 'generic "Приоритет: Средний" [ref=e222]'
+                  - generic [ref=e225]: DBG2
+              - button [ref=e226]:
+                - article [ref=e228]:
+                  - generic [ref=e229]:
+                    - generic [ref=e230]: AH-4
+                    - generic [ref=e231]: Задача
+                    - 'generic "Приоритет: Средний" [ref=e232]'
+                  - generic [ref=e235]: История заказов
+              - button [ref=e236]:
+                - article [ref=e238]:
+                  - generic [ref=e239]:
+                    - generic [ref=e240]: AH-44
+                    - generic [ref=e241]: Задача
+                    - 'generic "Приоритет: Средний" [ref=e242]'
+                  - generic [ref=e245]: FINAL DnD CHECK
+              - button [ref=e246]:
+                - article [ref=e248]:
+                  - generic [ref=e249]:
+                    - generic [ref=e250]: AH-5
+                    - generic [ref=e251]: Задача
+                    - 'generic "Приоритет: Средний" [ref=e252]'
+                  - generic [ref=e255]: Настройки уведомлений
+              - button [ref=e256]:
+                - article [ref=e258]:
+                  - generic [ref=e259]:
+                    - generic [ref=e260]: AH-57
+                    - generic [ref=e261]: Задача
+                    - 'generic "Приоритет: Средний" [ref=e262]'
+                  - generic [ref=e265]: E2E DnD 1793009065482
+              - button [ref=e266]:
+                - article [ref=e268]:
+                  - generic [ref=e269]:
+                    - generic [ref=e270]: AH-58
+                    - generic [ref=e271]: Задача
+                    - 'generic "Приоритет: Средний" [ref=e272]'
+                  - generic [ref=e275]: E2E DnD deny 1793009066554
+              - button [ref=e276]:
+                - article [ref=e278]:
+                  - generic [ref=e279]:
+                    - generic [ref=e280]: AH-20
+                    - generic [ref=e281]: Задача
+                    - 'generic "Приоритет: Высокий" [ref=e282]'
+                  - generic [ref=e285]: Свип отладка
+              - button [ref=e286]:
+                - article [ref=e288]:
+                  - generic [ref=e289]:
+                    - generic [ref=e290]: AH-8
+                    - generic [ref=e291]: Задача
+                    - 'generic "Приоритет: Высокий" [ref=e292]'
+                  - generic [ref=e295]: Интеграция платежного шлюза
+              - button [ref=e296]:
+                - article [ref=e298]:
+                  - generic [ref=e299]:
+                    - generic [ref=e300]: AH-6
+                    - generic [ref=e301]: Баг
+                    - 'generic "Приоритет: Критический" [ref=e302]'
+                  - generic [ref=e305]: Ошибка 500 при сохранении профиля
+              - button [ref=e306]:
+                - article [ref=e308]:
+                  - generic [ref=e309]:
+                    - generic [ref=e310]: AH-7
+                    - generic [ref=e311]: Задача
+                    - 'generic "Приоритет: Критический" [ref=e312]'
+                  - generic [ref=e315]: Экспорт отчёта в Excell
+      - status [ref=e317]
+  - button "E Eve · помощник" [ref=e318] [cursor=pointer]:
+    - generic [ref=e319]: E
+    - text: Eve · помощник
+  - region "Чат с Eve":
+    - generic:
+      - generic: E
+      - generic:
+        - generic: Eve
+        - text: максимальные права, всё — с аудитом
+      - button "Свернуть чат": —
+    - generic:
+      - text: "Контекст:"
+      - generic: доска
+      - generic: — вижу, какой экран открыт
+    - generic: "Я Eve. Спросите или дайте задание: «переведи AH-3 на ревью», «почему AH-8 встала?», «создай задачу «Название»»."
+    - generic:
+      - button "Почему встала?"
+      - button "Сводка по проекту"
+    - generic:
+      - textbox "Спросите или дайте задание… (Enter — отправить)"
+      - button "Отправить"
+```
+
+# Test source
+
+```ts
+  1   | // Сквозной прогон всех экранов и элементов с проверкой backend-вызовов.
+  2   | // Каждая ошибка сети (4xx/5xx) и каждый упавший чек фиксируются отчётом.
+  3   | 
+  4   | import { expect, test } from '@playwright/test'
+  5   | 
+  6   | const badResponses: { url: string; status: number }[] = []
+  7   | 
+  8   | test.beforeEach(async ({ page }) => {
+  9   |   badResponses.length = 0
+  10  |   page.on('response', (r) => {
+  11  |     if (r.url().includes('/api/') && r.status() >= 400) {
+  12  |       // 401 при проверке невалидного токена — ожидаемый сценарий двухслойной ошибки
+  13  |       badResponses.push({ url: r.url().replace('http://localhost:8088', ''), status: r.status() })
+  14  |     }
+  15  |   })
+  16  |   await page.goto('http://localhost:8088/#board')
+  17  |   await page.waitForSelector('.card', { timeout: 10000 })
+  18  | })
+  19  | 
+  20  | function expectNo500s() {
+  21  |   const s500 = badResponses.filter((b) => b.status >= 500)
+  22  |   expect(s500, 'backend 5xx: ' + JSON.stringify(s500)).toEqual([])
+  23  | }
+  24  | 
+  25  | test('01 Доска: каркас, колонки, карточки, полосы историй, счётчики', async ({ page }) => {
+  26  |   await expect(page.locator('.board-grid')).toBeVisible()
+  27  |   expect(await page.locator('.col-head').count()).toBeGreaterThanOrEqual(9)
+  28  |   await expect(page.locator('.lane-band').first()).toBeVisible()
+  29  |   await expect(page.locator('.card').first()).toBeVisible()
+  30  |   await expect(page.locator('.card .type-chip').first()).toBeVisible()
+  31  |   await expect(page.locator('.card .prio').first()).toBeVisible()
+  32  |   await expect(page.locator('.filters .chip-f').first()).toBeVisible()
+  33  |   expectNo500s()
+  34  | })
+  35  | 
+  36  | test('02 Доска: клик по карточке — site-page поверх доски', async ({ page }) => {
+  37  |   await page.locator('.card').first().click()
+  38  |   await expect(page.locator('.drawer.show')).toBeVisible()
+  39  |   await expect(page.locator('.board-scroll')).toBeVisible()
+  40  | })
+  41  | 
+  42  | test('03 Доска: клик по коду — полный экран', async ({ page }) => {
+  43  |   await page.locator('.card .code').first().click()
+  44  |   await expect(page.locator('.taskpage')).toBeVisible()
+  45  | })
+  46  | 
+  47  | test('04 Карточка: 14 групп блоков, мета, теги, хроники', async ({ page }) => {
+  48  |   await page.locator('.lane-band', { hasText: 'Личный кабинет' }).first().click()
+  49  |   await expect(page.locator('.drawer.show .task-head .tcode')).toBeVisible()
+  50  |   await expect(page.locator('.drawer.show .meta-row')).toBeVisible()
+  51  |   await expect(page.locator('.drawer.show .card-tags .tag').first()).toBeVisible()
+  52  |   await expect(page.locator('.drawer.show .desc-view .md')).toBeVisible()
+  53  |   await expect(page.locator('.drawer.show .chron-tabs')).toBeVisible()
+  54  |   await expect(page.locator('.drawer.show details.force')).toBeVisible()
+  55  |   expectNo500s()
+  56  | })
+  57  | 
+  58  | test('05 Карточка: смена приоритета через prio-menu → PATCH → хроника «поле»', async ({ page }) => {
+  59  |   await page.locator('.card', { hasText: 'Экспорт отчёта' }).first().click()
+  60  |   const code = await page.locator('.drawer.show .tcode').textContent()
+  61  |   await page.locator('.drawer.show .meta-row .pop > button').click()
+  62  |   await page.locator('.prio-menu button', { hasText: 'Критический' }).click()
+  63  |   await page.waitForTimeout(400)
+  64  |   const chron = await api(`/api/v1/tasks/${code?.trim()}/chronicle`)
+  65  |   expect((chron.items ?? []).some((c: { type: string; message: string }) =>
+  66  |     c.type === 'field' && c.message.includes('приоритет'))).toBeTruthy()
+  67  | })
+  68  | 
+  69  | test('06 Карточка: правка описания через markdown → сохранение → рендер', async ({ page }) => {
+  70  |   await page.locator('.card').first().click()
+  71  |   await page.locator('.drawer.show .blk-h .pencil.show').first().click()
+  72  |   await page.locator('.desc-edit .mode-tabs button', { hasText: 'Markdown' }).click()
+  73  |   await page.locator('.desc-edit textarea').fill('## E2E описание\n- пункт один')
+  74  |   await page.locator('.desc-edit .edit-actions button', { hasText: 'Сохранить' }).click()
+  75  |   await expect(page.locator('.drawer.show .md h2')).toContainText('E2E описание')
+  76  | })
+  77  | 
+  78  | test('07 Карточка: чек-лист разработчика — создать, текстовый режим, статусы', async ({ page }) => {
+  79  |   await page.locator('.card', { hasText: 'Профиль пользователя' }).first().click()
+  80  |   const blk = page.locator('.blk', { hasText: 'разработчика' }).first()
+  81  |   await blk.locator('.cl-add input').fill('шаг один')
+  82  |   await blk.locator('.cl-add input').press('Enter')
+  83  |   await expect(blk.locator('.cl-row', { hasText: 'шаг один' })).toBeVisible()
+  84  |   await blk.locator('.pencil[title*="Текстовый режим"]').click()
+  85  |   await expect(blk.locator('.cl-text textarea')).toBeVisible()
+  86  | })
+  87  | 
+  88  | test('08 Карточка: форс-переход без причины невозможен, с причиной — работает', async ({ page }) => {
+  89  |   const created = await api('/api/v1/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+  90  |     body: JSON.stringify({ projectId: 'AH', type: 'common_task', title: 'E2E форс ' + Date.now(),
+  91  |       priority: 'medium', authorTag: 'by_human' }) })
+  92  |   const code = created.code ?? created.code
+  93  |   await page.goto(`http://localhost:8088/#${code}`)
+> 94  |   await page.waitForSelector('.drawer.show .force')
+      |              ^ Error: page.waitForSelector: Test timeout of 30000ms exceeded.
+  95  |   await page.locator('.drawer.show .force summary').click()
+  96  |   await expect(page.locator('.drawer.show .force .fr button')).toBeDisabled()
+  97  |   await page.locator('.drawer.show .force textarea').fill('e2e форс')
+  98  |   await page.locator('.drawer.show .force select').selectOption('blocked')
+  99  |   await page.locator('.drawer.show .force .fr button').click()
+  100 |   await expect(page.locator('.drawer.show .callout.bad')).toBeVisible()
+  101 | })
+  102 | 
+  103 | test('09 Диалог создания: создание задачи → pending + уведомление', async ({ page }) => {
+  104 |   await page.locator('.filters button', { hasText: '＋ Задача' }).click()
+  105 |   await page.locator('.modal-card input').first().fill('AH')
+  106 |   await page.locator('.modal-card input').nth(1).fill('E2E созданная задача')
+  107 |   await page.locator('.modal-card select').nth(1).selectOption('high')
+  108 |   await page.locator('.modal-card button', { hasText: 'Создать' }).click()
+  109 |   await expect(page.locator('.modal-card')).toBeHidden()
+  110 |   await page.locator('.icon-btn[aria-label="Уведомления"]').click()
+  111 |   await expect(page.locator('.notif', { hasText: 'модерации' }).first()).toBeVisible()
+  112 | })
+  113 | 
+  114 | test('10 Список: таблица задач, клик открывает карточку', async ({ page }) => {
+  115 |   await page.locator('.seg button', { hasText: 'Список' }).click()
+  116 |   await expect(page.locator('table.tasks tbody tr').first()).toBeVisible()
+  117 | })
+  118 | 
+  119 | test('11 Eve: фраза → намерение → «да» → переход применён', async ({ page }) => {
+  120 |   await page.locator('.eve-btn').click()
+  121 |   await page.locator('.eve-input textarea').fill('переведи AH-7 в бэклог')
+  122 |   await page.locator('.eve-input textarea').press('Enter')
+  123 |   await expect(page.locator('.intent')).toBeVisible({ timeout: 8000 })
+  124 |   await page.locator('.intent .ia button', { hasText: 'Да' }).click()
+  125 |   await page.waitForTimeout(600)
+  126 |   const card = await api('/api/v1/tasks/AH-7')
+  127 |   expect(card.statusKey).toBe('backlog')
+  128 | })
+  129 | 
+  130 | test('12 Настройки Status-flow: граф (fs-card), переключение на таблицу (6 колонок)', async ({ page }) => {
+  131 |   await page.goto('http://localhost:8088/#settings/flow')
+  132 |   await page.waitForSelector('.set-tabs')
+  133 | 
+  134 |   await expect(page.locator('.fs-card').first()).toBeVisible()
+  135 |   await expect(page.locator('.flow-toolbar .seg button.active')).toContainText('Задачи')
+  136 |   await page.locator('.mode-tabs button', { hasText: 'Таблица' }).click()
+  137 |   await expect(page.locator('.flow-canvas.flow-table table th', { hasText: 'Кто работает' })).toBeVisible()
+  138 |   await expect(page.locator('.flow-canvas.flow-table table th', { hasText: 'Alias-колонка' })).toBeVisible()
+  139 |   const chip = page.locator('.tr-chip').first()
+  140 |   await expect(chip).toContainText('→')
+  141 | })
+  142 | 
+  143 | test('13 Status-flow: поповер добавления перехода с «Кто запускает»', async ({ page }) => {
+  144 |   await page.goto('http://localhost:8088/#settings/flow')
+  145 |   await page.waitForSelector('.set-tabs')
+  146 | 
+  147 |   await page.locator('.mode-tabs button', { hasText: 'Таблица' }).click()
+  148 |   await page.locator('.tr-cell button.btn.small').first().click()
+  149 |   await expect(page.locator('.tr-pop')).toBeVisible()
+  150 |   await expect(page.locator('.tr-pop select').nth(1)).toBeVisible()
+  151 |   await page.locator('.tr-pop button', { hasText: 'Отмена' }).click()
+  152 | })
+  153 | 
+  154 | test('14 Настройки Проекты: создание, архив, удаление — полный цикл', async ({ page }) => {
+  155 |   await page.goto('http://localhost:8088/#settings/projects')
+  156 |   await page.waitForSelector('.set-tabs')
+  157 | 
+  158 |   await page.locator('button', { hasText: '＋ Проект' }).click()
+  159 |   await page.locator('.agent-editor input').nth(0).fill('E2E Проект')
+  160 |   await page.locator('.agent-editor input').nth(1).fill('E2' + String(Date.now()).slice(-4))
+  161 |   await page.locator('.agent-editor input').nth(2).fill('/tmp')
+  162 |   await page.locator('.agent-editor button', { hasText: 'Сохранить' }).click()
+  163 |   await expect(page.locator('.prov-row', { hasText: 'E2E Проект' })).toBeVisible()
+  164 |   const row = page.locator('.prov-row', { hasText: 'E2E Проект' })
+  165 |   await row.locator('button', { hasText: 'В архив' }).click()
+  166 |   await expect(page.locator('.prov-row', { hasText: 'E2E Проект' })).toContainText('в архиве')
+  167 |   await row.locator('button', { hasText: 'Удалить' }).click()
+  168 |   await page.waitForTimeout(400)
+  169 |   expect(await page.locator('.prov-row', { hasText: 'E2E Проект' }).count()).toBe(0)
+  170 | })
+  171 | 
+  172 | test('15 Провайдеры: пресеты подставляют URL; check невалидного токена — двухслойная ошибка', async ({ page }) => {
+  173 |   await page.goto('http://localhost:8088/#settings/providers')
+  174 |   await page.waitForSelector('.prov-form')
+  175 | 
+  176 |   const presetSelect = page.locator('.prov-form select').first()
+  177 |   await presetSelect.selectOption('OpenAI')
+  178 |   await expect(page.locator('.prov-form input').nth(1)).toHaveValue('https://api.openai.com/v1')
+  179 |   await page.locator('.prov-form input[placeholder="название"]').fill('e2e-conn')
+  180 |   await page.locator('.prov-form input[placeholder="модель"]').fill('gpt-4o-mini')
+  181 |   await page.locator('.prov-form input[placeholder="API-токен"]').fill('sk-invalid-e2e')
+  182 |   await page.locator('.prov-form button', { hasText: 'Проверить' }).click()
+  183 |   await expect(page.locator('.check-row.err')).toBeVisible({ timeout: 20000 })
+  184 | })
+  185 | 
+  186 | test('16 Провайдеры: сохранение подключения с валидным токеном', async ({ page }) => {
+  187 |   await page.goto('http://localhost:8088/#settings/providers')
+  188 |   await page.waitForSelector('.prov-form')
+  189 | 
+  190 |   const uniq = String(Date.now()).slice(-6)
+  191 |   await page.locator('.prov-form input[placeholder="название"]').fill('e2e-anthropic-' + uniq)
+  192 |   await page.locator('.prov-form select').first().selectOption('anthropic')
+  193 |   await page.locator('.prov-form input[placeholder="URL"]').fill('https://api.anthropic.com')
+  194 |   await page.locator('.prov-form input[placeholder="модель"]').fill('claude-sonnet-5')
+```
