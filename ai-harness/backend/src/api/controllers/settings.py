@@ -680,10 +680,18 @@ async def projects_list(session: AsyncSession = Depends(get_session),
                         actor: User = Depends(get_actor)):
     import sqlalchemy as sa
 
+    from repository.models import Task
+
     rows = (await session.execute(sa.select(Project).order_by(Project.mnemonic))).scalars().all()
+    counts = dict((await session.execute(
+        sa.select(Project.mnemonic, sa.func.count(Task.id))
+        .join(Task, Task.project_id == Project.id)
+        .where(Task.status_key.notin_(("done", "canceled")))
+        .group_by(Project.mnemonic))).all())
     return [{"id": str(p.id), "name": p.name, "mnemonic": p.mnemonic, "path": p.path,
              "baseBranch": p.base_branch, "isArchived": p.is_archived,
-             "description": p.description} for p in rows]
+             "description": p.description,
+             "openCount": counts.get(p.mnemonic, 0)} for p in rows]
 
 
 @router.post("/projects")

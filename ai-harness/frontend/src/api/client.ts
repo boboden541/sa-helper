@@ -6,6 +6,7 @@ export interface TaskCard {
   priority: string
   type: string
   statusKey: string
+  project?: string
   storyCode?: string | null
   tags?: string[]
   agent?: { name: string } | null
@@ -122,7 +123,7 @@ export const api = {
     request<{ reply?: string; action?: string; intent?: { kind: string; task: string; to: string } }>(
       '/api/v1/assistant/messages', { method: 'POST', body: JSON.stringify({ text, screenTaskCode }) }),
   queue: () => request<{ working: { code: string; status: string; agent: string; minutes?: number }[]; waiting: { code: string; status: string; attempts: number }[]; blocked: { code: string; reason: string }[] }>('/api/v1/queue'),
-  projects: () => request<{ id: string; name: string; mnemonic: string; isArchived: boolean }[]>('/api/v1/projects'),
+  projects: () => request<{ id: string; name: string; mnemonic: string; isArchived: boolean; openCount?: number }[]>('/api/v1/projects'),
   flow: (typeKey: string) =>
     request<{ version: number; isPublished: boolean; statuses: { key: string; label: string; aliasColumnId: string; gate?: string; stageDesc?: string; entry: boolean; terminal: boolean; blocking: boolean }[]; transitions: { from: string; to: string; runner: string; display: string; rule?: string }[] }>(
       `/api/v1/flows/${typeKey}`),

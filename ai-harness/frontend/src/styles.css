@@ -1193,3 +1193,13 @@ button.conn.off:hover{color:var(--accent-text)}
   cursor:pointer; color:var(--text2); font-size:11px}
 .table-bar button:hover{background:var(--surface); color:var(--accent-text)}
 .table-bar button.danger{color:#cf4436}
+
+/* Активный проект: панель, фильтр, выпадающий выбор в диалоге создания */
+.proj{display:flex; align-items:center; gap:8px}
+.proj.active{background:var(--accent-weak); color:var(--accent-text)}
+.proj .badge.num{margin-left:auto}
+.proj-active{display:flex; align-items:center; gap:8px; padding:4px 12px;
+  background:var(--accent-weak); border-radius:999px; font-size:12px; width:fit-content}
+.proj-drop{position:absolute; z-index:30; top:100%; left:0; right:0; margin-top:4px;
+  background:var(--surface); border:1px solid var(--border); border-radius:var(--r-m);
+  padding:4px; max-height:220px; overflow:auto; box-shadow:var(--shadow-1)}

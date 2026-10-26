@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../api/client'
 import { RichText } from '../../shared/editor/RichText'
+import { useApp } from '../../app/store'
 
 interface CreateState {
   projectId: string
@@ -24,6 +25,13 @@ export function CreateDialog({ onClose, prefillTitle }: { onClose: () => void; p
     authorTag: 'by_human', tags: '', descriptionMd: '', descMode: 'visual',
   })
   const [error, setError] = useState<string | null>(null)
+  const [projects, setProjects] = useState<{ mnemonic: string; name: string; isArchived: boolean }[]>([])
+  const [projQ, setProjQ] = useState<string | null>(null)
+  useEffect(() => {
+    void api.projects().then(setProjects).catch(() => {})
+    const active = useApp.getState().project
+    if (active) setState((s) => ({ ...s, projectId: active }))
+  }, [])
   const set = (patch: Partial<CreateState>) => setState((s) => ({ ...s, ...patch }))
   useEffect(() => { STORE.last = state }, [state])
 
@@ -48,8 +56,26 @@ export function CreateDialog({ onClose, prefillTitle }: { onClose: () => void; p
         <div className="blk-h"><h3 style={{ fontSize: 15 }}>Новая задача</h3></div>
         {error && <div className="callout bad"><span className="ci">!</span><div className="body">{error}</div></div>}
         <div className="cr-form">
-          <div className="f-field"><label>Проект</label>
-            <input value={state.projectId} onChange={(e) => set({ projectId: e.target.value.toUpperCase() })} /></div>
+          <div className="f-field" style={{ position: 'relative' }}>
+            <label>Проект (поиск по названию или мнемонике)</label>
+            <input value={projQ ?? state.projectId}
+              placeholder="AH — AI Harness…"
+              onChange={(e) => { setProjQ(e.target.value); set({ projectId: e.target.value.toUpperCase() }) }} />
+            {projQ !== null && (
+              <div className="proj-drop">
+                {projects.filter((pr) => !pr.isArchived && (
+                  !projQ.trim() || pr.name.toLowerCase().includes(projQ.toLowerCase())
+                  || pr.mnemonic.toLowerCase().includes(projQ.toLowerCase()))).map((pr) => (
+                  <div key={pr.mnemonic} className="rel" onClick={() => { set({ projectId: pr.mnemonic }); setProjQ(null) }}>
+                    <span className="code">{pr.mnemonic}</span><span className="rt">{pr.name}</span>
+                  </div>
+                ))}
+                {!projects.filter((pr) => !pr.isArchived && (
+                  !projQ.trim() || pr.name.toLowerCase().includes(projQ.toLowerCase())
+                  || pr.mnemonic.toLowerCase().includes(projQ.toLowerCase()))).length
+                  && <div className="muted" style={{ fontSize: 12 }}>Проект не найден — проверьте мнемонику в «Настройки → Проекты»</div>}
+              </div>)}
+          </div>
           <div className="f-field"><label>Тип задачи</label>
             <select value={state.type} onChange={(e) => set({ type: e.target.value })}>
               {['common_task', 'story', 'qa_task', 'bug', 'analyse_task'].map((t) => <option key={t}>{t}</option>)}

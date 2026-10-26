@@ -30,7 +30,7 @@ export function App() {
   const [notifications, setNotifications] = useState<{ id: string; code: string; message: string }[]>([])
   const [createOpen, setCreateOpen] = useState(false)
   const [undoLabel, setUndoLabel] = useState<string | null>(null)
-  const [projects, setProjects] = useState<{ mnemonic: string; name: string; isArchived: boolean }[]>([])
+  const [projects, setProjects] = useState<{ mnemonic: string; name: string; isArchived: boolean; openCount?: number }[]>([])
   const [needLogin, setNeedLogin] = useState(false)
   const [boardEdit, setBoardEdit] = useState(false)
   const [, force] = useState(0)
@@ -49,18 +49,24 @@ export function App() {
     if (err.status === 401) setNeedLogin(true)
     throw err
   }
+  const project = useApp((s) => s.project)
+  const setProject = useApp((s) => s.setProject)
   const reload = () => {
     void api.tasks({
       q: query || undefined,
       type: typeFilter || undefined,
-      project: useApp.getState().project ?? undefined,
+      project: project ?? undefined,
     }).then((r) => setTasks(r.items)).catch(on401)
     void api.notifications().then((r) => setNotifications(r.items)).catch(on401)
   }
-  useEffect(reload, [query, typeFilter, view])
+  useEffect(reload, [query, typeFilter, view, project])
+  const [projCounts, setProjCounts] = useState<Record<string, number>>({})
   useEffect(() => {
-    void api.projects().then(setProjects).catch(() => {})
-  }, [])
+    void api.projects().then((list) => {
+      setProjects(list)
+      setProjCounts(Object.fromEntries(list.map((x) => [x.mnemonic, x.openCount ?? 0])))
+    }).catch(() => {})
+  }, [view])
   const [warnings, setWarnings] = useState<{ level: string; message: string; goto?: string }[]>([])
   const [pipelinePaused, setPipelinePaused] = useState(false)
   const [connInfo, setConnInfo] = useState<{ name: string; model: string } | null | undefined>(undefined)
@@ -124,8 +130,12 @@ export function App() {
         <button className={`nav-btn ${view === 'list' ? 'active' : ''}`} onClick={() => navigate('#list')}>Список</button>
         <div className="side-h">Проекты</div>
         {projects.filter((p) => !p.isArchived).map((p) => (
-          <button key={p.mnemonic} className="proj" onClick={() => useApp.getState().setProject(p.mnemonic)}>
+          <button key={p.mnemonic}
+            className={`proj ${project === p.mnemonic ? 'active' : ''}`}
+            title={project === p.mnemonic ? 'Показаны все проекты' : `Доска проекта ${p.name}`}
+            onClick={() => setProject(project === p.mnemonic ? null : p.mnemonic)}>
             <span className="mn">{p.mnemonic}</span><span className="nm">{p.name}</span>
+            <span className="badge num">{projCounts[p.mnemonic] ?? 0}</span>
           </button>
         ))}
         <div className="side-foot">
@@ -209,6 +219,12 @@ export function App() {
           </div>
         ))}
         {view !== 'settings' && !isTaskPage && filters}
+        {view !== 'settings' && !isTaskPage && project && (
+          <div className="proj-active">
+            Проект <b>{project}</b>
+            <button className="btn small" onClick={() => setProject(null)}>✕ все проекты</button>
+          </div>
+        )}
         {(view === 'board' || (view === 'task' && !isTaskPage)) && (
           <Board tasks={tasks} reload={reload} boardEdit={boardEdit} />
         )}

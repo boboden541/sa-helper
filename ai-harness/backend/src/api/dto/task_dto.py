@@ -41,6 +41,7 @@ class TaskCardOut(BaseModel):
     priority: str
     type: str
     status_key: str = Field(alias="statusKey")
+    project: str = ""
     story_code: str | None = Field(default=None, alias="storyCode")
     tags: list[str] = []
     agent: dict | None = None
