@@ -403,7 +403,31 @@ function FlowEditor({ reload }: { reload: () => void }) {
                       title={s.terminal ? 'У терминального статуса нет исходящих переходов' : undefined}
                       onClick={(e) => { e.stopPropagation(); setSel({ kind: 'status', id: s.key }) }}>＋</button>
                   </td>
-                  <td>{columns.find((c) => c.id === s.aliasColumnId)?.label ?? <span style={{ color: 'var(--danger)' }}>—</span>}</td>
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <select value={newColFor === s.key ? '__new' : (s.aliasColumnId ?? '')}
+                      onChange={async (e) => {
+                        if (e.target.value === '__new') { setNewColFor(s.key); return }
+                        setNewColFor(null)
+                        statusField(s.key, { aliasColumnId: e.target.value })
+                      }}>
+                      <option value="">— не назначена —</option>
+                      {columns.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+                      <option value="__new">＋ новая колонка…</option>
+                    </select>
+                    {newColFor === s.key && (
+                      <div className="flex mt8">
+                        <input className="cm-name" placeholder="Название колонки" value={newColName}
+                          onChange={(e) => setNewColName(e.target.value)} />
+                        <button className="btn small" onClick={async () => {
+                          if (!newColName.trim()) return
+                          const res = await api.createColumn({ label: newColName.trim() })
+                          setColumns((c) => [...c, { id: res.id, label: newColName.trim() }])
+                          statusField(s.key, { aliasColumnId: res.id })
+                          setNewColFor(null); setNewColName('')
+                        }}>Создать</button>
+                      </div>
+                    )}
+                  </td>
                   <td><button className="btn danger small" onClick={() => removeStatus(s.key)}>✕</button></td>
                 </tr>
               ))}

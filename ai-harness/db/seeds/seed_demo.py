@@ -1,6 +1,7 @@
 """Демо-набор для личной проверки интерфейса (идемпотентно).
 
-История с дочерними в разных колонках, баг, pending на модерацию, blocked.
+История с дочерними в разных колонках, баг, pending на модерацию, blocked,
+распределение на агентов (ФТ-ah-31) — карточки «в работе у агента X».
 Запуск: python -m db.seeds.seed_demo
 """
 
@@ -24,12 +25,6 @@ async def demo() -> None:
 
     init_engine(get_settings().database_url)
     async with get_sessionmaker()() as session:
-        existing = (await session.execute(sa.select(sa.func.count()).select_from(Task))).scalar_one()
-        if existing >= 5:
-            print(f"Демо-данные уже есть ({existing} задач) — пропускаю")
-            await dispose_engine()
-            return
-
         human = (await session.execute(
             sa.select(User).where(User.name == "Алексей"))).scalar_one()
 
@@ -39,6 +34,52 @@ async def demo() -> None:
             base.update(kw)
             return CreateTaskInput(**base)
 
+        # --- распределение на агентов (ФТ-ah-31) ------------------------------
+        # Пока в базе нет ни одной задачи с агентом — раскладываем демо-набор.
+        has_agent = (await session.execute(
+            sa.select(sa.func.count()).select_from(Task).where(Task.reserved_by.isnot(None)))).scalar_one()
+        if has_agent == 0:
+            async def agent_user(name: str):
+                return (await session.execute(
+                    sa.select(User).where(User.name == name))).scalar_one_or_none()
+
+            dev = await agent_user("Разработчик")
+            rev = await agent_user("Ревьюер")
+            qa = await agent_user("Тестировщик")
+            if dev and rev and qa:
+                story2 = await create_task(session, human, inp(
+                    type_key="story", title="Уведомления в браузере", priority="medium",
+                    tags=["демо", "backend"],
+                    description_md="## Цель\nКлиент получает push о статусе заказа.\n\n"
+                                   "### Шаги\n- сервис уведомлений\n- настройка подписки"))
+                print("story:", story2.code)
+                kids = [
+                    ("common_task", "Сервис уведомлений", "in_progress", dev, ["backend"]),
+                    ("common_task", "Настройка подписки", "review_ready", rev, ["frontend"]),
+                    ("qa_task", "Проверка доставки уведомлений", "in_testing", qa, ["демо"]),
+                ]
+                for ttype, title, status, agent, tags in kids:
+                    t = await create_task(session, human, inp(
+                        type_key=ttype, title=title, priority="medium", tags=tags,
+                        story_code=story2.code,
+                        description_md=f"Часть истории {story2.code}: {title}."))
+                    await session.execute(sa.update(Task).where(Task.code == t.code)
+                                          .values(status_key=status, reserved_by=agent.id))
+                solo = await create_task(session, human, inp(
+                    type_key="common_task", title="Починить флапающий тест очереди", priority="high",
+                    tags=["демо"], description_md="Тест падает 1 раз из 5 в CI."))
+                await session.execute(sa.update(Task).where(Task.code == solo.code)
+                                      .values(status_key="in_progress", reserved_by=dev.id))
+                await session.commit()
+                print("распределение на агентов готово")
+
+        # --- базовый демо-набор ------------------------------------------------
+        existing = (await session.execute(sa.select(sa.func.count()).select_from(Task))).scalar_one()
+        if existing >= 5:
+            print(f"Демо-данные уже есть ({existing} задач) — пропускаю")
+            await dispose_engine()
+            return
+
         story = await create_task(session, human, inp(
             type_key="story", title="Личный кабинет клиента", priority="high",
             tags=["демо", "frontend"],
@@ -47,7 +88,7 @@ async def demo() -> None:
         print("story:", story.code)
 
         children = [
-            ("common_task", "Профиль пользователя", "progress", ["frontend"]),
+            ("common_task", "Профиль пользователя", "in_progress", ["frontend"]),
             ("common_task", "История заказов", "review_ready", ["backend"]),
             ("common_task", "Настройки уведомлений", "todo", ["frontend"]),
         ]

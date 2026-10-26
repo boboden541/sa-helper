@@ -1,14 +1,16 @@
 // Доска — DOM design_mockup/app.js:726-854. DnD на dnd-kit (pointer-based):
 // карточка тянется с курсором, разрешённые колонки подсвечиваются (.cell.ok/.over),
 // запрет решается при применении с человекочитаемым toast (ФТ-ah-16).
+// Раскладка по колонкам — по реестру «тип+статус → alias-колонка» (/all-statuses),
+// а не по жёсткому словарю меток: правка доски и colmap не должны прятать задачи.
 
 import { DndContext, PointerSensor, useSensor, useSensors,
   useDraggable, useDroppable,
   type DragEndEvent, type DragStartEvent } from '@dnd-kit/core'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api, type TaskCard } from '../../api/client'
 import {
-  ALIAS_LB, ALIAS_OF, esc, prioBadge, stChip, tagHtml, typeChip,
+  ALIAS_OF, esc, prioBadge, stChip, tagHtml, typeChip,
 } from '../../shared/refs'
 import { pushUndo } from '../../shared/undo'
 import { toast } from '../../shared/toast'
@@ -16,6 +18,7 @@ import { ColmapPanel } from './ColmapPanel'
 
 interface Column { id: string; label: string; color: string; position: number }
 
+// Фолбэк на дефолтные метки — только пока реестр /all-statuses не догрузился.
 const KEY_BY_LABEL: Record<string, string> = {
   'На рассмотрении': 'pending', 'Бэклог': 'backlog', 'К работе': 'todo', 'В работе': 'progress',
   'На ревью': 'review', 'На тестировании': 'testing', 'Готово': 'done',
@@ -23,7 +26,7 @@ const KEY_BY_LABEL: Record<string, string> = {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  pending: '#c07d1e', backlog: '#8792a3', todo: '#1f8fb5', in_progress: '#3d63d2',
+  pending: '#c07d1e', backlog: '#8792a3', todo: '#1f8fb5', progress: '#3d63d2', in_progress: '#3d63d2',
   review_ready: '#7d4fd1', in_review: '#7d4fd1', qa_ready: '#c2601a', in_testing: '#c2601a',
   done: '#25935b', canceled: '#8792a3', blocked: '#cf4436',
 }
@@ -43,8 +46,6 @@ function cardHtml(t: TaskCard, merged: boolean): string {
     ${t.statusKey === 'blocked' ? `<div class="card-sub">✕ Требуется человек: ${esc(t.blockedReason ?? '')}</div>` : ''}
   </article>`
 }
-
-const aliasKeyOf = (t: TaskCard) => ALIAS_OF[t.statusKey] ?? 'progress'
 
 function DraggableCard({ task, merged, onOpen, onOpenPage }: {
   task: TaskCard
@@ -68,22 +69,20 @@ function DraggableCard({ task, merged, onOpen, onOpenPage }: {
   )
 }
 
-function Cell({ laneId, column, bucket, allowed, dragging, reload }: {
+function Cell({ laneId, column, bucket, allowed, dragging }: {
   laneId: string
   column: Column
   bucket: TaskCard[]
   allowed: boolean
   dragging: boolean
-  reload: () => void
 }) {
-  const key = KEY_BY_LABEL[column.label] ?? ''
-  const { setNodeRef, isOver } = useDroppable({ id: `${laneId}|${column.label}`, data: { label: column.label } })
+  const { setNodeRef, isOver } = useDroppable({ id: `${laneId}|${column.id}`, data: { colId: column.id, label: column.label } })
   return (
     <div ref={setNodeRef} className={`cell ${allowed && dragging ? 'ok' : ''} ${isOver && allowed && dragging ? 'over' : ''}`}
       style={{ ['--colc' as string]: bucket.length || dragging ? column.color : 'transparent' }}
       data-drop={column.label}>
       {bucket.map((t) => (
-        <DraggableCard key={t.code} task={t} merged={key === 'review' || key === 'testing'}
+        <DraggableCard key={t.code} task={t} merged={t.statusKey === 'review_ready' || t.statusKey === 'in_review' || t.statusKey === 'qa_ready' || t.statusKey === 'in_testing'}
           onOpen={() => { window.location.hash = `#${t.code}` }}
           onOpenPage={() => { window.location.hash = `#${t.code}/page` }} />
       ))}
@@ -96,12 +95,20 @@ export function Board({ tasks, reload, boardEdit }: { tasks: TaskCard[]; reload:
   const editMode = boardEdit
   const [colMapFor, setColMapFor] = useState<string | null>(null)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
-  const [allowedKeys, setAllowedKeys] = useState<Record<string, boolean> | null>(null)
+  const [allowedCols, setAllowedCols] = useState<Record<string, boolean> | null>(null)
   const [dragCode, setDragCode] = useState<string | null>(null)
   const [hint, setHint] = useState<string | null>(null)
+  const [statusCol, setStatusCol] = useState<Record<string, string>>({})
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
 
   useEffect(reloadColumns, [])
+
+  // «тип|статус» → alias-колонка; статус без колонки на доске не виден (§14).
+  const colIdOfStatus = (type: string, statusKey: string): string => {
+    if (Object.keys(statusCol).length > 0) return statusCol[`${type}|${statusKey}`] ?? ''
+    const alias = ALIAS_OF[statusKey] ?? statusKey
+    return columns.find((c) => (KEY_BY_LABEL[c.label] ?? '') === alias)?.id ?? ''
+  }
 
   const stories = tasks.filter((t) => t.type === 'story')
 
@@ -111,14 +118,18 @@ export function Board({ tasks, reload, boardEdit }: { tasks: TaskCard[]; reload:
     void api.task(code).then((card) => {
       const ok: Record<string, boolean> = {}
       const bad: Record<string, string> = {}
-      for (const to of card.gate?.allowed ?? []) ok[ALIAS_OF[to] ?? to] = true
-      for (const d of card.gate?.denied ?? []) {
-        const a = ALIAS_OF[d.to] ?? d.to
-        if (!ok[a]) bad[a] = d.reason
+      for (const to of card.gate?.allowed ?? []) {
+        const cid = colIdOfStatus(card.type, to)
+        if (cid) ok[cid] = true
       }
-      setAllowedKeys(ok)
-      const allow = Object.keys(ok).map((k) => ALIAS_LB[k] ?? k)
-      const deny = Object.entries(bad).map(([k, r]) => `${ALIAS_LB[k] ?? k}: ${r}`)
+      for (const d of card.gate?.denied ?? []) {
+        const cid = colIdOfStatus(card.type, d.to)
+        if (cid && !ok[cid]) bad[cid] = d.reason
+      }
+      setAllowedCols(ok)
+      const lb = (cid: string) => columns.find((c) => c.id === cid)?.label ?? cid
+      const allow = Object.keys(ok).map(lb)
+      const deny = Object.entries(bad).map(([cid, r]) => `${lb(cid)}: ${r}`)
       setHint(allow.length
         ? `Разрешено: ${allow.join(', ')}${deny.length ? ` · запреты: ${deny.join(' · ')}` : ''}`
         : deny.join(' · ') || null)
@@ -127,30 +138,28 @@ export function Board({ tasks, reload, boardEdit }: { tasks: TaskCard[]; reload:
 
   const onDragEnd = (e: DragEndEvent) => {
     const code = String(e.active.id)
-    const label = (e.over?.data.current as { label?: string } | undefined)?.label
-    setAllowedKeys(null); setDragCode(null); setHint(null)
-    if (!label) return
-    void applyDrop(code, label, reload)
+    const d = e.over?.data.current as { colId?: string; label?: string } | undefined
+    setAllowedCols(null); setDragCode(null); setHint(null)
+    if (!d?.colId) return
+    void applyDrop(code, d.colId, d.label ?? '', colIdOfStatus, reload)
   }
 
   const cellsHtml = (laneId: string, items: TaskCard[]) => columns.map((col) => {
-    const key = KEY_BY_LABEL[col.label] ?? ''
-    const bucket = [...items.filter((t) => aliasKeyOf(t) === key)].sort((a, b) => {
+    const bucket = [...items.filter((t) => colIdOfStatus(t.type, t.statusKey) === col.id)].sort((a, b) => {
       const rank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
       const sa = (rank[a.priority] ?? 9) * 10 + (a.type === 'bug' ? 4 : 0)
       const sb = (rank[b.priority] ?? 9) * 10 + (b.type === 'bug' ? 4 : 0)
       return sa !== sb ? sb - sa : a.code.localeCompare(b.code)
     })
-    const allowed = Boolean(allowedKeys?.[key])
+    const allowed = Boolean(allowedCols?.[col.id])
     return (
       <Cell key={`${laneId}|${col.id}`} laneId={laneId} column={col} bucket={bucket}
-        allowed={allowed} dragging={Boolean(dragCode)} reload={reload} />
+        allowed={allowed} dragging={Boolean(dragCode)} />
     )
   })
 
   const colHeads = columns.map((col) => {
-    const key = KEY_BY_LABEL[col.label] ?? ''
-    const count = tasks.filter((t) => (aliasKeyOf(t) ?? '') === key).length
+    const count = tasks.filter((t) => colIdOfStatus(t.type, t.statusKey) === col.id).length
     if (editMode) {
       return (
         <div key={col.id} className="col-head edit" style={{ ['--st' as string]: col.color }}>
@@ -225,7 +234,10 @@ export function Board({ tasks, reload, boardEdit }: { tasks: TaskCard[]; reload:
     </div>
   )
 
-  const loose = tasks.filter((t) => t.type !== 'story' && !t.storyCode)
+  // Задача без истории ИЛИ с историей, которой нет в выдаче, — в полосу «Без истории»,
+  // чтобы ни одна карточка не могла исчезнуть с доски.
+  const loose = tasks.filter((t) => t.type !== 'story' &&
+    (!t.storyCode || !stories.some((s) => s.code === t.storyCode)))
 
   return (
     <>
@@ -270,6 +282,13 @@ export function Board({ tasks, reload, boardEdit }: { tasks: TaskCard[]; reload:
   function reloadColumns() {
     void api.aliasColumns().then((cols) =>
       setColumns([...cols].sort((a, b) => a.position - b.position)))
+    void fetch('/api/v1/all-statuses').then((r) => r.json()).then((d) => {
+      const m: Record<string, string> = {}
+      for (const t of (Array.isArray(d) ? d : [])) {
+        for (const s of (t.statuses ?? [])) m[`${t.type}|${s.key}`] = s.aliasColumnId ?? ''
+      }
+      setStatusCol(m)
+    }).catch(() => {})
   }
 }
 
@@ -281,13 +300,12 @@ function plural(n: number): string {
   return 'задач'
 }
 
-async function applyDrop(code: string, columnLabel: string, reload: () => void) {
+async function applyDrop(code: string, colId: string, columnLabel: string,
+  colOf: (type: string, statusKey: string) => string, reload: () => void) {
   const card = await api.task(code)
-  const key = KEY_BY_LABEL[columnLabel]
-  if (!key) return
-  const candidate = card.gate?.allowed.find((to) => (ALIAS_OF[to] ?? to) === key)
+  const candidate = card.gate?.allowed.find((to) => colOf(card.type, to) === colId)
   if (!candidate) {
-    const denied = card.gate?.denied.find((x) => (ALIAS_OF[x.to] ?? x.to) === key)
+    const denied = card.gate?.denied.find((x) => colOf(card.type, x.to) === colId)
     toast(`Переход запрещён: ${denied?.reason ?? 'нет ребра в эту колонку'}`, 'bad')
     return
   }
