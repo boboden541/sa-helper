@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from 'react'
 import { api, type TaskCard } from '../../api/client'
+import { RunLogPanel } from './RunLogPanel'
 import { renderMarkdown } from '../../shared/markdown'
 import { parseChecklist, serializeChecklist, type ChecklistLine } from '../../shared/checklist'
 import { RichText } from '../../shared/editor/RichText'
@@ -117,7 +118,7 @@ function TaskBody({ code }: { code: string }) {
   }
 
   const chronTypes = [
-    ['all', 'все'], ['field', 'поле'], ['transition', 'переходы'],
+    ['runs', 'Прогоны'], ['all', 'все'], ['field', 'поле'], ['transition', 'переходы'],
     ['force', 'форс'], ['agent', 'агент'], ['psi', 'ПСИ'], ['bug', 'баг'],
   ]
   const chronFiltered = chronicle.filter((c) => chronTab === 'all' || c.type === chronTab)
@@ -299,7 +300,7 @@ function TaskBody({ code }: { code: string }) {
             <button key={key} className={chronTab === key ? 'active' : ''} onClick={() => setChronTab(key)}>{label}</button>
           ))}
         </div>
-        {chronFiltered.map((c) => (
+        {chronTab === 'runs' ? <RunLogPanel code={code} /> : chronFiltered.map((c) => (
           <div key={c.id} className="chron-row">
             <time>{c.at.slice(11, 16)} · {c.at.slice(5, 10)}</time>
             <div className="chron-body">

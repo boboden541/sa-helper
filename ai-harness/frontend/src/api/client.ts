@@ -74,6 +74,12 @@ export const api = {
     request<{ applied: boolean }>(`/api/v1/tasks/${code}/force`, {
       method: 'POST', body: JSON.stringify({ to, reason }),
     }),
+  runs: (code: string) =>
+    request<{ id: string; attempt: number; running: boolean; stale: boolean; outcome: string | null; agent: string; startedAt: string; heartbeatAt: string | null; finishedAt: string | null; statusKey: string }[]>(`/api/v1/tasks/${code}/runs`),
+  runLog: (runId: string, after = 0) =>
+    request<{ items: { seq: number; kind: string; text: string | null; data?: { [k: string]: unknown } | null; at: string }[]; last: number }>(`/api/v1/runs/${runId}/log?after=${after}`),
+  interrupt: (code: string, reason: string) =>
+    request<{ ok: boolean }>(`/api/v1/tasks/${code}/interrupt`, { method: 'POST', body: JSON.stringify({ reason }) }),
   chronicle: (code: string) =>
     request<{ items: { id: string; type: string; authorKind: string; ruleCode?: string; message: string; at: string }[] }>(
       `/api/v1/tasks/${code}/chronicle`),

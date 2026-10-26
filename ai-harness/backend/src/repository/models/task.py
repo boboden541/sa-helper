@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, SmallInteger, String, Text, func, text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from repository.models.base import Base
@@ -163,3 +163,20 @@ class TaskRun(Base):
 
 # Ссылки на UUID-диалект используются миграциями; держим импорт живым для mypy-полноты
 _ = UUID
+
+
+class TaskRunLog(Base):
+    """Строка живого лога прогона агента (решение владельца 26.10.2026):
+    промт, размышления, вызовы инструментов — для панели «вкладка Агент».
+    Сырые строки чистятся через 7 дней; итоги остаются в хронике."""
+
+    __tablename__ = "task_run_log"
+    __table_args__ = (Index("idx_task_run_log_run", "run_id", "seq"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("task_run.id", ondelete="CASCADE"))
+    seq: Mapped[int] = mapped_column(Integer)  # порядок внутри прогона, с 1
+    kind: Mapped[str] = mapped_column(String(16))  # prompt|system|thinking|tool|tool_result|report
+    text: Mapped[str | None] = mapped_column(Text)
+    data: Mapped[dict | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

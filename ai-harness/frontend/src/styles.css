@@ -1144,3 +1144,22 @@ table.mx td{vertical-align:top}
 /* rich-редактор: тулбар поверх .rich-edit из макета */
 .rich-wrap .editbar{position:sticky;top:0;z-index:2}
 .rich-wrap .rich-edit{min-height:180px}
+
+/* ============ Живой лог прогона агента (вкладка «Прогоны») ============ */
+.rl-panel{display:flex; flex-direction:column; gap:8px}
+.rl-runs{display:flex; flex-wrap:wrap; gap:6px}
+.rl-run{display:flex; align-items:center; gap:8px; padding:4px 10px; border:1px solid var(--border);
+  border-radius:9px; background:var(--surface); cursor:pointer; font-size:12px}
+.rl-run.sel{border-color:var(--accent)}
+.rl-live{display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text2)}
+.rl-live .fill{flex:1}
+.rl-box{max-height:420px; overflow:auto; border:1px solid var(--border); border-radius:var(--r-m);
+  padding:8px 10px; display:flex; flex-direction:column; gap:6px; background:color-mix(in srgb, var(--surface) 88%, transparent)}
+.rl-row{font-size:12.5px; line-height:1.45; word-break:break-word}
+.rl-kind{display:inline-block; min-width:76px; color:var(--text3); font-weight:600; font-size:11px;
+  text-transform:uppercase; letter-spacing:.04em}
+.rl-tool{font-family:var(--mono, monospace); background:var(--accent-weak); padding:1px 6px; border-radius:6px}
+.rl-row pre{white-space:pre-wrap; font-size:11.5px; max-height:220px; overflow:auto;
+  background:color-mix(in srgb, var(--text3) 8%, transparent); border-radius:8px; padding:8px; margin-top:4px}
+.rl-row details summary{cursor:pointer; color:var(--text3); font-size:11px}
+.rl-row .rl-text{white-space:pre-wrap}

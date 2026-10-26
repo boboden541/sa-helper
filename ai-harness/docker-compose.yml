@@ -49,7 +49,7 @@ services:
   daemon:
     build:
       context: .
-      dockerfile: Dockerfile.backend
+      dockerfile: Dockerfile.daemon
     container_name: ai-harness-daemon
     profiles: ["daemon"]
     depends_on:

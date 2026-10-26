@@ -24,6 +24,7 @@ from repository.models.task import (
     TaskComment,
     TaskRelation,
     TaskRun,
+    TaskRunLog,
     Tag,
     TaskTag,
 )
@@ -36,5 +37,5 @@ __all__ = [
     "PsiDocument", "PsiRun", "PsiRunItem", "SettingsJournal",
     "AgentProfile", "Assignment", "Connection", "ProviderPreset",
     "Checklist", "ChecklistItem", "Task", "TaskArtifact", "TaskAssignee",
-    "TaskBranch", "TaskComment", "TaskRelation", "TaskRun", "Tag", "TaskTag",
+    "TaskBranch", "TaskComment", "TaskRelation", "TaskRun", "TaskRunLog", "Tag", "TaskTag",
 ]

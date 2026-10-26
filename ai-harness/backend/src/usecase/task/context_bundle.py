@@ -6,7 +6,7 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from repository.models import (
-    Checklist, ChecklistItem, Chronicle, Tag, Task, TaskRelation, TaskType,
+    Checklist, ChecklistItem, Chronicle, Tag, Task, TaskRelation, TaskTag, TaskType,
 )
 
 

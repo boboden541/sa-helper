@@ -15,6 +15,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from daemon.config import load_daemon_settings, retry_pauses_minutes
 from daemon.runner.reservation import release_reservation, reserve_task
+from repository.models import TaskRun
+
+
+async def active_run_id(session, task_id) -> str:
+    """Id активного прогона задачи (для лога прогона)."""
+    return (await session.execute(
+        sa.select(TaskRun.id)
+        .where(TaskRun.task_id == task_id, TaskRun.finished_at.is_(None))
+        .order_by(TaskRun.started_at.desc()).limit(1))).scalar_one()
+
 from domain.model.enums import GIT_TASK_TYPES
 from repository.models import Assignment, Project, Task, TaskType, User
 
@@ -68,6 +78,8 @@ class Daemon:
             summary["blocked_no_agent"] = await self._block_unassigned(session)
             summary["mirrored"] = await self._tick_mirroring(session)
             summary["launched"] = await self._launch_ready(session, cfg)
+            summary["interrupted"] = await self._check_interrupts(session)
+            await self._retention_tick(session)
             return summary
 
     # --- блокировки и автоматика -------------------------------------------
@@ -240,12 +252,27 @@ class Daemon:
 
                 from daemon.runner.agent_runner import RunRequest
 
+                run_id = await active_run_id(session, task.id)
+                seq = [0]
+
+                async def on_event(kind: str, text: str | None = None,
+                                   data: dict | None = None) -> None:
+                    from repository.models import TaskRunLog
+
+                    seq[0] += 1
+                    async with self._maker() as s:
+                        s.add(TaskRunLog(run_id=run_id, seq=seq[0], kind=kind,
+                                         text=text, data=data))
+                        await s.commit()
+
                 req = RunRequest(
                     task_code=task_code, skill_md=skill,
                     context_md=await self._context_md(session, task),
                     worktree_path=worktree,
+                    provider=await self._provider_for(session, agent_id),
                     timeouts={"start": int(cfg["daemon.timeout_start_seconds"]),
                               "work": int(cfg["daemon.timeout_work_seconds"])},
+                    on_event=on_event,
                 )
                 report = await self.runner.run(req)
                 from daemon.runner.circuit import record_failure, record_success
@@ -253,6 +280,13 @@ class Daemon:
                 conn_id = (await session.execute(
                     sa.text("SELECT connection_id FROM agent_profile WHERE user_id = :u"),
                     {"u": str(agent_id)})).scalar_one_or_none()
+                if run_id:
+                    from repository.models import TaskRunLog
+
+                    async with self._maker() as sf:
+                        sf.add(TaskRunLog(run_id=run_id, seq=10**6, kind="system",
+                                          text=f"прогон завершён: {report.status}"))
+                        await sf.commit()
                 if report.status == "success":
                     record_success(str(conn_id) if conn_id else None)
                 else:
@@ -264,7 +298,7 @@ class Daemon:
             except Exception as err:  # noqa: BLE001 — демон не должен падать
                 log.exception("run failed: %s", task_code)
                 async with self._maker() as s2:
-                    await release_reservation(s2, task_id_by_code(s2, task_code),
+                    await release_reservation(s2, await task_id_by_code(s2, task_code),
                                               "failed", str(err)[:500])
             finally:
                 self._active.pop(task_code, None)
@@ -285,6 +319,70 @@ class Daemon:
         from infrastructure.git.worktree import ensure_task_worktree
 
         return await ensure_task_worktree(project.path, task.code, project.base_branch)
+
+    async def _provider_for(self, session, agent_id) -> dict | None:
+        """Расшифрованное подключение агента (ANTHROPIC_* для раннера).
+        Расшифровка только здесь и только на момент запуска (СТ §4.4.2)."""
+        from repository.models import Connection
+        from usecase.settings.connections import get_decrypted_token
+
+        conn_id = (await session.execute(
+            sa.text("SELECT connection_id FROM agent_profile WHERE user_id = :u"),
+            {"u": str(agent_id)})).scalar_one_or_none()
+        conn = await session.get(Connection, conn_id) if conn_id else None
+        if conn is None:  # своё подключение не задано — активное глобальное
+            conn = (await session.execute(
+                sa.select(Connection).where(Connection.is_active.is_(True))
+                .limit(1))).scalar_one_or_none()
+        if conn is None:
+            return None
+        return {"protocol": conn.protocol, "url": conn.url, "model": conn.model,
+                "token": await get_decrypted_token(session, conn)}
+
+    async def _check_interrupts(self, session) -> int:
+        """Перехват человеком: прогон помечен outcome='interrupted' → убить процесс (ФТ-ah-32).
+        asyncio.cancel сворачивает итерацию SDK; незавершённый отчёт не применяется."""
+        if not self._active:
+            return 0
+        now = dt.datetime.now(dt.timezone.utc)
+        rows = (await session.execute(
+            sa.select(TaskRun.task_id)
+            .join(Task, Task.id == TaskRun.task_id)
+            .where(TaskRun.finished_at.isnot(None),
+                   TaskRun.outcome == "interrupted",
+                   TaskRun.finished_at >= now - dt.timedelta(minutes=10),
+                   Task.code.in_(list(self._active.keys()))))).scalars().all()
+        killed = 0
+        for task_id in rows:
+            code = (await session.execute(
+                sa.select(Task.code).where(Task.id == task_id))).scalar_one_or_none()
+            t = self._active.pop(code, None) if code else None
+            if t is not None and not t.done():
+                t.cancel()
+                killed += 1
+        return killed
+
+    async def _retention_tick(self, session) -> None:
+        """Сырые строки живого лога старше 7 дней удаляются; раз в сутки (решение владельца)."""
+        from repository.models import AppSetting
+
+        key = "runlog.retention_last"
+        today = dt.datetime.now(dt.timezone.utc).date().isoformat()
+        last = (await session.execute(
+            sa.select(AppSetting.value).where(AppSetting.key == key))).scalar_one_or_none()
+        if last == today:
+            return
+        cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=7)
+        from repository.models import TaskRunLog
+
+        await session.execute(sa.delete(TaskRunLog).where(TaskRunLog.created_at < cutoff))
+        row = (await session.execute(
+            sa.select(AppSetting).where(AppSetting.key == key))).scalar_one_or_none()
+        if row:
+            row.value = today
+        else:
+            session.add(AppSetting(key=key, value=today))
+        await session.commit()
 
     async def _context_md(self, session, task) -> str:
         from usecase.task.context_bundle import build_context_md

@@ -1,0 +1,25 @@
+# Демон с реальным раннером агента: python + Node + Claude Code CLI (решение
+# владельца 26.10.2026). Без SDK демон работает с FakeRunner — этот образ
+# даёт полноценные прогоны через claude-agent-sdk.
+FROM python:3.11-slim
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl xz-utils git ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+# Node 20 под Claude Code CLI (map: x86_64→x64, aarch64→arm64)
+RUN ARCH=$(uname -m | sed 's/x86_64/x64/; s/aarch64/arm64/') \
+ && curl -fsSL "https://nodejs.org/dist/v20.18.1/node-v20.18.1-linux-${ARCH}.tar.xz" \
+    | tar -xJ -C /usr/local --strip-components=1 \
+ && npm install -g @anthropic-ai/claude-code
+
+WORKDIR /app
+COPY pyproject.toml ./
+COPY backend/src ./backend/src
+COPY daemon ./daemon
+COPY db ./db
+
+ENV PYTHONPATH="/app/backend/src:/app"
+RUN pip install --no-cache-dir . && pip install --no-cache-dir claude-agent-sdk
+
+CMD ["python", "-m", "daemon.main"]

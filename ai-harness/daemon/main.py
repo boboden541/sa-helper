@@ -13,17 +13,26 @@ logging.basicConfig(level=logging.INFO,
 
 
 async def main() -> None:
+    import os
+
     from daemon.runner.agent_runner import ClaudeCodeRunner
 
-    try:
-        runner = ClaudeCodeRunner()
-    except RuntimeError:
-        logging.warning("claude-agent-sdk не установлен — демон работает в режиме без запуска агентов")
+    if os.getenv("DAEMON_DEMO") == "1":
+        # Демо-режим: показательная лента событий для панели «Прогоны» без SDK
         from daemon.runner.agent_runner import FakeRunner
 
-        runner = FakeRunner(script=lambda req: __import__(
-            "daemon.runner.agent_runner", fromlist=["RunReport"]).RunReport(
-            status="failed", summary_md="раннер агентов не настроен"))
+        logging.warning("DAEMON_DEMO=1 — агент работает в демонстрационном режиме")
+        runner = FakeRunner()
+    else:
+        try:
+            runner = ClaudeCodeRunner()
+        except RuntimeError:
+            logging.warning("claude-agent-sdk не установлен — демон работает в режиме без запуска агентов")
+            from daemon.runner.agent_runner import FakeRunner
+
+            runner = FakeRunner(script=lambda req: __import__(
+                "daemon.runner.agent_runner", fromlist=["RunReport"]).RunReport(
+                status="failed", summary_md="раннер агентов не настроен"))
 
     daemon = Daemon(get_sessionmaker(), runner)
     tick_seconds = 30
