@@ -32,6 +32,7 @@ export function App() {
   const [undoLabel, setUndoLabel] = useState<string | null>(null)
   const [projects, setProjects] = useState<{ mnemonic: string; name: string; isArchived: boolean }[]>([])
   const [needLogin, setNeedLogin] = useState(false)
+  const [boardEdit, setBoardEdit] = useState(false)
   const [, force] = useState(0)
 
   useEffect(() => {
@@ -81,8 +82,12 @@ export function App() {
           onClick={() => setTypeFilter(key)}>{label}</button>
       ))}
       <span className="cnt">{tasks.length} задач</span>
-      <button className="chip-f" style={{ marginLeft: 'auto', color: 'var(--accent-text)', borderColor: 'var(--accent)' }}
-        onClick={() => setCreateOpen(true)}>＋ Задача</button>
+      {view === 'board' && (
+        <button className={`btn small ${boardEdit ? 'primary' : ''}`}
+          title="Создавайте колонки, меняйте названия, цвета и порядок"
+          onClick={() => setBoardEdit(!boardEdit)}>✎ Правка доски</button>
+      )}
+      <button className="btn small primary" onClick={() => setCreateOpen(true)}>+ Задача</button>
     </div>
   )
 
@@ -161,7 +166,7 @@ export function App() {
         ))}
         {view !== 'settings' && !isTaskPage && filters}
         {(view === 'board' || (view === 'task' && !isTaskPage)) && (
-          <Board tasks={tasks} reload={reload} />
+          <Board tasks={tasks} reload={reload} boardEdit={boardEdit} />
         )}
         {view === 'list' && <ListView tasks={tasks} />}
         {view === 'task' && <TaskView />}

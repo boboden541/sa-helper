@@ -90,9 +90,9 @@ function Cell({ laneId, column, bucket, allowed, dragging, reload }: {
   )
 }
 
-export function Board({ tasks, reload }: { tasks: TaskCard[]; reload: () => void }) {
+export function Board({ tasks, reload, boardEdit }: { tasks: TaskCard[]; reload: () => void; boardEdit: boolean }) {
+  const editMode = boardEdit
   const [columns, setColumns] = useState<Column[]>([])
-  const [editMode, setEditMode] = useState(false)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [colMapFor, setColMapFor] = useState<string | null>(null)
   const [colMapAlias, setColMapAlias] = useState<Record<string, string>>({})
