@@ -1,8 +1,10 @@
-// Доска — DOM design_mockup/app.js:726-854. DnD императивный, как в макете:
-// никаких setState во время перетаскивания (перерисовка уничтожает drag-узел),
-// подсветка разрешённых колонок — классами .cell.ok/.over напрямую в DOM,
-// причины запретов — в .draghint. Полосы историй, режим правки, «＋ колонка».
+// Доска — DOM design_mockup/app.js:726-854. DnD на dnd-kit (pointer-based):
+// карточка тянется с курсором, разрешённые колонки подсвечиваются (.cell.ok/.over),
+// запрет решается при применении с человекочитаемым toast (ФТ-ah-16).
 
+import { DndContext, PointerSensor, useSensor, useSensors,
+  useDraggable, useDroppable,
+  type DragEndEvent, type DragStartEvent } from '@dnd-kit/core'
 import { useEffect, useRef, useState } from 'react'
 import { api, type TaskCard } from '../../api/client'
 import {
@@ -26,7 +28,7 @@ const STATUS_COLORS: Record<string, string> = {
 }
 
 function cardHtml(t: TaskCard, merged: boolean): string {
-  return `<article class="card ${t.statusKey === 'blocked' ? 'top' : ''}" draggable="true" data-code="${t.code}" style="--st:${STATUS_COLORS[t.statusKey] ?? '#8792a3'}">
+  return `<article class="card ${t.statusKey === 'blocked' ? 'top' : ''}" style="--st:${STATUS_COLORS[t.statusKey] ?? '#8792a3'}">
     <div class="card-top">
       <span class="code" data-open-page="${t.code}">${t.code}</span>
       ${typeChip(t.type)}
@@ -41,104 +43,112 @@ function cardHtml(t: TaskCard, merged: boolean): string {
   </article>`
 }
 
+const aliasKeyOf = (t: TaskCard) => ALIAS_OF[t.statusKey] ?? 'progress'
+
+function DraggableCard({ task, merged, onOpen, onOpenPage }: {
+  task: TaskCard
+  merged: boolean
+  onOpen: () => void
+  onOpenPage: () => void
+}) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: task.code })
+  const style = transform
+    ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, zIndex: 40 }
+    : undefined
+  return (
+    <div ref={setNodeRef} style={style} {...listeners} {...attributes}
+      className={isDragging ? 'card-dragging-src' : ''}>
+      <div dangerouslySetInnerHTML={{ __html: cardHtml(task, merged) }}
+        onClick={(e) => {
+          if ((e.target as HTMLElement).closest('[data-open-page]')) onOpenPage()
+          else if ((e.target as HTMLElement).closest('.card')) onOpen()
+        }} />
+    </div>
+  )
+}
+
+function Cell({ laneId, column, bucket, allowed, dragging, reload }: {
+  laneId: string
+  column: Column
+  bucket: TaskCard[]
+  allowed: boolean
+  dragging: boolean
+  reload: () => void
+}) {
+  const key = KEY_BY_LABEL[column.label] ?? ''
+  const { setNodeRef, isOver } = useDroppable({ id: `${laneId}|${column.label}`, data: { label: column.label } })
+  return (
+    <div ref={setNodeRef} className={`cell ${allowed && dragging ? 'ok' : ''} ${isOver && allowed && dragging ? 'over' : ''}`}
+      style={{ ['--colc' as string]: bucket.length || dragging ? column.color : 'transparent' }}
+      data-drop={column.label}>
+      {bucket.map((t) => (
+        <DraggableCard key={t.code} task={t} merged={key === 'review' || key === 'testing'}
+          onOpen={() => { window.location.hash = `#${t.code}` }}
+          onOpenPage={() => { window.location.hash = `#${t.code}/page` }} />
+      ))}
+    </div>
+  )
+}
+
 export function Board({ tasks, reload }: { tasks: TaskCard[]; reload: () => void }) {
   const [columns, setColumns] = useState<Column[]>([])
   const [editMode, setEditMode] = useState(false)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
-  const boardRef = useRef<HTMLDivElement>(null)
-  const hintRef = useRef<HTMLDivElement>(null)
-  const dragRef = useRef<{ code: string } | null>(null)
+  const [allowedKeys, setAllowedKeys] = useState<Record<string, boolean> | null>(null)
+  const [dragCode, setDragCode] = useState<string | null>(null)
+  const [hint, setHint] = useState<string | null>(null)
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
 
   useEffect(reloadColumns, [])
 
-  // --- императивная подсветка DnD (никаких setState во время drag) ---
-  function paintDrag(card: TaskCard) {
-    const aliasOk: Record<string, boolean> = {}
-    const aliasReason: Record<string, string> = {}
-    for (const to of card.gate?.allowed ?? []) aliasOk[ALIAS_OF[to] ?? to] = true
-    for (const d of card.gate?.denied ?? []) {
-      const a = ALIAS_OF[d.to] ?? d.to
-      if (!aliasOk[a]) aliasReason[a] = d.reason
-    }
-    boardRef.current?.querySelectorAll('.cell').forEach((el) => {
-      const key = KEY_BY_LABEL[el.getAttribute('data-drop') ?? ''] ?? ''
-      el.classList.toggle('ok', Boolean(aliasOk[key]))
-    })
-    const allow = Object.keys(aliasOk).map((k) => ALIAS_LB[k] ?? k)
-    const deny = Object.entries(aliasReason).map(([k, r]) => `${ALIAS_LB[k] ?? k}: ${r}`)
-    if (hintRef.current) {
-      hintRef.current.innerHTML = allow.length
-        ? `Разрешено: <b>${allow.join(', ')}</b>${deny.length ? ` · <span class="no">${deny.join(' · ')}</span>` : ''}`
-        : `<span class="no">${deny.join(' · ') || 'нет допустимых переходов'}</span>`
-    }
+  const stories = tasks.filter((t) => t.type === 'story')
+
+  const onDragStart = (e: DragStartEvent) => {
+    const code = String(e.active.id)
+    setDragCode(code)
+    void api.task(code).then((card) => {
+      const ok: Record<string, boolean> = {}
+      const bad: Record<string, string> = {}
+      for (const to of card.gate?.allowed ?? []) ok[ALIAS_OF[to] ?? to] = true
+      for (const d of card.gate?.denied ?? []) {
+        const a = ALIAS_OF[d.to] ?? d.to
+        if (!ok[a]) bad[a] = d.reason
+      }
+      setAllowedKeys(ok)
+      const allow = Object.keys(ok).map((k) => ALIAS_LB[k] ?? k)
+      const deny = Object.entries(bad).map(([k, r]) => `${ALIAS_LB[k] ?? k}: ${r}`)
+      setHint(allow.length
+        ? `Разрешено: ${allow.join(', ')}${deny.length ? ` · запреты: ${deny.join(' · ')}` : ''}`
+        : deny.join(' · ') || null)
+    }).catch(() => {})
   }
 
-  function clearPaint() {
-    boardRef.current?.querySelectorAll('.cell.ok, .cell.over').forEach((el) => {
-      el.classList.remove('ok', 'over')
-    })
-    document.body.classList.remove('is-dragging')
-    if (hintRef.current) hintRef.current.innerHTML = ''
-    dragRef.current = null
+  const onDragEnd = (e: DragEndEvent) => {
+    const code = String(e.active.id)
+    const label = (e.over?.data.current as { label?: string } | undefined)?.label
+    setAllowedKeys(null); setDragCode(null); setHint(null)
+    if (!label) return
+    void applyDrop(code, label, reload)
   }
 
-  const cellsHtml = (items: TaskCard[]) => columns.map((col) => {
+  const cellsHtml = (laneId: string, items: TaskCard[]) => columns.map((col) => {
     const key = KEY_BY_LABEL[col.label] ?? ''
-    const bucket = [...items.filter((t) => (ALIAS_OF[t.statusKey] ?? 'progress') === key)]
-      .sort((a, b) => {
-        const rank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
-        const sa = (rank[a.priority] ?? 9) * 10 + (a.type === 'bug' ? 4 : 0)
-        const sb = (rank[b.priority] ?? 9) * 10 + (b.type === 'bug' ? 4 : 0)
-        return sa !== sb ? sb - sa : a.code.localeCompare(b.code)
-      })
+    const bucket = [...items.filter((t) => aliasKeyOf(t) === key)].sort((a, b) => {
+      const rank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
+      const sa = (rank[a.priority] ?? 9) * 10 + (a.type === 'bug' ? 4 : 0)
+      const sb = (rank[b.priority] ?? 9) * 10 + (b.type === 'bug' ? 4 : 0)
+      return sa !== sb ? sb - sa : a.code.localeCompare(b.code)
+    })
+    const allowed = Boolean(allowedKeys?.[key])
     return (
-      <div key={col.id} className="cell" data-drop={col.label}
-        style={{ ['--colc' as string]: bucket.length ? col.color : 'transparent' }}
-        onDragOver={(e) => {
-          // drop принимается на любой колонке (как в макете): запрет решается
-          // на применении с человекочитаемым toast; подсветка .ok — только UX
-          if (!dragRef.current) return
-          e.preventDefault()
-          e.dataTransfer.dropEffect = 'move'
-          if (e.currentTarget.classList.contains('ok')) e.currentTarget.classList.add('over')
-        }}
-        onDragLeave={(e) => e.currentTarget.classList.remove('over')}
-        onDrop={(e) => {
-          e.preventDefault()
-          const code = dragRef.current?.code
-          const wasCode = code
-          clearPaint()
-          if (wasCode) void applyDrop(wasCode, col.label, reload)
-        }}>
-        {bucket.map((t) => (
-          <div key={t.code}
-            dangerouslySetInnerHTML={{ __html: cardHtml(t, key === 'review' || key === 'testing') }}
-            onDragStart={(e) => {
-              dragRef.current = { code: t.code }
-              document.body.classList.add('is-dragging')
-              e.dataTransfer.effectAllowed = 'move'
-              e.dataTransfer.setData('text/plain', t.code)
-              void api.task(t.code).then(paintDrag)
-            }}
-            onDragEnd={clearPaint}
-            onClick={(e) => {
-              if ((e.target as HTMLElement).closest('[data-open-page]')) {
-                window.location.hash = `#${t.code}/page`
-                return
-              }
-              if ((e.target as HTMLElement).closest('.card')) {
-                window.location.hash = `#${t.code}`
-              }
-            }} />
-        ))}
-      </div>
+      <Cell key={`${laneId}|${col.id}`} laneId={laneId} column={col} bucket={bucket}
+        allowed={allowed} dragging={Boolean(dragCode)} reload={reload} />
     )
   })
 
   const colHeads = columns.map((col) => {
     const key = KEY_BY_LABEL[col.label] ?? ''
-    const count = tasks.filter((t) => t.type !== 'story' && (ALIAS_OF[t.statusKey] ?? '') === key).length
-      + storiesOf(tasks).filter((s) => (ALIAS_OF[s.statusKey] ?? '') === key).length
+    const count = tasks.filter((t) => (aliasKeyOf(t) ?? '') === key).length
     if (editMode) {
       return (
         <div key={col.id} className="col-head edit" style={{ ['--st' as string]: col.color }}>
@@ -211,26 +221,27 @@ export function Board({ tasks, reload }: { tasks: TaskCard[]; reload: () => void
     </div>
   )
 
+  const loose = tasks.filter((t) => t.type !== 'story' && !t.storyCode)
+
   return (
     <>
-      <div ref={hintRef} className="draghint" />
+      {dragCode && hint && <div className="draghint">{hint}</div>}
       <section className="board-scroll" aria-label="Kanban-доска">
-        <div className={`board-grid ${editMode ? 'editing' : ''}`} ref={boardRef}>
-          {colHeads}
-          {addColumnGhost}
-          {storiesOf(tasks).map((story) => {
-            const kids = tasks.filter((t) => t.storyCode === story.code)
-            const closedKids = kids.filter((k) => ['done', 'canceled'].includes(k.statusKey)).length
-            return (
-              <div key={story.code} className="lane">
-                {storyBand(story, closedKids, kids.length)}
-                {!collapsed[story.code] && <div className="lane-cells">{cellsHtml(kids)}</div>}
-              </div>
-            )
-          })}
-          {(() => {
-            const loose = tasks.filter((t) => t.type !== 'story' && !t.storyCode)
-            return loose.length > 0 ? (
+        <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
+          <div className={`board-grid ${editMode ? 'editing' : ''}`}>
+            {colHeads}
+            {addColumnGhost}
+            {stories.map((story) => {
+              const kids = tasks.filter((t) => t.storyCode === story.code)
+              const closedKids = kids.filter((k) => ['done', 'canceled'].includes(k.statusKey)).length
+              return (
+                <div key={story.code} className="lane">
+                  {storyBand(story, closedKids, kids.length)}
+                  {!collapsed[story.code] && <div className="lane-cells">{cellsHtml(story.code, kids)}</div>}
+                </div>
+              )
+            })}
+            {loose.length > 0 && (
               <div className="lane">
                 <div className="lane-band" style={{ ['--st' as string]: '#8792a3' }}>
                   <span className="chev" style={{ visibility: 'hidden' }} />
@@ -238,11 +249,11 @@ export function Board({ tasks, reload }: { tasks: TaskCard[]; reload: () => void
                   <span className="kidscnt num">{loose.length} {plural(loose.length)}</span>
                   <span className="fill" />
                 </div>
-                <div className="lane-cells">{cellsHtml(loose)}</div>
+                <div className="lane-cells">{cellsHtml('loose', loose)}</div>
               </div>
-            ) : null
-          })()}
-        </div>
+            )}
+          </div>
+        </DndContext>
       </section>
     </>
   )
@@ -251,10 +262,6 @@ export function Board({ tasks, reload }: { tasks: TaskCard[]; reload: () => void
     void api.aliasColumns().then((cols) =>
       setColumns([...cols].sort((a, b) => a.position - b.position)))
   }
-}
-
-function storiesOf(tasks: TaskCard[]): TaskCard[] {
-  return tasks.filter((t) => t.type === 'story')
 }
 
 function plural(n: number): string {
