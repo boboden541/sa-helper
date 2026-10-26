@@ -104,6 +104,12 @@ export const api = {
     request<TaskCard>(`/api/v1/tasks/${code}`, { method: 'PATCH', body: JSON.stringify({ tags }) }),
   validateFlow: (typeKey: string) =>
     request<{ errors: string[]; warnings: string[]; ok: boolean }>(`/api/v1/flows/${typeKey}/validate`),
+  pipelinePaused: () =>
+    request<{ paused: boolean }>('/api/v1/pipeline-paused'),
+  pipelinePause: (paused: boolean, reason?: string) =>
+    request<{ ok: boolean; interrupted: number }>('/api/v1/pipeline-pause', {
+      method: 'POST', body: JSON.stringify({ paused, reason: reason || null }),
+    }),
   pipelineStatus: () =>
     request<{ warnings: { level: string; message: string; goto?: string }[] }>('/api/v1/pipeline-status'),
   eve: (text: string, screenTaskCode?: string) =>

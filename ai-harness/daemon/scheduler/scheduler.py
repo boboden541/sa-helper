@@ -170,6 +170,11 @@ class Daemon:
     # --- запуск готовых задач ----------------------------------------------
 
     async def _launch_ready(self, session: AsyncSession, cfg: dict[str, str]) -> int:
+        # рубильник конвейера (решение владельца 26.10.2026): на паузе новых агентов не запускаем
+        paused = (await session.execute(
+            sa.text("SELECT value FROM app_setting WHERE key = 'daemon.paused'"))).scalar_one_or_none()
+        if paused == "true":
+            return 0
         now = dt.datetime.now(dt.timezone.utc)
         rows = (await session.execute(
             sa.select(Task, TaskType.key.label("type_key"))

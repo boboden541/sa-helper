@@ -13,7 +13,7 @@ import { TaskView } from '../features/task-card/TaskView'
 import { EveChat } from '../features/assistant/Eve'
 import { Login } from './Login'
 import { useApp } from './store'
-import { currentToasts, subscribeToasts } from '../shared/toast'
+import { currentToasts, subscribeToasts, toast } from '../shared/toast'
 import { installUndoHotkey, lastUndoLabel, subscribeUndo, undoLast } from '../shared/undo'
 
 const TYPE_FILTERS = [
@@ -62,9 +62,24 @@ export function App() {
     void api.projects().then(setProjects).catch(() => {})
   }, [])
   const [warnings, setWarnings] = useState<{ level: string; message: string; goto?: string }[]>([])
+  const [pipelinePaused, setPipelinePaused] = useState(false)
   useEffect(() => {
-    void api.pipelineStatus().then((r) => setWarnings(r.warnings)).catch(() => {})
+    void api.pipelineStatus().then((r) => {
+      setWarnings(r.warnings)
+      setPipelinePaused(Boolean((r as { paused?: boolean }).paused))
+    }).catch(() => {})
   }, [view])
+
+  const togglePipeline = () => {
+    const to = !pipelinePaused
+    const label = to ? 'Остановить конвейер?' : 'Возобновить конвейер?'
+    const detail = to
+      ? 'Агенты будут остановлены (разработка, ревью, тестирование…). Новые запуски не выполняются. Чат Eve продолжит работать.'
+      : 'Демон снова возьмёт задачи из очереди.'
+    if (!window.confirm(`${label}\n\n${detail}`)) return
+    void api.pipelinePause(to).then(() => setPipelinePaused(to))
+      .catch((err: Error) => { toast(err.message, 'bad') })
+  }
 
   const onEveCreate = () => setCreateOpen(true)
   useEffect(() => {
@@ -152,6 +167,14 @@ export function App() {
               )}
             </div>
           </details>
+          <button className={`pipeline-chip ${pipelinePaused ? 'paused' : ''}`}
+            onClick={togglePipeline}
+            title={pipelinePaused ? 'Конвейер на паузе — нажмите, чтобы возобновить'
+              : 'Конвейер работает — нажмите, чтобы остановить агентов'}
+            aria-label="Рубильник конвейера">
+            <span className="dot" style={{ background: pipelinePaused ? '#cf4436' : '#25935b' }} />
+            {pipelinePaused ? 'Конвейер на паузе' : 'Конвейер работает'}
+          </button>
           <button className="icon-btn" onClick={toggleTheme} aria-label="Переключить тему">
             {theme === 'dark' ? '☀' : '☾'}
           </button>

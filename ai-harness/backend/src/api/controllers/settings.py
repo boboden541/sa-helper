@@ -127,7 +127,9 @@ async def pipeline_status(session: AsyncSession = Depends(get_session),
             warnings.append({"level": "danger",
                              "message": f"Путь проекта {mnemonic} недоступен: конвейер приостановлен",
                              "goto": "#settings/projects"})
-    return {"warnings": warnings}
+    paused = (await session.execute(sa.text(
+        "SELECT value FROM app_setting WHERE key = 'daemon.paused'"))).scalar_one_or_none()
+    return {"warnings": warnings, "paused": paused == "true"}
 
 
 # ---------- провайдеры ----------
@@ -749,3 +751,73 @@ async def settings_journal(session: AsyncSession = Depends(get_session),
         .order_by(SettingsJournal.created_at.desc()).limit(100))).all()
     return [{"who": name, "entity": j.entity, "summary": j.summary,
              "diff": j.diff, "at": str(j.created_at)} for j, name in rows]
+
+
+# ---------- рубильник конвейера (решение владельца 26.10.2026) ----------------
+
+class PipelinePauseIn(BaseModel):
+    paused: bool
+    reason: str | None = None
+    model_config = ConfigDict(extra="forbid")
+
+
+@router.get("/pipeline-paused")
+async def pipeline_paused(session: AsyncSession = Depends(get_session),
+                          actor: User = Depends(get_actor)):
+    import sqlalchemy as sa
+
+    from repository.models import AppSetting
+
+    val = (await session.execute(
+        sa.select(AppSetting.value).where(AppSetting.key == "daemon.paused"))).scalar_one_or_none()
+    return {"paused": val == "true"}
+
+
+@router.post("/pipeline-pause")
+async def pipeline_pause(payload: PipelinePauseIn,
+                         session: AsyncSession = Depends(get_session),
+                         actor: User = Depends(get_actor)):
+    """Пауза конвейера: демон не запускает новых агентов; активные прогоны
+    прерываются перехватом (ФТ-ah-32). Чат Eve не затрагивается — он идёт
+    через API, а не через демон; прогоны чат-ботов исключены из прерывания."""
+    import datetime as dt
+
+    import sqlalchemy as sa
+
+    from repository.models import AppSetting, Chronicle, Task, TaskRun, User
+
+    row = (await session.execute(
+        sa.select(AppSetting).where(AppSetting.key == "daemon.paused"))).scalar_one_or_none()
+    val = "true" if payload.paused else "false"
+    if row:
+        row.value = val
+    else:
+        session.add(AppSetting(key="daemon.paused", value=val))
+    from usecase.journal.settings_journal import record_and_commit
+
+    interrupted = 0
+    if payload.paused:
+        now = dt.datetime.now(dt.timezone.utc)
+        runs = (await session.execute(
+            sa.select(TaskRun, Task)
+            .join(Task, Task.id == TaskRun.task_id)
+            .join(User, User.id == TaskRun.agent_id)
+            .where(TaskRun.finished_at.is_(None), User.is_chat_bot.is_(False)))).all()
+        for run, task in runs:
+            run.finished_at = now
+            run.outcome = "interrupted"
+            run.detail = ("конвейер остановлен владельцем: "
+                          f"{payload.reason or 'пауза конвейера'}")[:500]
+            task.reserved_by = None
+            task.reserved_at = None
+            task.heartbeat_at = None
+            session.add(Chronicle(task_id=task.id, event_type="agent", author_id=actor.id,
+                                  author_kind="human",
+                                  message="Прогон прерван: конвейер остановлен владельцем"))
+            interrupted += 1
+    await record_and_commit(
+        session, actor.id, "flow",
+        f"Конвейер {'приостановлен' if payload.paused else 'возобновлен'}"
+        + (f": {payload.reason}" if payload.reason else ""),
+        [{"field": "paused", "new": val}])
+    return {"ok": True, "paused": payload.paused, "interrupted": interrupted}
