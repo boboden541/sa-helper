@@ -23,6 +23,7 @@ class CreateTaskInput:
     tags: list[str] = field(default_factory=list)
     description_md: str = ""
     story_code: str | None = None
+    psi_path: str | None = None  # путь сохранения psi.md (только истории; null — дефолт .harness/psi/<код>/)
     # Модерация состоялась в чате Eve (ФТ-ah-19, третье исключение); проставляет только контур Eve
     eve_confirmed: bool = False
 
@@ -118,6 +119,7 @@ async def create_task(session: AsyncSession, actor: User, data: CreateTaskInput)
         flow_version_id=flow_version.id,
         priority=data.priority,
         story_id=story.id if story else None,
+        psi_path=(data.psi_path or None) if data.type_key == "story" else None,
         author_id=actor.id,
     )
     session.add(task)

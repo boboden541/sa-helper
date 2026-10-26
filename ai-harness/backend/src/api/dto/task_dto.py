@@ -16,6 +16,7 @@ class TaskCreateIn(BaseModel):
     tags: list[str] = []
     description_md: str = Field(default="", alias="descriptionMd")
     story_code: str | None = Field(default=None, alias="storyCode")
+    psi_path: str | None = Field(default=None, alias="psiPath", max_length=500)
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
 
@@ -23,6 +24,7 @@ class TaskPatchIn(BaseModel):
     title: str | None = None
     description_md: str | None = Field(default=None, alias="descriptionMd")
     priority: str | None = None
+    psi_path: str | None = Field(default=None, alias="psiPath", max_length=500)
     tags: list[str] | None = None
     if_updated_at: datetime | None = Field(default=None, alias="ifUpdatedAt")
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
@@ -43,6 +45,7 @@ class TaskCardOut(BaseModel):
     status_key: str = Field(alias="statusKey")
     project: str = ""
     story_code: str | None = Field(default=None, alias="storyCode")
+    psi_path: str | None = Field(default=None, alias="psiPath")
     tags: list[str] = []
     agent: dict | None = None
     gate: GateOut = GateOut()

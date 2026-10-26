@@ -8,6 +8,7 @@ export interface TaskCard {
   statusKey: string
   project?: string
   storyCode?: string | null
+  psiPath?: string | null
   tags?: string[]
   agent?: { name: string } | null
   gate?: { allowed: string[]; denied: { to: string; reason: string }[] }

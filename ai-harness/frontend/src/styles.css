@@ -1203,3 +1203,9 @@ button.conn.off:hover{color:var(--accent-text)}
 .proj-drop{position:absolute; z-index:30; top:100%; left:0; right:0; margin-top:4px;
   background:var(--surface); border:1px solid var(--border); border-radius:var(--r-m);
   padding:4px; max-height:220px; overflow:auto; box-shadow:var(--shadow-1)}
+
+/* Попап предупреждения о пути ПСИ (решение владельца 27.10.2026) */
+.psi-warn{position:fixed; inset:0; display:grid; place-items:center;
+  background:rgba(0,0,0,.45); z-index:120}
+.psi-warn .modal-card{width:560px; max-width:92vw; display:flex; flex-direction:column; gap:10px}
+.psi-warn input:disabled{color:var(--text3); opacity:.85}

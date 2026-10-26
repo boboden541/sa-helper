@@ -56,6 +56,12 @@ async def patch_task(
             task.priority = fields["priority"]
             events.append("приоритет изменён")
 
+    if "psiPath" in fields and fields["psiPath"] is not None:
+        new_psi = str(fields["psiPath"]).strip()[:500] or None
+        if new_psi != task.psi_path:
+            task.psi_path = new_psi
+            events.append("изменён путь сохранения ПСИ")
+
     if "tags" in fields and fields["tags"] is not None:
         from domain.model.enums import AUTHOR_TAGS
         from domain.model.validators import validate_tags

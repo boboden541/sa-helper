@@ -283,7 +283,7 @@ function TaskBody({ code }: { code: string }) {
       {typeVisible.reviewer && <ChecklistBlock code={code} kind="reviewer" title="Чек-лист ревьюера" />}
       {typeVisible.tester && <ChecklistBlock code={code} kind="tester" title="Чек-лист тестировщика" />}
 
-      {card.type === 'story' && <PsiBlock code={code} reload={reload} />}
+      {card.type === 'story' && <PsiBlock code={code} reload={reload} psiPath={card.psiPath ?? null} />}
 
       {typeVisible.reviewer && <ArtifactBlock code={code} kind="review_report" title="Отчёт о ревью" />}
       {typeVisible.tester && card.type !== 'story' && <ArtifactBlock code={code} kind="qa_report" title="Отчёт о тестировании" />}
@@ -406,15 +406,18 @@ export function ChecklistBlock({ code, kind, title }: { code: string; kind: stri
   )
 }
 
-function PsiBlock({ code, reload }: { code: string; reload: () => void }) {
+function PsiBlock({ code, reload, psiPath }: { code: string; reload: () => void; psiPath: string | null }) {
   const [doc, setDoc] = useState<{ items: { position: number; kind: string; text: string; expected?: string; actual?: string; status: string; bugTaskId?: string }[]; runs: { id: string; passed: number; failed: number }[] } | null>(null)
   const [runMode, setRunMode] = useState(false)
   const [results, setResults] = useState<Record<number, { passed: boolean; actual: string }>>({})
   const reloadPsi = () => { void api.psi(code).then(setDoc) }
   useEffect(reloadPsi, [code])
 
+  const savePath = psiPath?.trim() || `.harness/psi/${code}/psi.md`
   if (!doc || doc.items.length === 0) {
-    return <div className="blk"><div className="blk-h"><h3>ПСИ</h3></div><div className="muted">Документ ПСИ ещё не составлен</div></div>
+    return <div className="blk"><div className="blk-h"><h3>ПСИ</h3></div>
+      <div className="muted" style={{ fontSize: 11, marginBottom: 6 }}>Сохраняется в: <span className="mono">{savePath}</span></div>
+      <div className="muted">Документ ПСИ ещё не составлен</div></div>
   }
   const versions = doc.runs.length
 

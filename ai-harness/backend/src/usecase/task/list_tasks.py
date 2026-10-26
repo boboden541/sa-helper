@@ -19,6 +19,7 @@ class TaskCard:
     type: str
     status_key: str
     project: str = ""  # мнемоника проекта (фильтр доски/списка, счётчики панели)
+    psi_path: str | None = None
     story_code: str | None = None
     tags: list[str] = field(default_factory=list)
     agent: dict | None = None
@@ -85,6 +86,7 @@ async def list_tasks(
             type=row.type_key,
             status_key=row.Task.status_key,
             project=row.project_mnemonic or "",
+            psi_path=row.Task.psi_path,
             agent={"name": row.agent_name} if row.agent_name else None,
         )
         for row in rows

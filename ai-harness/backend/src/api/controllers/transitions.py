@@ -97,6 +97,7 @@ class TaskCardOut(BaseModel):
     tags: list[str] = []
     descriptionMd: str = Field(alias="descriptionMd")
     storyCode: str | None = Field(default=None, alias="storyCode")
+    psiPath: str | None = Field(default=None, alias="psiPath")
     gate: GateOut
     createdAt: str
     updatedAt: str
@@ -153,7 +154,7 @@ async def card_view(code: str,
     return TaskCardOut(
         code=task.code, title=task.title, priority=task.priority, type=type_key,
         statusKey=task.status_key, tags=list(tags), descriptionMd=task.description_md,
-        storyCode=story_code,
+        storyCode=story_code, psiPath=task.psi_path,
         gate=GateOut(
             allowed=[to for to, d in decisions.items() if d.allowed],
             denied=[{"to": to, "reason": d.reason}
