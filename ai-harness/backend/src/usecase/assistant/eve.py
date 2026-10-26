@@ -57,7 +57,7 @@ async def handle_message(session: AsyncSession, user: User, text: str,
         return await _confirm_intent(session, user, intent)
 
     if MOVE_VERBS.search(text) and task is not None:
-        target = _guess_target(text)
+        target = _guess_target(text, await _flow_statuses(session, task))
         if target is None:
             reply = {"reply": "Куда перевести? Назовите статус: например, «на ревью».",
                      "task": task.code}
@@ -153,12 +153,37 @@ async def _system_context(session: AsyncSession) -> str:
     return "\n".join(lines)
 
 
-def _guess_target(text: str) -> str | None:
+async def _flow_statuses(session, task) -> list[tuple[str, str]]:
+    """[(ключ, метка)] статусов flow-версии задачи — для резолвинга цели по метке."""
+    import sqlalchemy as sa
+
+    from repository.models import FlowStatus, FlowVersion
+
+    return [(k, l) for k, l in (await session.execute(
+        sa.select(FlowStatus.status_key, FlowStatus.label)
+        .join(FlowVersion, FlowVersion.id == FlowStatus.flow_version_id)
+        .where(FlowVersion.task_type_id == task.task_type_id,
+               FlowVersion.is_current.is_(True), FlowVersion.is_published.is_(True))
+    )).all()]
+
+
+def _guess_target(text: str, statuses: list[tuple[str, str]] | None = None) -> str | None:
+    """Цель перехода: сначала самое длинное совпадение по МЕТКЕ статуса
+    («готово к ревью» → review_ready, а не in_review), затем словник,
+    но только среди статусов, существующих в flow задачи."""
+    t = text.lower()
+    best: tuple[str, str] | None = None
+    for key, label in (statuses or []):
+        lbl = (label or "").lower().strip()
+        if lbl and lbl in t and (best is None or len(lbl) > len(best[1])):
+            best = (key, lbl)
+    if best is not None:
+        return best[0]
     mapping = {"ревью": "in_review", "тест": "in_testing", "работ": "in_progress",
                "бэклог": "backlog", "готов": "done", "отмен": "canceled",
                "блок": "blocked", "декомпозиц": "todo", "к работе": "todo"}
     for needle, status in mapping.items():
-        if needle in text.lower():
+        if needle in t and (statuses is None or any(k == status for k, _ in statuses)):
             return status
     return None
 
@@ -201,6 +226,10 @@ async def _confirm_intent(session: AsyncSession, user: User, intent: dict) -> di
             await apply_transition(session, user, intent["task"], intent["to"])
         except TransitionDenied as d:
             reply = {"reply": f"Не получилось: {d.reason}", "task": intent["task"]}
+            session.add(ChatMessage(user_id=user.id, role="assistant",
+                                    body=reply["reply"], task_code=intent["task"]))
+            await session.commit()
+            return reply
         except DomainError as d:
             reply = {"reply": f"Не получилось: {d.message}", "task": intent["task"]}
             session.add(ChatMessage(user_id=user.id, role="assistant",
