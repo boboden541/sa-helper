@@ -73,13 +73,84 @@ async def handle_message(session: AsyncSession, user: User, text: str,
         reply = {"action": "open_create_dialog",
                  "prefillTitle": (title.group(1) or title.group(2)) if title else ""}
     else:
-        reply = {"reply": "Не распознала фразу. Примеры: «переведи SA-12 на ревью», "
-                          "«почему SA-14 встала?», «что с SA-7?», «создай задачу «Название»»."}
+        # свободный вопрос — в LLM активного провайдера (Eve — «Джарвис» владельца)
+        return await free_chat_reply(session, user, text, task)
     session.add(ChatMessage(user_id=user.id, role="assistant",
                             body=str(reply.get("reply") or reply.get("action", "")),
                             task_code=task.code if task else None))
     await session.commit()
     return reply
+
+
+async def free_chat_reply(session: AsyncSession, user: User, text: str,
+                          task: Task | None = None) -> dict:
+    """Свободное общение: вопрос уходит в LLM активного провайдера с контекстом
+    системы (проекты, задачи, очередь, предупреждения конвейера, экран)."""
+    from infrastructure.ai.chat import chat_call
+    from repository.models import Connection
+    from usecase.settings.connections import get_decrypted_token
+
+    conn = (await session.execute(
+        sa.select(Connection).where(Connection.is_active.is_(True))
+    )).scalar_one_or_none()
+    if conn is None:
+        return {"reply": "ИИ-провайдер не подключён: настройте и проверьте "
+                         "подключение в Настройках → ИИ-провайдеры, после этого я смогу "
+                         "отвечать на любые вопросы."}
+
+    context = await _system_context(session)
+    screen = f"Открыт экран задачи {task.code} «{task.title}» (статус {task.status_key})." if task \
+        else "Открыт канбан-доска или общий экран."
+    system = (
+        "Ты — Eve, встроенный ИИ-ассистент сервиса AI-Harness: task-tracker с конвейером "
+        "автономной реализации фичей силами ИИ-агентов. Ты — личный помощник владельца "
+        "(его «Джарвис»). Отвечай по-русски, кратко и по делу.\n\n"
+        "Как работает сервис: задачи 5 типов (story/common_task/qa_task/bug/analyse_task) "
+        "движутся по статусным моделям (flow); демон на каждом тике запускает ИИ-агентов на "
+        "статусах с назначениями из матрицы; агенты работают в git-worktree; проверки качества — "
+        "чеклисты-гейты, ревью, тестирование, ПСИ; компоненты: backend (FastAPI), frontend (React), "
+        "PostgreSQL, демон; всё поднято в docker compose.\n\n"
+        f"Текущее состояние системы:\n{context}\n\n{screen}\n\n"
+        "Важно: изменяющие действия (переводы статусов, создание) выполняются только через "
+        "специальные команды — если тебя просят действие, скажи точную фразу-команду, например "
+        "«переведи <код> на ревью». На вопросы о контейнерах docker отвечай по описанию стека "
+        "и состоянию конвейера — прямого доступа к docker у тебя нет.")
+    history = (await session.execute(
+        sa.select(ChatMessage).where(ChatMessage.user_id == user.id)
+        .order_by(ChatMessage.created_at.desc()).limit(10))).scalars().all()
+    messages = [{"role": "assistant" if m.role == "assistant" else "user", "content": m.body}
+                for m in reversed(history)]
+    messages.append({"role": "user", "content": text})
+    try:
+        answer = await chat_call(
+            conn.protocol, conn.url, conn.model,
+            await get_decrypted_token(session, conn), system, messages)
+    except Exception as err:  # noqa: BLE001 — двухслойный ответ
+        return {"reply": f"Провайдер недоступен или отклонил запрос. Проверьте подключение "
+                         f"«{conn.name}» в настройках. Технически: {err}"}
+    return {"reply": answer or "Провайдер вернул пустой ответ."}
+
+
+async def _system_context(session: AsyncSession) -> str:
+    from repository.models import Project
+
+    lines: list[str] = []
+    warnings = (await session.execute(sa.text(
+        "SELECT count(*) FROM connection WHERE is_active"))).scalar_one()
+    lines.append(f"Активных ИИ-подключений: {warnings}.")
+    for mnemonic, name, arch in (await session.execute(
+            sa.select(Project.mnemonic, Project.name, Project.is_archived))).all():
+        lines.append(f"Проект {mnemonic} «{name}»{' (архив)' if arch else ''}")
+    counts = (await session.execute(sa.text(
+        "SELECT tt.key, t.status_key, count(*) FROM task t "
+        "JOIN task_type tt ON tt.id = t.task_type_id GROUP BY 1,2 ORDER BY 1,2"))).all()
+    lines.append("Задачи: " + ("; ".join(f"{k}/{s}: {n}" for k, s, n in counts) or "нет задач"))
+    blocked = (await session.execute(sa.text(
+        "SELECT code, coalesce(blocked_reason,'') FROM task WHERE status_key='blocked' "
+        "LIMIT 5"))).all()
+    if blocked:
+        lines.append("Заблокированы: " + "; ".join(f"{c} ({r})" for c, r in blocked))
+    return "\n".join(lines)
 
 
 def _guess_target(text: str) -> str | None:

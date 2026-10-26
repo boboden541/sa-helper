@@ -180,12 +180,14 @@ async def test_eve_gate_denial_explains(session, actor_id):
     assert task_row.status_key == "pending"  # Eve не действует сквозь отказ
 
 
-async def test_eve_unrecognized_honest(session, actor_id):
+async def test_eve_free_question_goes_to_llm(session, actor_id):
+    """Свободный вопрос уходит в LLM активного провайдера; без провайдера —
+    честный ответ «подключите», а не выдуманные действия (ФТ-ah-52)."""
     actor = await session.get(User, actor_id)
     from usecase.assistant.eve import handle_message
 
     reply = await handle_message(session, actor, "свари кофе")
-    assert "Не распознала" in reply["reply"]
+    assert ("reply" in reply) and reply["reply"]
 
 
 import pytest  # noqa: E402

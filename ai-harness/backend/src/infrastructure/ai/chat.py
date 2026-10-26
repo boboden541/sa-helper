@@ -1,0 +1,38 @@
+"""Минимальный чат-клиент провайдера для Eve: anthropic + openai-совместимый.
+
+Без SDK — простые POST через httpx; токен расшифрован только на момент вызова.
+"""
+
+from __future__ import annotations
+
+import httpx
+
+
+async def chat_call(protocol: str, url: str, model: str, token: str,
+                    system: str, messages: list[dict], max_tokens: int = 1024) -> str:
+    """Возвращает текст ответа модели. messages: [{role: user|assistant, content}]."""
+    url = (url or "").rstrip("/")
+    async with httpx.AsyncClient(timeout=60) as client:
+        if protocol == "anthropic":
+            r = await client.post(
+                f"{url}/v1/messages",
+                headers={"x-api-key": token, "anthropic-version": "2023-06-01",
+                         "content-type": "application/json"},
+                json={"model": model, "max_tokens": max_tokens, "system": system,
+                      "messages": messages})
+        else:
+            payload = {"model": model, "max_tokens": max_tokens,
+                       "messages": [{"role": "system", "content": system}, *messages]}
+            r = await client.post(f"{url}/chat/completions",
+                headers={"Authorization": f"Bearer {token}",
+                         "content-type": "application/json"},
+                json=payload)
+        r.raise_for_status()
+        data = r.json()
+    if protocol == "anthropic":
+        for block in data.get("content", []):
+            if block.get("type") == "text":
+                return block.get("text", "")
+        return ""
+    choices = data.get("choices", [])
+    return (choices[0].get("message") or {}).get("content", "") if choices else ""
