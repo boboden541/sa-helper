@@ -80,6 +80,9 @@ function FlowEditor({ reload }: { reload: () => void }) {
   const [columns, setColumns] = useState<{ id: string; label: string }[]>([])
   const [newColName, setNewColName] = useState('')
   const [newColFor, setNewColFor] = useState<string | null>(null)
+  const [edgeAddFor, setEdgeAddFor] = useState<string | null>(null)
+  const [edgeTarget, setEdgeTarget] = useState('')
+  const [edgeRunner, setEdgeRunner] = useState('human')
   const [validation, setValidation] = useState<{ errors: string[]; warnings: string[]; ok: boolean } | null>(null)
   const [showValidation, setShowValidation] = useState(false)
   const dragRef = useRef<{ key: string; dx: number; dy: number } | null>(null)
@@ -383,25 +386,65 @@ function FlowEditor({ reload }: { reload: () => void }) {
         <div className="flow-canvas flow-table">
           <table className="tasks">
             <thead><tr>
-              <th>Статус</th><th>Что происходит на этапе</th><th>Чеклист-гейт</th>
+              <th>Статус</th><th>Что происходит на этапе</th><th>Чеклист-гейт</th><th>Флаги</th>
               <th>Возможные переходы</th><th>Alias-колонка</th><th></th>
             </tr></thead>
             <tbody>
               {data.statuses.map((s) => (
-                <tr key={s.key} onClick={() => setSel({ kind: 'status', id: s.key })} style={{ cursor: 'pointer' }}>
-                  <td><b>{s.label}</b> <span className="key mono muted">{s.key}</span></td>
-                  <td className="muted">{s.stageDesc ?? ''}</td>
-                  <td>{s.gate ? <span className="mini-chip mc-accent">{GATE_LABELS[s.gate] ?? s.gate}</span> : <span className="muted">—</span>}</td>
+                <tr key={s.key} onClick={() => setSel({ kind: 'status', id: s.key })}>
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <input value={s.label} maxLength={64} style={{ width: 150 }}
+                      onChange={(e) => statusField(s.key, { label: e.target.value })} />
+                    <div className="key mono muted">{s.key}</div>
+                  </td>
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <input value={s.stageDesc ?? ''} style={{ width: 220 }}
+                      placeholder="что происходит на этапе"
+                      onChange={(e) => statusField(s.key, { stageDesc: e.target.value })} />
+                  </td>
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <select value={s.gate ?? ''} onChange={(e) => statusField(s.key, { gate: e.target.value || undefined })}>
+                      <option value="">—</option>
+                      {Object.entries(GATE_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                    </select>
+                  </td>
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <label className="f-check"><input type="checkbox" checked={s.entry}
+                      onChange={(e) => statusField(s.key, { entry: e.target.checked })} /> вход</label>
+                    <label className="f-check"><input type="checkbox" checked={s.terminal}
+                      onChange={(e) => statusField(s.key, { terminal: e.target.checked })} /> терм.</label>
+                    <label className="f-check"><input type="checkbox" checked={s.blocking}
+                      onChange={(e) => statusField(s.key, { blocking: e.target.checked })} /> блок.</label>
+                  </td>
                   <td className="tr-cell" onClick={(e) => e.stopPropagation()}>
                     {data.transitions.filter((t) => t.from === s.key).map((t) => (
                       <span key={`${t.from}${t.to}`} className="mini-chip tr-chip" title={t.runner}>
                         → {data.statuses.find((x) => x.key === t.to)?.label ?? t.to}
                         <button className="tr-x" onClick={() => removeEdge(t.from, t.to)}>✕</button>
                       </span>
-                    )) || <span className="muted">—</span>}
-                    <button className="btn small" disabled={s.terminal}
-                      title={s.terminal ? 'У терминального статуса нет исходящих переходов' : undefined}
-                      onClick={(e) => { e.stopPropagation(); setSel({ kind: 'status', id: s.key }) }}>＋</button>
+                    ))}
+                    {edgeAddFor === s.key ? (
+                      <span className="flex mt8">
+                        <select value={edgeTarget} onChange={(e) => setEdgeTarget(e.target.value)}>
+                          <option value="">→ куда</option>
+                          {data.statuses
+                            .filter((x) => x.key !== s.key)
+                            .filter((x) => !data.transitions.some((t) => t.from === s.key && t.to === x.key))
+                            .map((x) => <option key={x.key} value={x.key}>{x.label}</option>)}
+                        </select>
+                        <select value={edgeRunner} onChange={(e) => setEdgeRunner(e.target.value)}>
+                          {RUNNER_LABELS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                        </select>
+                        <button className="btn small" onClick={() => {
+                          if (edgeTarget) { addEdge(s.key, edgeTarget, edgeRunner); setEdgeAddFor(null); setEdgeTarget('') }
+                        }}>✓</button>
+                        <button className="btn small" onClick={() => { setEdgeAddFor(null); setEdgeTarget('') }}>✕</button>
+                      </span>
+                    ) : (
+                      <button className="btn small" disabled={s.terminal}
+                        title={s.terminal ? 'У терминального статуса нет исходящих переходов' : undefined}
+                        onClick={() => { setEdgeAddFor(s.key); setEdgeTarget('') }}>＋ переход</button>
+                    )}
                   </td>
                   <td onClick={(e) => e.stopPropagation()}>
                     <select value={newColFor === s.key ? '__new' : (s.aliasColumnId ?? '')}

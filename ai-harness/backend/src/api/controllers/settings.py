@@ -131,6 +131,7 @@ async def pipeline_status(session: AsyncSession = Depends(get_session),
 
 
 # ---------- провайдеры ----------
+@router.post("/flows/{type_key}/publish")
 async def publish_flow(type_key: str, payload: PublishIn | None = None,
                        session: AsyncSession = Depends(get_session),
                        actor: User = Depends(get_actor)):
@@ -385,6 +386,7 @@ async def flow_status_alias(type_key: str, payload: StatusAliasIn,
     if old_col == new_col:
         return {"ok": True, "changed": False}
     st.alias_column_id = payload.aliasColumnId or None
+    from domain.transition.graph import invalidate_cache
     invalidate_cache()
     await record_and_commit(session, actor.id, "board",
                             f"Статус «{st.label}» → колонка",
