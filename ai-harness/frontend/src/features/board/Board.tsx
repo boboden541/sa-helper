@@ -1,10 +1,9 @@
-// Доска — DOM и поведение design_mockup/app.js:726-854:
-// .board-grid, .col-head (cdot/b/.n), .lane-band историй, .lane-cells > .cell,
-// карточки cardHtml (code, type-chip, st-chip, prioBadge, tags, agent, card-sub),
-// нативный DnD с подсветкой .cell.ok/.over и подсказкой .draghint,
-// режим правки доски (.col-head.edit, палитра, colh-x, ghost «＋ колонка»).
+// Доска — DOM design_mockup/app.js:726-854. DnD императивный, как в макете:
+// никаких setState во время перетаскивания (перерисовка уничтожает drag-узел),
+// подсветка разрешённых колонок — классами .cell.ok/.over напрямую в DOM,
+// причины запретов — в .draghint. Полосы историй, режим правки, «＋ колонка».
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api, type TaskCard } from '../../api/client'
 import {
   ALIAS_LB, ALIAS_OF, esc, prioBadge, stChip, tagHtml, typeChip,
@@ -14,13 +13,11 @@ import { toast } from '../../shared/toast'
 
 interface Column { id: string; label: string; color: string; position: number }
 
-// ключ alias → колонка (по названию, как в макете ALIAS_LB)
 const KEY_BY_LABEL: Record<string, string> = {
   'На рассмотрении': 'pending', 'Бэклог': 'backlog', 'К работе': 'todo', 'В работе': 'progress',
   'На ревью': 'review', 'На тестировании': 'testing', 'Готово': 'done',
   'Заблокировано': 'blocked', 'Отменено': 'canceled',
 }
-const labelOfKey = (key: string) => ALIAS_LB[key] ?? key
 
 const STATUS_COLORS: Record<string, string> = {
   pending: '#c07d1e', backlog: '#8792a3', todo: '#1f8fb5', in_progress: '#3d63d2',
@@ -44,108 +41,87 @@ function cardHtml(t: TaskCard, merged: boolean): string {
   </article>`
 }
 
-function plural(n: number): string {
-  const mod10 = n % 10
-  const mod100 = n % 100
-  if (mod10 === 1 && mod100 !== 11) return 'задача'
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'задачи'
-  return 'задач'
-}
-
 export function Board({ tasks, reload }: { tasks: TaskCard[]; reload: () => void }) {
   const [columns, setColumns] = useState<Column[]>([])
   const [editMode, setEditMode] = useState(false)
-  const [dragCode, setDragCode] = useState<string | null>(null)
-  const [okAliases, setOkAliases] = useState<Record<string, boolean>>({})
-  const [deniedReasons, setDeniedReasons] = useState<Record<string, string>>({})
-  const [overLabel, setOverLabel] = useState<string | null>(null)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const boardRef = useRef<HTMLDivElement>(null)
+  const hintRef = useRef<HTMLDivElement>(null)
+  const dragRef = useRef<{ code: string } | null>(null)
 
   useEffect(reloadColumns, [])
 
-  useEffect(() => {
-    if (!dragCode) { setOkAliases({}); setDeniedReasons({}); return }
-    void api.task(dragCode).then((card) => {
-      const ok: Record<string, boolean> = {}
-      const denied: Record<string, string> = {}
-      card.gate?.allowed.forEach((to) => { ok[to] = true })
-      card.gate?.denied.forEach((x) => { denied[x.to] = x.reason })
-      // сводим к alias-ключам: разрешено, если хоть один таргет колонки разрешён
-      const okAlias: Record<string, boolean> = {}
-      const deniedAlias: Record<string, string> = {}
-      for (const to of card.gate?.allowed ?? []) okAlias[to] = true
-      const aliasTargets: Record<string, { ok: boolean; reason: string }> = {}
-      for (const to of card.gate?.allowed ?? []) aliasTargets[to] = { ok: true, reason: '' }
-      for (const [to, reason] of Object.entries(denied)) {
-        if (!aliasTargets[to]) aliasTargets[to] = { ok: false, reason }
-      }
-      for (const [to, info] of Object.entries(aliasTargets)) {
-        const alias = ALIAS_OF[to] ?? to
-        if (info.ok) okAlias[alias] = true
-        else if (!okAlias[alias]) deniedAlias[alias] = info.reason
-      }
-      setOkAliases(okAlias)
-      setDeniedReasons(deniedAlias)
-      const allowList = Object.keys(okAlias).map((a) => labelOfKey(a))
-      const denyList = Object.entries(deniedAlias)
-        .map(([a, r]) => `${labelOfKey(a)}: ${r}`)
-      setHint(allowList.length
-        ? <>Разрешено: <b>{allowList.join(', ')}</b>{denyList.length ? <> · <span className="no">{denyList.join(' · ')}</span></> : null}</>
-        : <span className="no">{denyList.join(' · ') || 'нет разрешённых переходов'}</span>)
-    }).catch(() => { setOkAliases({}); setDeniedReasons({}) })
-  }, [dragCode])
+  // --- императивная подсветка DnD (никаких setState во время drag) ---
+  function paintDrag(card: TaskCard) {
+    const aliasOk: Record<string, boolean> = {}
+    const aliasReason: Record<string, string> = {}
+    for (const to of card.gate?.allowed ?? []) aliasOk[ALIAS_OF[to] ?? to] = true
+    for (const d of card.gate?.denied ?? []) {
+      const a = ALIAS_OF[d.to] ?? d.to
+      if (!aliasOk[a]) aliasReason[a] = d.reason
+    }
+    boardRef.current?.querySelectorAll('.cell').forEach((el) => {
+      const key = KEY_BY_LABEL[el.getAttribute('data-drop') ?? ''] ?? ''
+      el.classList.toggle('ok', Boolean(aliasOk[key]))
+    })
+    const allow = Object.keys(aliasOk).map((k) => ALIAS_LB[k] ?? k)
+    const deny = Object.entries(aliasReason).map(([k, r]) => `${ALIAS_LB[k] ?? k}: ${r}`)
+    if (hintRef.current) {
+      hintRef.current.innerHTML = allow.length
+        ? `Разрешено: <b>${allow.join(', ')}</b>${deny.length ? ` · <span class="no">${deny.join(' · ')}</span>` : ''}`
+        : `<span class="no">${deny.join(' · ') || 'нет допустимых переходов'}</span>`
+    }
+  }
 
-  const [hint, setHint] = useState<JSX.Element | null>(null)
-
-  const stories = tasks.filter((t) => t.type === 'story')
-  const loose = tasks.filter((t) => t.type !== 'story' && !t.storyCode)
-  const byAlias = (items: TaskCard[], key: string) =>
-    items.filter((t) => (t as TaskCard & { _alias?: string })._alias === key)
-
-  // alias для каждой задачи считается один раз на рендер
-  for (const t of tasks) {
-    ;(t as TaskCard & { _alias?: string })._alias = ALIAS_OF[t.statusKey] ?? 'progress'
+  function clearPaint() {
+    boardRef.current?.querySelectorAll('.cell.ok, .cell.over').forEach((el) => {
+      el.classList.remove('ok', 'over')
+    })
+    document.body.classList.remove('is-dragging')
+    if (hintRef.current) hintRef.current.innerHTML = ''
+    dragRef.current = null
   }
 
   const cellsHtml = (items: TaskCard[]) => columns.map((col) => {
     const key = KEY_BY_LABEL[col.label] ?? ''
-    const bucket = [...byAlias(items, key)].sort((a, b) => {
-      const rank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
-      const sa = (rank[a.priority] ?? 9) * 10 + (a.type === 'bug' ? 4 : 0)
-      const sb = (rank[b.priority] ?? 9) * 10 + (b.type === 'bug' ? 4 : 0)
-      return sa !== sb ? sb - sa : a.code.localeCompare(b.code)
-    })
-    const isOk = Boolean(okAliases[key])
-    const isOver = overLabel === col.label
-    const dragging = Boolean(dragCode)
+    const bucket = [...items.filter((t) => (ALIAS_OF[t.statusKey] ?? 'progress') === key)]
+      .sort((a, b) => {
+        const rank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
+        const sa = (rank[a.priority] ?? 9) * 10 + (a.type === 'bug' ? 4 : 0)
+        const sb = (rank[b.priority] ?? 9) * 10 + (b.type === 'bug' ? 4 : 0)
+        return sa !== sb ? sb - sa : a.code.localeCompare(b.code)
+      })
     return (
-      <div key={col.id} className={`cell ${isOk ? 'ok' : ''} ${isOver ? 'over' : ''}`}
-        style={{ ['--colc' as string]: bucket.length || dragging ? col.color : 'transparent' }}
-        data-drop={col.label}
+      <div key={col.id} className="cell" data-drop={col.label}
+        style={{ ['--colc' as string]: bucket.length ? col.color : 'transparent' }}
         onDragOver={(e) => {
-          if (!dragCode) return
+          // drop принимается на любой колонке (как в макете): запрет решается
+          // на применении с человекочитаемым toast; подсветка .ok — только UX
+          if (!dragRef.current) return
           e.preventDefault()
-          setOverLabel(col.label)
+          e.dataTransfer.dropEffect = 'move'
+          if (e.currentTarget.classList.contains('ok')) e.currentTarget.classList.add('over')
         }}
-        onDragLeave={() => setOverLabel((cur) => (cur === col.label ? null : cur))}
+        onDragLeave={(e) => e.currentTarget.classList.remove('over')}
         onDrop={(e) => {
           e.preventDefault()
-          setOverLabel(null)
-          if (dragCode) void applyDrop(dragCode, col.label, reload)
-          setDragCode(null)
+          const code = dragRef.current?.code
+          const wasCode = code
+          clearPaint()
+          if (wasCode) void applyDrop(wasCode, col.label, reload)
         }}>
         {bucket.map((t) => (
-          <div key={t.code} dangerouslySetInnerHTML={{
-            __html: cardHtml(t, key === 'review' || key === 'testing'),
-          }}
+          <div key={t.code}
+            dangerouslySetInnerHTML={{ __html: cardHtml(t, key === 'review' || key === 'testing') }}
             onDragStart={(e) => {
-              setDragCode(t.code)
+              dragRef.current = { code: t.code }
               document.body.classList.add('is-dragging')
               e.dataTransfer.effectAllowed = 'move'
+              e.dataTransfer.setData('text/plain', t.code)
+              void api.task(t.code).then(paintDrag)
             }}
-            onDragEnd={() => { setDragCode(null); document.body.classList.remove('is-dragging') }}
+            onDragEnd={clearPaint}
             onClick={(e) => {
-              // код задачи → полная страница; карточка → site-page поверх доски
               if ((e.target as HTMLElement).closest('[data-open-page]')) {
                 window.location.hash = `#${t.code}/page`
                 return
@@ -161,7 +137,8 @@ export function Board({ tasks, reload }: { tasks: TaskCard[]; reload: () => void
 
   const colHeads = columns.map((col) => {
     const key = KEY_BY_LABEL[col.label] ?? ''
-    const count = byAlias(tasks, key).length
+    const count = tasks.filter((t) => t.type !== 'story' && (ALIAS_OF[t.statusKey] ?? '') === key).length
+      + storiesOf(tasks).filter((s) => (ALIAS_OF[s.statusKey] ?? '') === key).length
     if (editMode) {
       return (
         <div key={col.id} className="col-head edit" style={{ ['--st' as string]: col.color }}>
@@ -236,12 +213,12 @@ export function Board({ tasks, reload }: { tasks: TaskCard[]; reload: () => void
 
   return (
     <>
-      {hint && <div className="draghint">{hint}</div>}
+      <div ref={hintRef} className="draghint" />
       <section className="board-scroll" aria-label="Kanban-доска">
-        <div className={`board-grid ${editMode ? 'editing' : ''}`}>
+        <div className={`board-grid ${editMode ? 'editing' : ''}`} ref={boardRef}>
           {colHeads}
           {addColumnGhost}
-          {stories.map((story) => {
+          {storiesOf(tasks).map((story) => {
             const kids = tasks.filter((t) => t.storyCode === story.code)
             const closedKids = kids.filter((k) => ['done', 'canceled'].includes(k.statusKey)).length
             return (
@@ -251,17 +228,20 @@ export function Board({ tasks, reload }: { tasks: TaskCard[]; reload: () => void
               </div>
             )
           })}
-          {loose.length > 0 && (
-            <div className="lane">
-              <div className="lane-band" style={{ ['--st' as string]: '#8792a3' }}>
-                <span className="chev" style={{ visibility: 'hidden' }} />
-                <span className="t" style={{ color: 'var(--text3)' }}>Без истории</span>
-                <span className="kidscnt num">{loose.length} {plural(loose.length)}</span>
-                <span className="fill" />
+          {(() => {
+            const loose = tasks.filter((t) => t.type !== 'story' && !t.storyCode)
+            return loose.length > 0 ? (
+              <div className="lane">
+                <div className="lane-band" style={{ ['--st' as string]: '#8792a3' }}>
+                  <span className="chev" style={{ visibility: 'hidden' }} />
+                  <span className="t" style={{ color: 'var(--text3)' }}>Без истории</span>
+                  <span className="kidscnt num">{loose.length} {plural(loose.length)}</span>
+                  <span className="fill" />
+                </div>
+                <div className="lane-cells">{cellsHtml(loose)}</div>
               </div>
-              <div className="lane-cells">{cellsHtml(loose)}</div>
-            </div>
-          )}
+            ) : null
+          })()}
         </div>
       </section>
     </>
@@ -271,6 +251,18 @@ export function Board({ tasks, reload }: { tasks: TaskCard[]; reload: () => void
     void api.aliasColumns().then((cols) =>
       setColumns([...cols].sort((a, b) => a.position - b.position)))
   }
+}
+
+function storiesOf(tasks: TaskCard[]): TaskCard[] {
+  return tasks.filter((t) => t.type === 'story')
+}
+
+function plural(n: number): string {
+  const mod10 = n % 10
+  const mod100 = n % 100
+  if (mod10 === 1 && mod100 !== 11) return 'задача'
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'задачи'
+  return 'задач'
 }
 
 async function applyDrop(code: string, columnLabel: string, reload: () => void) {
