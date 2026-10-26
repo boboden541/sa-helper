@@ -10,7 +10,7 @@ import TableRow from '@tiptap/extension-table-row'
 import Underline from '@tiptap/extension-underline'
 import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { renderMarkdown } from '../markdown'
 import { htmlToMarkdown } from './serialize'
 
@@ -23,6 +23,7 @@ export function RichText({ markdown, onChange }: RichTextProps) {
   // редактирование не должно терять каретку: контент из пропа ставится только
   // когда он пришёл извне (а не из нашего же onUpdate)
   const lastEmitted = useRef(markdown)
+  const [inTable, setInTable] = useState(false)
   const editor = useEditor({
     extensions: [
       StarterKit, Underline, Link, Image,
@@ -42,6 +43,18 @@ export function RichText({ markdown, onChange }: RichTextProps) {
       lastEmitted.current = markdown
     }
   }, [markdown]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // табличные операции контекстны: панель появляется, когда курсор в таблице
+  useEffect(() => {
+    if (!editor) return
+    const upd = () => setInTable(editor.isActive('table'))
+    editor.on('selectionUpdate', upd)
+    editor.on('transaction', upd)
+    return () => {
+      editor.off('selectionUpdate', upd)
+      editor.off('transaction', upd)
+    }
+  }, [editor])
 
   if (!editor) return null
   const cmd = (fn: () => void) => () => { fn(); editor.view.focus() }
@@ -74,12 +87,19 @@ export function RichText({ markdown, onChange }: RichTextProps) {
           const src = window.prompt('Источник изображения')
           if (src) editor.chain().focus().setImage({ src }).run()
         })}>🖼</button>
-        <button onClick={cmd(() => editor.chain().focus().insertTable({ rows: 2, cols: 2, withHeaderRow: true }).run())}>⊞</button>
-        <button onClick={cmd(() => editor.chain().focus().addRowAfter().run())}>＋стр</button>
-        <button onClick={cmd(() => editor.chain().focus().deleteRow().run())}>－стр</button>
-        <button onClick={cmd(() => editor.chain().focus().addColumnAfter().run())}>＋стлб</button>
-        <button onClick={cmd(() => editor.chain().focus().deleteColumn().run())}>－стлб</button>
+        <button onClick={cmd(() => editor.chain().focus().insertTable({ rows: 2, cols: 2, withHeaderRow: true }).run())}
+          title="Вставить таблицу">⊞</button>
       </div>
+      {inTable && (
+        <div className="table-bar">
+          <span>Таблица:</span>
+          <button onClick={cmd(() => editor.chain().focus().addRowAfter().run())}>＋ строка</button>
+          <button onClick={cmd(() => editor.chain().focus().deleteRow().run())}>− строка</button>
+          <button onClick={cmd(() => editor.chain().focus().addColumnAfter().run())}>＋ столбец</button>
+          <button onClick={cmd(() => editor.chain().focus().deleteColumn().run())}>− столбец</button>
+          <button className="danger" onClick={cmd(() => editor.chain().focus().deleteTable().run())}>удалить таблицу</button>
+        </div>
+      )}
       <div className="rich-edit"><EditorContent editor={editor} /></div>
     </div>
   )
