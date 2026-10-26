@@ -414,6 +414,7 @@ async def flow_all_statuses(session: AsyncSession = Depends(get_session),
             FlowStatus.flow_version_id == fv.id).order_by(FlowStatus.id))).scalars().all()
         out.append({"type": tt.key, "typeLabel": tt.label,
                     "statuses": [{"key": s.status_key, "label": s.label,
+                                  "terminal": bool(s.is_terminal),
                                   "aliasColumnId": str(s.alias_column_id or "")} for s in sts]})
     return out
 

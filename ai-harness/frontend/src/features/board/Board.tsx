@@ -99,6 +99,7 @@ export function Board({ tasks, reload, boardEdit }: { tasks: TaskCard[]; reload:
   const [dragCode, setDragCode] = useState<string | null>(null)
   const [hint, setHint] = useState<string | null>(null)
   const [statusCol, setStatusCol] = useState<Record<string, string>>({})
+  const [terminalKeys, setTerminalKeys] = useState<Record<string, boolean>>({})
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
 
   useEffect(reloadColumns, [])
@@ -110,10 +111,15 @@ export function Board({ tasks, reload, boardEdit }: { tasks: TaskCard[]; reload:
     return columns.find((c) => (KEY_BY_LABEL[c.label] ?? '') === alias)?.id ?? ''
   }
 
-  const stories = tasks.filter((t) => t.type === 'story')
+  // Завершённое на доске не показывается: «финиш» = терминальный статус
+  // модели задачи (галочка «терм.» в редакторе flow). Список показывает всё.
+  const isDone = (t: TaskCard): boolean => Boolean(terminalKeys[`${t.type}|${t.statusKey}`])
+
+  const stories = tasks.filter((t) => t.type === 'story' && !isDone(t))
 
   const onDragStart = (e: DragStartEvent) => {
     const code = String(e.active.id)
+    document.body.classList.add('is-dragging')
     setDragCode(code)
     void api.task(code).then((card) => {
       const ok: Record<string, boolean> = {}
@@ -139,13 +145,19 @@ export function Board({ tasks, reload, boardEdit }: { tasks: TaskCard[]; reload:
   const onDragEnd = (e: DragEndEvent) => {
     const code = String(e.active.id)
     const d = e.over?.data.current as { colId?: string; label?: string } | undefined
+    document.body.classList.remove('is-dragging')
     setAllowedCols(null); setDragCode(null); setHint(null)
     if (!d?.colId) return
     void applyDrop(code, d.colId, d.label ?? '', colIdOfStatus, reload)
   }
 
+  const onDragCancel = () => {
+    document.body.classList.remove('is-dragging')
+    setAllowedCols(null); setDragCode(null); setHint(null)
+  }
+
   const cellsHtml = (laneId: string, items: TaskCard[]) => columns.map((col) => {
-    const bucket = [...items.filter((t) => colIdOfStatus(t.type, t.statusKey) === col.id)].sort((a, b) => {
+    const bucket = [...items.filter((t) => colIdOfStatus(t.type, t.statusKey) === col.id && !isDone(t))].sort((a, b) => {
       const rank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
       const sa = (rank[a.priority] ?? 9) * 10 + (a.type === 'bug' ? 4 : 0)
       const sb = (rank[b.priority] ?? 9) * 10 + (b.type === 'bug' ? 4 : 0)
@@ -159,7 +171,7 @@ export function Board({ tasks, reload, boardEdit }: { tasks: TaskCard[]; reload:
   })
 
   const colHeads = columns.map((col) => {
-    const count = tasks.filter((t) => colIdOfStatus(t.type, t.statusKey) === col.id).length
+    const count = tasks.filter((t) => !isDone(t) && colIdOfStatus(t.type, t.statusKey) === col.id).length
     if (editMode) {
       return (
         <div key={col.id} className="col-head edit" style={{ ['--st' as string]: col.color }}>
@@ -234,16 +246,16 @@ export function Board({ tasks, reload, boardEdit }: { tasks: TaskCard[]; reload:
     </div>
   )
 
-  // Задача без истории ИЛИ с историей, которой нет в выдаче, — в полосу «Без истории»,
-  // чтобы ни одна карточка не могла исчезнуть с доски.
-  const loose = tasks.filter((t) => t.type !== 'story' &&
+  // Задача без истории ИЛИ с историей, которой нет в выдаче (в т.ч. завершённой),
+  // — в полосу «Без истории». Завершённые задачи на доске не показываются.
+  const loose = tasks.filter((t) => t.type !== 'story' && !isDone(t) &&
     (!t.storyCode || !stories.some((s) => s.code === t.storyCode)))
 
   return (
     <>
       {dragCode && hint && <div className="draghint">{hint}</div>}
       <section className="board-scroll" aria-label="Kanban-доска">
-        <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
+        <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={onDragCancel}>
           <div className={`board-grid ${editMode ? 'editing' : ''}`}>
             {colHeads}
             {addColumnGhost}
@@ -284,10 +296,15 @@ export function Board({ tasks, reload, boardEdit }: { tasks: TaskCard[]; reload:
       setColumns([...cols].sort((a, b) => a.position - b.position)))
     void fetch('/api/v1/all-statuses').then((r) => r.json()).then((d) => {
       const m: Record<string, string> = {}
+      const term: Record<string, boolean> = {}
       for (const t of (Array.isArray(d) ? d : [])) {
-        for (const s of (t.statuses ?? [])) m[`${t.type}|${s.key}`] = s.aliasColumnId ?? ''
+        for (const s of (t.statuses ?? [])) {
+          m[`${t.type}|${s.key}`] = s.aliasColumnId ?? ''
+          term[`${t.type}|${s.key}`] = Boolean(s.terminal)
+        }
       }
       setStatusCol(m)
+      setTerminalKeys(term)
     }).catch(() => {})
   }
 }
