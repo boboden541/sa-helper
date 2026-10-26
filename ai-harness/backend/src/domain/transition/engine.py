@@ -147,11 +147,13 @@ def _check_gates(graph: FlowGraph, edge, current: str, target: str,
 
     if forward and src.checklist_gate:
         state = state_of(src.checklist_gate)
-        if src.key == "todo":
-            if not state.exists or state.total == 0:
-                return Decision(False, _reason_checklist_not_created(src.checklist_gate)
-                                + " — декомпозиция не выполнена")
-        elif not _checklist_state_is_closed(state):
+        if not state.exists or state.total == 0:
+            # absent/empty checklist — honest "not created" instead of "0 items not closed" (bug from the owner)
+            reason = _reason_checklist_not_created(src.checklist_gate)
+            if src.key == "todo":
+                reason += " — decomposition not done"
+            return Decision(False, reason)
+        if not _checklist_state_is_closed(state):
             return Decision(False, _reason_checklist_closed(state, src.checklist_gate))
 
     if edge.runner != "auto" and dst.key == "in_progress" and dst.checklist_gate:
