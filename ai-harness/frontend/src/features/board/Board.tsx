@@ -13,7 +13,6 @@ import {
 import { pushUndo } from '../../shared/undo'
 import { toast } from '../../shared/toast'
 import { ColmapPanel } from './ColmapPanel'
-import { STATUS_COLORS } from './dndColors'
 
 interface Column { id: string; label: string; color: string; position: number }
 
@@ -23,9 +22,14 @@ const KEY_BY_LABEL: Record<string, string> = {
   'Заблокировано': 'blocked', 'Отменено': 'canceled',
 }
 
+const STATUS_COLORS: Record<string, string> = {
+  pending: '#c07d1e', backlog: '#8792a3', todo: '#1f8fb5', in_progress: '#3d63d2',
+  review_ready: '#7d4fd1', in_review: '#7d4fd1', qa_ready: '#c2601a', in_testing: '#c2601a',
+  done: '#25935b', canceled: '#8792a3', blocked: '#cf4436',
+}
 
 function cardHtml(t: TaskCard, merged: boolean): string {
-  return `<article class="card ${t.statusKey === 'blocked' ? 'top' : ''}" draggable="false" data-code="${t.code}" style="--st:${STATUS_COLORS[t.statusKey] ?? '#8792a3'}">
+  return `<article class="card ${t.statusKey === 'blocked' ? 'top' : ''}" style="--st:${STATUS_COLORS[t.statusKey] ?? '#8792a3'}">
     <div class="card-top">
       <span class="code" data-open-page="${t.code}">${t.code}</span>
       ${typeChip(t.type)}
@@ -88,12 +92,10 @@ function Cell({ laneId, column, bucket, allowed, dragging, reload }: {
 }
 
 export function Board({ tasks, reload, boardEdit }: { tasks: TaskCard[]; reload: () => void; boardEdit: boolean }) {
-  const editMode = boardEdit
   const [columns, setColumns] = useState<Column[]>([])
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const editMode = boardEdit
   const [colMapFor, setColMapFor] = useState<string | null>(null)
-  const [colMapAlias, setColMapAlias] = useState<Record<string, string>>({})
-  const [allStatuses, setAllStatuses] = useState<{ type: string; typeLabel: string; statuses: { key: string; label: string; aliasColumnId: string }[] }[]>([])
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [allowedKeys, setAllowedKeys] = useState<Record<string, boolean> | null>(null)
   const [dragCode, setDragCode] = useState<string | null>(null)
   const [hint, setHint] = useState<string | null>(null)
@@ -181,15 +183,8 @@ export function Board({ tasks, reload, boardEdit }: { tasks: TaskCard[]; reload:
             onBlur={(e) => e.target.value !== col.label &&
               void api.updateColumn(col.id, { label: e.target.value }).then(reloadColumns)} />
           <span className="colh-key">{col.position}</span>
-          <button className="colh-map" title="Какие статусы сводятся в колонку"
-            onClick={(e) => {
-              e.stopPropagation()
-              setColMapFor((cur) => (cur === col.label ? null : col.label))
-              if (col.label !== colMapFor) {
-                void fetch('http://localhost:8088/api/v1/flows/all-statuses').then((r) => r.json()).then(setAllStatuses)
-              }
-            }}>статусы</button>
-
+          <button className="colh-map" title="Assign statuses"
+            onClick={() => setColMapFor(col.label)}>статусы</button>
           <button className="colh-x" title="Удалить колонку" onClick={() => {
             void api.deleteColumn(col.id)
               .then(() => { reloadColumns(); reload() })
@@ -250,51 +245,7 @@ export function Board({ tasks, reload, boardEdit }: { tasks: TaskCard[]; reload:
                 </div>
               )
             })}
-            {colMapFor && (
-            <aside className="colmap-panel" aria-label="Статусы колонки">
-              <div className="blk-h"><h3>Колонка «{colMapFor}»</h3><span className="fill" />
-                <button className="icon-btn" onClick={() => setColMapFor(null)} style={{ width: 22, height: 22 }}>✕</button></div>
-              <div className="muted" style={{ fontSize: 12 }}>Отметьте, какие статусы сводятся в эту колонку. Статус живёт в одной колонке.</div>
-              {(() => {
-              const col = columns.find((c) => c.label === colMapFor)
-              if (!col) return null
-              return allStatuses.map((t) => (
-                <div key={t.type} className="cm-type">
-                  <div className="q-sec">{t.typeLabel}</div>
-                  <div className="cm-sts">
-                    {t.statuses.map((s) => {
-                      const mine = s.aliasColumnId && colMapAlias[col.label] === s.key
-                      const other = s.aliasColumnId && !mine
-                      return (
-                        <button key={s.key} className={`cm-st ${mine ? 'mine' : ''}`}
-                          onClick={async () => {
-                            const newAlias = mine ? '' : col.id
-                            await fetch(`/api/v1/flows/${t.type}/status-alias`, {
-                              method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ statusKey: s.key, aliasColumnId: newAlias }),
-                            })
-                            // обновить локальный маппинг
-                            setColMapAlias((m) => { const n = { ...m }; if (newAlias) n[col.label] = s.key; else delete n[col.label]; return n })
-                            reloadColumns(); reload()
-                          }}>
-                          <span className="st-dot" style={{ background: STATUS_COLORS[s.key] ?? '#8792a3' }} />
-                          <span className="cm-l">{s.label}</span>
-                          {mine && <span className="cm-check">✓</span>}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              ))
-              })()}
-            </aside>
-          )}
-          {colMapFor && (
-            <ColmapPanel columnLabel={colMapFor ?? ''} columns={columns}
-              onClose={() => setColMapFor(null)}
-              onAssigned={() => { reloadColumns(); reload() }} />
-          )}
-          {loose.length > 0 && (
+            {loose.length > 0 && (
               <div className="lane">
                 <div className="lane-band" style={{ ['--st' as string]: '#8792a3' }}>
                   <span className="chev" style={{ visibility: 'hidden' }} />
@@ -308,17 +259,6 @@ export function Board({ tasks, reload, boardEdit }: { tasks: TaskCard[]; reload:
           </div>
         </DndContext>
       </section>
-      {editMode && (
-        <div className="filters" style={{ padding: '8px 20px' }}>
-          <span className="muted">Статусы колонок: </span>
-          {columns.map((col) => (
-            <button key={col.id} className={`chip-f ${colMapFor === col.label ? 'active' : ''}`}
-              onClick={() => setColMapFor(col.label === colMapFor ? '' : col.label)}>
-              {col.label}
-            </button>
-          ))}
-        </div>
-      )}
       {colMapFor && (
         <ColmapPanel columnLabel={colMapFor} columns={columns}
           onClose={() => setColMapFor(null)}
