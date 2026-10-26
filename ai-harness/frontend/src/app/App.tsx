@@ -63,11 +63,16 @@ export function App() {
   }, [])
   const [warnings, setWarnings] = useState<{ level: string; message: string; goto?: string }[]>([])
   const [pipelinePaused, setPipelinePaused] = useState(false)
+  const [connInfo, setConnInfo] = useState<{ name: string; model: string } | null | undefined>(undefined)
   useEffect(() => {
     void api.pipelineStatus().then((r) => {
       setWarnings(r.warnings)
       setPipelinePaused(Boolean((r as { paused?: boolean }).paused))
     }).catch(() => {})
+    void api.requestProviders().then((list) => {
+      const a = list.find((c) => c.isActive)
+      setConnInfo(a ? { name: a.name, model: a.model } : null)
+    }).catch(() => setConnInfo(null))
   }, [view])
 
   const togglePipeline = () => {
@@ -143,9 +148,16 @@ export function App() {
               value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Поиск задач" />
             <kbd>поиск</kbd>
           </label>
-          <span className="conn" title="Активное подключение к ИИ-провайдеру">
-            <span className="dot ok" /> Подключение не настроено
-          </span>
+          {connInfo !== null ? (
+            <span className="conn" title={`Активное ИИ-подключение: ${connInfo?.name} (${connInfo?.model})`}>
+              <span className="dot" style={{ background: '#25935b' }} /> {connInfo?.name}
+            </span>
+          ) : (
+            <button className="conn off" title="Активное ИИ-подключение не выбрано — нажмите, чтобы перейти к настройкам"
+              onClick={() => navigate('#settings/providers')}>
+              <span className="dot" style={{ background: '#c07d1e' }} /> Подключение не настроено
+            </button>
+          )}
           <details className="pop">
             <summary className="icon-btn" aria-label="Уведомления">
               <svg width="16" height="16" viewBox="0 0 16 16"><path d="M8 2a4.2 4.2 0 014.2 4.2c0 3 .9 4.2 1.5 4.8H2.3c.6-.6 1.5-1.8 1.5-4.8A4.2 4.2 0 018 2zM6.5 13.2a1.6 1.6 0 003 0" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -167,13 +179,22 @@ export function App() {
               )}
             </div>
           </details>
-          <button className={`pipeline-chip ${pipelinePaused ? 'paused' : ''}`}
+          <button className={`icon-btn pipeline-btn ${pipelinePaused ? 'paused' : ''}`}
             onClick={togglePipeline}
-            title={pipelinePaused ? 'Конвейер на паузе — нажмите, чтобы возобновить'
-              : 'Конвейер работает — нажмите, чтобы остановить агентов'}
+            title={pipelinePaused ? 'Конвейер на паузе — возобновить работу агентов'
+              : 'Конвейер работает — остановить агентов (разработка, ревью, тестирование). Чат Eve продолжит работать.'}
             aria-label="Рубильник конвейера">
+            {pipelinePaused ? (
+              <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+                <path d="M4 2.5v9l7.5-4.5z" fill="currentColor" />
+              </svg>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+                <rect x="3" y="2.5" width="3" height="9" rx="1" fill="currentColor" />
+                <rect x="8" y="2.5" width="3" height="9" rx="1" fill="currentColor" />
+              </svg>
+            )}
             <span className="dot" style={{ background: pipelinePaused ? '#cf4436' : '#25935b' }} />
-            {pipelinePaused ? 'Конвейер на паузе' : 'Конвейер работает'}
           </button>
           <button className="icon-btn" onClick={toggleTheme} aria-label="Переключить тему">
             {theme === 'dark' ? '☀' : '☾'}

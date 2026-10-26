@@ -1165,9 +1165,8 @@ table.mx td{vertical-align:top}
 .rl-row .rl-text{white-space:pre-wrap}
 
 /* Рубильник конвейера в топбаре (решение владельца 26.10.2026) */
-.pipeline-chip{display:inline-flex; align-items:center; gap:7px; padding:5px 12px;
-  border:1px solid var(--border); border-radius:999px; background:var(--surface);
-  font-size:12px; font-weight:600; cursor:pointer}
-.pipeline-chip:hover{border-color:var(--border2)}
-.pipeline-chip.paused{border-color:color-mix(in srgb, #cf4436 55%, transparent);
-  color:#cf4436}
+.pipeline-btn{position:relative}
+.pipeline-btn .dot{position:absolute; right:5px; bottom:5px; width:7px; height:7px; border-radius:3px}
+.pipeline-btn.paused{color:#cf4436; border-color:color-mix(in srgb, #cf4436 45%, transparent)}
+button.conn.off{cursor:pointer; color:var(--text2)}
+button.conn.off:hover{color:var(--accent-text)}
