@@ -12,9 +12,16 @@ test('DnD: карточка из «На рассмотрении» в «Бэкл
   const card = page.locator(`.lane-cells .card[data-code="${code}"]`)
   await expect(card).toBeVisible()
 
-  await card.dragTo(page.locator('.cell[data-drop="Бэклог"]').last())
-
-  // статус применился (разрешённый переход backlog)
+  const target = page.locator('.cell[data-drop="Бэклог"]').last()
+  // dnd-kit PointerSensor требует промежуточные pointermove с дистанцией ≥ 4px
+  const sb = await card.boundingBox()
+  const tb = await target.boundingBox()
+  await page.mouse.move(sb.x + sb.width / 2, sb.y + sb.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(sb.x + sb.width / 2 + 10, sb.y + sb.height / 2, { steps: 3 })
+  await page.mouse.move(tb.x + tb.width / 2, tb.y + tb.height / 2, { steps: 10 })
+  await page.waitForTimeout(200)
+  await page.mouse.up()
   await expect.poll(async () => {
     const r = await page.request.get(`http://localhost:8088/api/v1/tasks/${code}`)
     return (await r.json()).statusKey

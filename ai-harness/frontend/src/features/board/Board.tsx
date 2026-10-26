@@ -28,7 +28,7 @@ const STATUS_COLORS: Record<string, string> = {
 }
 
 function cardHtml(t: TaskCard, merged: boolean): string {
-  return `<article class="card ${t.statusKey === 'blocked' ? 'top' : ''}" style="--st:${STATUS_COLORS[t.statusKey] ?? '#8792a3'}">
+  return `<article class="card ${t.statusKey === 'blocked' ? 'top' : ''}" draggable="false" data-code="${t.code}" style="--st:${STATUS_COLORS[t.statusKey] ?? '#8792a3'}">
     <div class="card-top">
       <span class="code" data-open-page="${t.code}">${t.code}</span>
       ${typeChip(t.type)}
