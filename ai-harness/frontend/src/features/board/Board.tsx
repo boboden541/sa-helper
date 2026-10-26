@@ -12,6 +12,8 @@ import {
 } from '../../shared/refs'
 import { pushUndo } from '../../shared/undo'
 import { toast } from '../../shared/toast'
+import { ColmapPanel } from './ColmapPanel'
+import { STATUS_COLORS } from './dndColors'
 
 interface Column { id: string; label: string; color: string; position: number }
 
@@ -21,11 +23,6 @@ const KEY_BY_LABEL: Record<string, string> = {
   'Заблокировано': 'blocked', 'Отменено': 'canceled',
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  pending: '#c07d1e', backlog: '#8792a3', todo: '#1f8fb5', in_progress: '#3d63d2',
-  review_ready: '#7d4fd1', in_review: '#7d4fd1', qa_ready: '#c2601a', in_testing: '#c2601a',
-  done: '#25935b', canceled: '#8792a3', blocked: '#cf4436',
-}
 
 function cardHtml(t: TaskCard, merged: boolean): string {
   return `<article class="card ${t.statusKey === 'blocked' ? 'top' : ''}" draggable="false" data-code="${t.code}" style="--st:${STATUS_COLORS[t.statusKey] ?? '#8792a3'}">
@@ -192,6 +189,7 @@ export function Board({ tasks, reload, boardEdit }: { tasks: TaskCard[]; reload:
                 void fetch('http://localhost:8088/api/v1/flows/all-statuses').then((r) => r.json()).then(setAllStatuses)
               }
             }}>статусы</button>
+
           <button className="colh-x" title="Удалить колонку" onClick={() => {
             void api.deleteColumn(col.id)
               .then(() => { reloadColumns(); reload() })
@@ -291,6 +289,11 @@ export function Board({ tasks, reload, boardEdit }: { tasks: TaskCard[]; reload:
               })()}
             </aside>
           )}
+          {colMapFor && (
+            <ColmapPanel columnLabel={colMapFor ?? ''} columns={columns}
+              onClose={() => setColMapFor(null)}
+              onAssigned={() => { reloadColumns(); reload() }} />
+          )}
           {loose.length > 0 && (
               <div className="lane">
                 <div className="lane-band" style={{ ['--st' as string]: '#8792a3' }}>
@@ -305,6 +308,22 @@ export function Board({ tasks, reload, boardEdit }: { tasks: TaskCard[]; reload:
           </div>
         </DndContext>
       </section>
+      {editMode && (
+        <div className="filters" style={{ padding: '8px 20px' }}>
+          <span className="muted">Статусы колонок: </span>
+          {columns.map((col) => (
+            <button key={col.id} className={`chip-f ${colMapFor === col.label ? 'active' : ''}`}
+              onClick={() => setColMapFor(col.label === colMapFor ? '' : col.label)}>
+              {col.label}
+            </button>
+          ))}
+        </div>
+      )}
+      {colMapFor && (
+        <ColmapPanel columnLabel={colMapFor} columns={columns}
+          onClose={() => setColMapFor(null)}
+          onAssigned={() => { reloadColumns(); reload() }} />
+      )}
     </>
   )
 
