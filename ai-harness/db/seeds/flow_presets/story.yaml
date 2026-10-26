@@ -24,8 +24,7 @@ statuses:
   - key: in_testing
     label: На тестировании
     alias: testing
-    gate: tester
-    stage_desc: "Сквозное тестирование, составление ПСИ и его прогон"
+    stage_desc: "Сквозное тестирование, составление ПСИ и его прогон; зачёт по ПСИ (M6)"
   - key: done
     label: Готово
     alias: done

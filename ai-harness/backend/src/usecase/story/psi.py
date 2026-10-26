@@ -130,6 +130,14 @@ async def link_bug(session: AsyncSession, story_code: str, position: int,
     session.add(Chronicle(task_id=story.id, event_type="bug", author_kind="human",
                           message=f"Пункт {position} ПСИ связан с багом {bug.code}"))
     await session.commit()
+    # M4 (ФТ-ah-36): «все баги заведены с привязкой к истории» → blocked (из in testing)
+    _, items_now = await _current_doc_and_items(session, story.id)
+    failed_items = [i for i in items_now if i.kind == "item" and i.status == "failed"]
+    if (failed_items and all(i.bug_task_id for i in failed_items)
+            and story.status_key == "in_testing"):
+        from usecase.story.mirror import apply_m4
+
+        await apply_m4(session, story)
 
 
 async def new_cycle(session: AsyncSession, story_code: str) -> int:
