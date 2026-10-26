@@ -72,6 +72,7 @@ function TaskBody({ code }: { code: string }) {
   const [card, setCard] = useState<TaskCard | null>(null)
   const [chronicle, setChronicle] = useState<{ id: string; type: string; authorKind: string; ruleCode?: string; message: string; at: string }[]>([])
   const [chronTab, setChronTab] = useState('all')
+  const [storyEdit, setStoryEdit] = useState(false)
   const [editingDesc, setEditingDesc] = useState(false)
   const [descMode, setDescMode] = useState<'visual' | 'md'>('visual')
   const [descDraft, setDescDraft] = useState('')
@@ -162,10 +163,17 @@ function TaskBody({ code }: { code: string }) {
               ))}
             </div>
           </span>
-          {card.storyCode && (
-            <span className="meta-item"><span className="lbl">История</span>
+          <span className="meta-item"><span className="lbl">История</span>
+            {storyEdit ? <span className="muted">выберите ниже…</span> : card.storyCode ? (
               <span className="story-link" onClick={() => { window.location.hash = `#${card.storyCode}` }}>
-                <span className="code">{card.storyCode}</span></span></span>)}
+                <span className="code">{card.storyCode}</span></span>
+            ) : <span className="muted">—</span>}
+            <button className="pencil" title="Привязать к истории / отвязать"
+              dangerouslySetInnerHTML={{ __html: PENCIL }}
+              onClick={() => setStoryEdit(!storyEdit)} />
+          </span>
+          {storyEdit && <StoryPicker code={code} current={card.storyCode ?? null}
+            onDone={() => { setStoryEdit(false); reload() }} />}
           <span className="meta-item"><span className="lbl">Создана</span> <time>{card.createdAt?.slice(0, 16).replace('T', ' ')}</time></span>
           <span className="meta-item"><span className="lbl">Обновлена</span> <time>{card.updatedAt?.slice(0, 16).replace('T', ' ')}</time></span>
           <span className="meta-item" dangerouslySetInnerHTML={{ __html: typeChip(card.type) }} />
@@ -269,18 +277,7 @@ function TaskBody({ code }: { code: string }) {
         )}
       </div>
 
-      {(card.relations?.length ?? 0) > 0 && (
-        <div className="blk">
-          <div className="blk-h"><h3>Связанные задачи</h3></div>
-          {(card.relations ?? []).map((r) => (
-            <div key={r.code} className="rel" onClick={() => { window.location.hash = `#${r.code}` }}>
-              <span className="code">{r.code}</span>
-              <span className="rt">{r.title}</span>
-              <span className={`linkchip ${r.kind === 'blocked_by' ? 'hard' : ''}`}>{r.kind}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      <RelationsBlock code={code} relations={card.relations ?? []} reload={reload} />
 
       {typeVisible.developer && <ChecklistBlock code={code} kind="developer" title="Smart чек-лист разработчика" />}
       {typeVisible.reviewer && <ChecklistBlock code={code} kind="reviewer" title="Чек-лист ревьюера" />}
@@ -543,27 +540,126 @@ function ArtifactBlock({ code, kind, title }: { code: string; kind: string; titl
 
 function CommentsBlock({ code }: { code: string }) {
   const [items, setItems] = useState<{ id: string; author: string; body: string; at: string }[]>([])
-  const [body, setBody] = useState('')
-  const reload = () => { void api.comments(code).then((d) => setItems(d.items ?? [])) }
+  const [draft, setDraft] = useState('')
+  const [mode, setMode] = useState<'visual' | 'text'>('visual')
+  const reload = () => { void api.comments(code).then((d: unknown) => setItems(Array.isArray(d) ? (d as typeof items) : [])) }
   useEffect(reload, [code])
+  const send = () => {
+    if (!draft.trim()) return
+    void api.addComment(code, draft).then(() => { setDraft(''); reload() })
+  }
   return (
     <div className="blk">
-      <div className="blk-h"><h3>Комментарии</h3></div>
+      <div className="blk-h"><h3>Комментарии</h3><span className="fill" />
+        <div className="mode-tabs">
+          <button className={mode === 'visual' ? 'active' : ''} onClick={() => setMode('visual')}>Визуально</button>
+          <button className={mode === 'text' ? 'active' : ''} onClick={() => setMode('text')}>Текст</button>
+        </div></div>
       {items.map((c) => (
         <div key={c.id} className="cmt">
           <span className="ava">{c.author.slice(0, 1)}</span>
           <div className="b"><div className="h"><b>{c.author}</b> · {c.at.slice(0, 16).replace('T', ' ')}</div>
-            <div className="tx">{c.body}</div></div>
+            <div className="tx md" dangerouslySetInnerHTML={{ __html: renderMarkdown(c.body) }} /></div>
         </div>
       ))}
       <div className="cmt-add">
-        <input placeholder="Комментарий…" value={body} onChange={(e) => setBody(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && body.trim()) {
-              void api.addComment(code, body).then(() => { setBody(''); reload() })
-            }
-          }} />
+        {mode === 'visual'
+          ? <RichText markdown={draft} onChange={setDraft} />
+          : <textarea rows={4} placeholder="Markdown-комментарий… (**жирный**, списки, код)"
+              value={draft} onChange={(e) => setDraft(e.target.value)} />}
+        <div className="edit-actions">
+          <button className="btn primary small" onClick={send} disabled={!draft.trim()}>Отправить</button>
+        </div>
       </div>
+    </div>
+  )
+}
+
+function StoryPicker({ code, current, onDone }: { code: string; current: string | null; onDone: () => void }) {
+  const [q, setQ] = useState('')
+  const [found, setFound] = useState<{ code: string; title: string; statusKey: string }[]>([])
+  useEffect(() => {
+    if (!q.trim()) { setFound([]); return }
+    const t = setTimeout(() => {
+      void api.tasks({ q: q.trim(), types: 'story' }).then((d) =>
+        setFound((d.items ?? []).filter((x: { code: string }) => x.code !== code)))
+    }, 250)
+    return () => clearTimeout(t)
+  }, [q, code])
+  const link = (storyCode: string | null) => {
+    void api.storyLink(code, storyCode).then(onDone)
+      .catch((e: Error) => toast(e.message, 'bad'))
+  }
+  return (
+    <div className="story-picker">
+      <input placeholder="Найдите историю по коду или названию…" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
+      {current && <button className="btn danger small" onClick={() => link(null)}>Отвязать от {current}</button>}
+      {found.map((f) => (
+        <div key={f.code} className="rel" onClick={() => link(f.code)}>
+          <span className="code">{f.code}</span>
+          <span className="rt">{f.title}</span>
+          <span className="mini-chip">{f.statusKey}</span>
+        </div>
+      ))}
+      {q && !found.length && <div className="muted" style={{ fontSize: 12 }}>Истории не найдены</div>}
+    </div>
+  )
+}
+
+function RelationsBlock({ code, relations, reload }: {
+  code: string
+  relations: { id: string; kind: string; code: string; title: string }[]
+  reload: () => void
+}) {
+  const [adding, setAdding] = useState(false)
+  const [kind, setKind] = useState('do_after')
+  const [q, setQ] = useState('')
+  const [found, setFound] = useState<{ code: string; title: string }[]>([])
+  useEffect(() => {
+    if (!adding || !q.trim()) { setFound([]); return }
+    const t = setTimeout(() => {
+      void api.tasks({ q: q.trim() }).then((d) =>
+        setFound((d.items ?? []).filter((x: { code: string }) => x.code !== code).slice(0, 6)))
+    }, 250)
+    return () => clearTimeout(t)
+  }, [q, adding, code])
+  const add = (toCode: string) => {
+    void api.addRelation(code, toCode, kind).then(() => { setAdding(false); setQ(''); reload() })
+      .catch((e: Error) => toast(e.message, 'bad'))
+  }
+  const KIND: Record<string, string> = { do_after: 'делать после этой', blocked_by: 'блокирована задачей' }
+  return (
+    <div className="blk">
+      <div className="blk-h"><h3>Связанные задачи</h3><span className="fill" />
+        <button className="btn small" onClick={() => setAdding(!adding)}>＋ связь</button></div>
+      {(relations ?? []).map((r) => (
+        <div key={r.id} className="rel" onClick={() => { window.location.hash = `#${r.code}` }}>
+          <span className="code">{r.code}</span>
+          <span className="rt">{r.title}</span>
+          <span className={`linkchip ${r.kind === 'blocked_by' ? 'hard' : ''}`}>{KIND[r.kind] ?? r.kind}</span>
+          <button className="cl-x" title="Убрать связь" onClick={(e) => {
+            e.stopPropagation()
+            void api.delRelation(code, r.id).then(reload)
+          }}><span dangerouslySetInnerHTML={{ __html: xIcon }} /></button>
+        </div>
+      ))}
+      {!relations?.length && !adding && (
+        <div className="muted" style={{ fontSize: 12 }}>Связей нет. Добавьте задачу, которая делается после этой или блокирует её.</div>)}
+      {adding && (
+        <div className="rel-add">
+          <select value={kind} onChange={(e) => setKind(e.target.value)}>
+            <option value="do_after">делать после этой</option>
+            <option value="blocked_by">блокирована задачей</option>
+          </select>
+          <input placeholder="Код или название задачи…" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
+          {found.map((f) => (
+            <div key={f.code} className="rel" onClick={() => add(f.code)}>
+              <span className="code">{f.code}</span><span className="rt">{f.title}</span>
+            </div>
+          ))}
+          {q && !found.length && <div className="muted" style={{ fontSize: 12 }}>Ничего не найдено</div>}
+        </div>
+      )}
     </div>
   )
 }

@@ -292,6 +292,15 @@ class Daemon:
                         sf.add(TaskRunLog(run_id=run_id, seq=10**6, kind="system",
                                           text=f"прогон завершён: {report.status}"))
                         await sf.commit()
+                # комментарии агента к задаче (решение владельца 26.10.2026)
+                if report.comments:
+                    from repository.models import TaskComment
+
+                    async with self._maker() as sc:
+                        for body in report.comments[:5]:
+                            sc.add(TaskComment(task_id=task.id, author_id=agent.id,
+                                               body=body.strip()[:4000]))
+                        await sc.commit()
                 if report.status == "success":
                     record_success(str(conn_id) if conn_id else None)
                 else:

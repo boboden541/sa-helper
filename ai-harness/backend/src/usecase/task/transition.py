@@ -51,7 +51,8 @@ async def _load_task(session: AsyncSession, code: str) -> Task:
 
 async def apply_transition(session: AsyncSession, actor: User | None, code: str,
                            to: str, *, subject_kind: str | None = None,
-                           rule_code: str | None = None) -> Task:
+                           rule_code: str | None = None,
+                           _allow_cascade: bool = True) -> Task:
     """Валидный переход по flow. Отказ по гейту → TransitionDenied (applied=False);
     отказ по правам агента → 403 + событие «запрет» (ФТ-ah-27); недопустимое ребро → 400."""
     task = await _load_task(session, code)
@@ -95,7 +96,63 @@ async def apply_transition(session: AsyncSession, actor: User | None, code: str,
     task_for_hook.status_key = to
     await on_transition(session, task_for_hook, to)
     await session.commit()
+
+    # каскад терминального статуса по связям (решение владельца 26.10.2026):
+    # при отмене/закрытии задачи связанные с ней задачи получают тот же статус
+    if (to in ("done", "canceled") and _allow_cascade
+            and subject.kind in ("human", "eve") and actor is not None):
+        await _cascade_terminal(session, task, to, actor, visited={task.code})
+
     return task
+
+
+async def _cascade_terminal(session: AsyncSession, task: Task, to: str,
+                            actor: User, visited: set[str]) -> None:
+    """Связанные задачи (оба направления, кроме историй) получают тот же статус:
+    движком, а при отсутствии ребра — форсом с причиной-каскадом. Истории
+    исключены: их жизненным циклом управляют зеркала M1–M6 и зачёт ПСИ."""
+    import sqlalchemy as sa
+
+    from repository.models import TaskRelation, TaskType
+
+    rows = (await session.execute(
+        sa.select(TaskRelation)
+        .join(Task, Task.id == TaskRelation.to_task)
+        .where(TaskRelation.from_task == task.id))).scalars().all()
+    rows += (await session.execute(
+        sa.select(TaskRelation)
+        .join(Task, Task.id == TaskRelation.from_task)
+        .where(TaskRelation.to_task == task.id))).scalars().all()
+    seen_ids: set = set()
+    for rel in rows:
+        if rel.id in seen_ids:
+            continue
+        seen_ids.add(rel.id)
+        neighbor_code = rel.to_task if rel.from_task == task.id else rel.from_task
+        if neighbor_code in visited:
+            continue
+        neighbor = (await session.execute(
+            sa.select(Task).where(Task.id == neighbor_code))).scalar_one_or_none()
+        if neighbor is None or neighbor.status_key == to:
+            continue
+        tkey = (await session.execute(
+            sa.select(TaskType.key).where(TaskType.id == neighbor.task_type_id))).scalar_one()
+        if tkey == "story":
+            continue
+        visited.add(neighbor.code)
+        try:
+            await apply_transition(session, actor, neighbor.code, to,
+                                   _allow_cascade=False)
+        except TransitionDenied:
+            if to == "done":
+                # ребра до done из произвольного статуса обычно нет — каскад форсом
+                try:
+                    await apply_force(session, actor, neighbor.code, to,
+                                      f"каскад при закрытии {task.code}")
+                except (TransitionDenied, DomainError):
+                    pass
+        except DomainError:
+            pass
 
 
 async def apply_force(session: AsyncSession, actor: User, code: str, to: str,

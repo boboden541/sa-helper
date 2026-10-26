@@ -50,6 +50,7 @@ class RunReport:
     artifact_kind: str | None = None
     proposed_transition: dict | None = None  # {"to": "...", "reason": "..."}
     questions: list[str] = field(default_factory=list)
+    comments: list[str] = field(default_factory=list)  # комментарии агента к задаче
     raw: str = ""
 
 
@@ -64,9 +65,11 @@ REPORT_CONTRACT = """
  "artifact_md": "отчёт этапа (если требует скилл)",
  "artifact_kind": "dev_report|review_report|qa_report",
  "proposed_transition": {"to": "ключ статуса", "reason": "почему"},
- "questions": ["вопросы человеку"]}
+ "questions": ["вопросы человеку"],
+ "comments": ["короткие комментарии к задаче от первого лица (что сделано, что нашёл)"]}
 Правила: работай только в текущем каталоге (worktree задачи); коммить осмысленно;
 не выполняй merge и не переключай ветки; не выходи в интернет.
+Комментарии видны человеку в карточке задачи — пишите по делу, 1–3 предложения.
 """
 
 
@@ -85,6 +88,7 @@ def parse_report(text: str) -> RunReport:
                 artifact_kind=raw.get("artifact_kind"),
                 proposed_transition=raw.get("proposed_transition"),
                 questions=raw.get("questions", []),
+                comments=[c for c in raw.get("comments", []) if isinstance(c, str) and c.strip()],
                 raw=text[-4000:],
             )
     return RunReport(status="failed", summary_md="агент не вернул отчёт по контракту",
@@ -239,6 +243,10 @@ class FakeRunner:
         await req.emit("tool", text="Bash", data={"input": {"command": "git add -A && git commit -m fix"}})
         await beat()
         await req.emit("tool_result", text="[task/AH-59] 1 file changed")
+        await beat()
+        await req.emit("report", text="Демо-прогон завершён")
         return RunReport(status="success",
                          summary_md="Демо-прогон: правка применена, тесты зелёные.",
+                         comments=["Добавил тест на сохранение темы — он поймал баг, "
+                                   "который чинил вторым коммитом."],
                          proposed_transition=None, raw="demo")

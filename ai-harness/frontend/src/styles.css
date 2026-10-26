@@ -1170,3 +1170,16 @@ table.mx td{vertical-align:top}
 .pipeline-btn.paused{color:#cf4436; border-color:color-mix(in srgb, #cf4436 45%, transparent)}
 button.conn.off{cursor:pointer; color:var(--text2)}
 button.conn.off:hover{color:var(--accent-text)}
+
+/* Редактор истории и добавление связи в карточке (решение владельца 26.10.2026) */
+.story-picker,.rel-add{display:flex; flex-direction:column; gap:6px; margin-top:8px;
+  padding:8px; border:1px dashed var(--border); border-radius:var(--r-m)}
+.story-picker input,.rel-add input{width:100%}
+.rel-add select{width:auto}
+.cmt .tx.md p{margin:0 0 4px}
+.cmt .tx.md ul{margin:0 0 4px; padding-left:18px}
+.mode-tabs{display:inline-flex; gap:2px; border:1px solid var(--border); border-radius:8px; padding:2px}
+.mode-tabs button{border:0; background:transparent; padding:3px 10px; border-radius:6px;
+  font-size:11px; cursor:pointer; color:var(--text3)}
+.mode-tabs button.active{background:var(--accent-weak); color:var(--accent-text)}
+.cmt-add .edit-actions{margin-top:6px; display:flex; justify-content:flex-end}

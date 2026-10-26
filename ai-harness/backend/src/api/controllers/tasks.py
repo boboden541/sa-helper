@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dto.task_dto import TaskCardOut, TaskCreateIn, TaskListOut, TaskPatchIn
@@ -55,6 +56,13 @@ async def create_task_view(payload: TaskCreateIn,
     return _card_out(_to_card(task))
 
 
+async def _load_task_or_404(session, code):
+    t = await _get_task_by_code(session, code.upper())
+    if t is None:
+        raise ApiError(404, f"Задача {code} не найдена")
+    return t
+
+
 async def _get_task_by_code(session, code):
     import sqlalchemy as sa
     from repository.models import Task
@@ -80,3 +88,114 @@ async def patch_task_view(code: str, payload: TaskPatchIn,
 
 
 from api.middleware.errors import ApiError  # noqa: E402
+
+
+# ---------- Связи между задачами (БФТ: блок «Связанные») + привязка к истории ----------
+
+class RelationIn(BaseModel):
+    toCode: str
+    kind: str  # do_after | blocked_by
+    model_config = ConfigDict(extra="forbid")
+
+
+@router.post("/{code}/relations")
+async def relation_add(code: str, payload: RelationIn,
+                       session: AsyncSession = Depends(get_session),
+                       actor: User = Depends(get_actor)):
+    import sqlalchemy as sa
+
+    from repository.models import Task, TaskRelation
+
+    if payload.kind not in ("do_after", "blocked_by"):
+        raise ApiError(400, "Тип связи: do_after или blocked_by")
+    task = await _load_task_or_404(session, code)
+    other = (await session.execute(
+        sa.select(Task).where(Task.code == payload.toCode.upper()))).scalar_one_or_none()
+    if other is None:
+        raise ApiError(404, f"Задача {payload.toCode} не найдена")
+    if other.id == task.id:
+        raise ApiError(400, "Нельзя связать задачу с собой")
+    dup = (await session.execute(
+        sa.select(sa.func.count()).select_from(TaskRelation)
+        .where(TaskRelation.from_task == task.id, TaskRelation.to_task == other.id,
+               TaskRelation.kind == payload.kind))).scalar_one()
+    if dup:
+        raise ApiError(400, "Такая связь уже есть")
+    rel = TaskRelation(from_task=task.id, to_task=other.id, kind=payload.kind)
+    session.add(rel)
+    await session.commit()
+    return {"id": str(rel.id)}
+
+
+@router.delete("/{code}/relations/{relation_id}")
+async def relation_del(code: str, relation_id: str,
+                       session: AsyncSession = Depends(get_session),
+                       actor: User = Depends(get_actor)):
+    import uuid as uuid_mod
+
+    import sqlalchemy as sa
+
+    from repository.models import Task, TaskRelation
+
+    task = await _load_task_or_404(session, code)
+    rel = (await session.execute(
+        sa.select(TaskRelation).where(TaskRelation.id == uuid_mod.UUID(relation_id),
+                                      TaskRelation.from_task == task.id))).scalar_one_or_none()
+    if rel is None:
+        raise ApiError(404, "Связь не найдена")
+    await session.execute(sa.delete(TaskRelation).where(TaskRelation.id == rel.id))
+    await session.commit()
+    return {"ok": True}
+
+
+class StoryLinkIn(BaseModel):
+    storyCode: str | None = None  # null — отвязать
+    model_config = ConfigDict(extra="forbid")
+
+
+@router.post("/{code}/story-link")
+async def story_link(code: str, payload: StoryLinkIn,
+                     session: AsyncSession = Depends(get_session),
+                     actor: User = Depends(get_actor)):
+    """Привязка/отвязка/перепривязка задачи к истории (решение владельца 26.10.2026).
+    Пересчитывает зеркала обеих историй."""
+    import sqlalchemy as sa
+
+    from repository.models import Chronicle, Task, TaskType
+
+    task = await _load_task_or_404(session, code)
+    old_story_id = task.story_id
+    if payload.storyCode:
+        story = (await session.execute(
+            sa.select(Task).where(Task.code == payload.storyCode.upper()))).scalar_one_or_none()
+        if story is None:
+            raise ApiError(404, f"История {payload.storyCode} не найдена")
+        tkey = (await session.execute(
+            sa.select(TaskType.key).where(TaskType.id == story.task_type_id))).scalar_one()
+        if tkey != "story":
+            raise ApiError(400, f"{story.code} — не история")
+        if story.id == task.id:
+            raise ApiError(400, "Нельзя привязать задачу к самой себе")
+        task.story_id = story.id
+        session.add(Chronicle(task_id=task.id, event_type="field", author_id=actor.id,
+                              author_kind="human",
+                              message=f"Задача привязана к истории {story.code}"))
+    else:
+        task.story_id = None
+        if old_story_id:
+            old = await session.get(Task, old_story_id)
+            session.add(Chronicle(task_id=task.id, event_type="field", author_id=actor.id,
+                                  author_kind="human",
+                                  message=f"Задача отвязана от истории {old.code if old else '?'}"))
+    await session.commit()
+
+    from usecase.story.mirror import recompute_story_mirroring
+
+    touched = []
+    for sid in filter(None, {old_story_id, task.story_id}):
+        st = await session.get(Task, sid)
+        if st is not None:
+            rule = await recompute_story_mirroring(session, st)
+            if rule:
+                touched.append(f"{st.code}:{rule}")
+    return {"ok": True, "mirrored": touched}

@@ -12,7 +12,7 @@ export interface TaskCard {
   gate?: { allowed: string[]; denied: { to: string; reason: string }[] }
   descriptionMd?: string
   changedByOther?: boolean
-  relations?: { kind: string; code: string; title: string }[]
+  relations?: { id: string; kind: string; code: string; title: string }[]
   blockedReason?: string | null
   createdAt?: string
   updatedAt?: string
@@ -93,7 +93,13 @@ export const api = {
     request<{ passed: number; failed: number; bugProposals: { position: number; action: string; expected: string; actual: string }[] }>(
       `/api/v1/stories/${code}/psi/runs`, { method: 'POST', body: JSON.stringify({ results }) }),
   comments: (code: string) =>
-    request<{ items: { id: string; author: string; body: string; at: string }[] }>(`/api/v1/tasks/${code}/comments`),
+    request<{ id: string; author: string; body: string; at: string }[]>(`/api/v1/tasks/${code}/comments`),
+  addRelation: (code: string, toCode: string, kind: string) =>
+    request<{ id: string }>(`/api/v1/tasks/${code}/relations`, { method: 'POST', body: JSON.stringify({ toCode, kind }) }),
+  delRelation: (code: string, relationId: string) =>
+    request<{ ok: boolean }>(`/api/v1/tasks/${code}/relations/${relationId}`, { method: 'DELETE' }),
+  storyLink: (code: string, storyCode: string | null) =>
+    request<{ ok: boolean }>(`/api/v1/tasks/${code}/story-link`, { method: 'POST', body: JSON.stringify({ storyCode }) }),
   addComment: (code: string, body: string) =>
     request<{ id: string }>(`/api/v1/tasks/${code}/comments`, { method: 'POST', body: JSON.stringify({ body }) }),
   artifact: (code: string, kind: string) =>

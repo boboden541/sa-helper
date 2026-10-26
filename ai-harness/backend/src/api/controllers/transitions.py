@@ -139,10 +139,11 @@ async def card_view(code: str,
     from repository.models import TaskRelation
 
     relations = (await session.execute(
-        sa.select(TaskRelation.kind, Task.code, Task.title)
+        sa.select(TaskRelation.id, TaskRelation.kind, Task.code, Task.title)
         .join(Task, Task.id == TaskRelation.to_task)
         .where(TaskRelation.from_task == task.id))).all()
-    rel_out = [{"kind": k, "code": rc, "title": rt} for k, rc, rt in relations]
+    rel_out = [{"id": str(rid), "kind": k, "code": rc, "title": rt}
+               for rid, k, rc, rt in relations]
     story_code = None
     if task.story_id:
         story_code = (await session.execute(
