@@ -13,7 +13,13 @@ from repository.models.journal import (
     PsiRunItem,
     SettingsJournal,
 )
-from repository.models.settings_entities import AgentProfile, Assignment, Connection, ProviderPreset
+from repository.models.settings_entities import (
+    AgentProfile,
+    Assignment,
+    Connection,
+    ProviderPreset,
+    ToolArtifact,
+)
 from repository.models.task import (
     Checklist,
     ChecklistItem,

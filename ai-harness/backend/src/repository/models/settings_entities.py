@@ -1,4 +1,4 @@
-"""Профили агентов, матрица назначений, подключения провайдеров, пресеты провайдеров."""
+"""Профили агентов, матрица назначений, подключения провайдеров, пресеты провайдеров, реестр инструментов."""
 
 import uuid
 from datetime import datetime
@@ -8,6 +8,25 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from repository.models.base import Base
+
+
+class ToolArtifact(Base):
+    """Карточка инструментария из глобальной папки (вариант 4, решение владельца 27.10.2026):
+    команды и скиллы SA-Helper, отслеживаются по sha256 содержимого.
+    Файлы только читаются — импорт ничего не перемещает и не изменяет."""
+
+    __tablename__ = "tool_artifact"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    kind: Mapped[str] = mapped_column(String(16))  # command | skill
+    name: Mapped[str] = mapped_column(String(128))
+    rel_path: Mapped[str] = mapped_column(String(500))
+    description: Mapped[str | None] = mapped_column(Text)
+    content_hash: Mapped[str] = mapped_column(String(64))
+    size_bytes: Mapped[int | None] = mapped_column(Integer)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("kind", "name", name="uq_tool_artifact_kind_name"),)
 
 
 class AgentProfile(Base):

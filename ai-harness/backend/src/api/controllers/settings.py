@@ -671,6 +671,42 @@ async def agents_tools_dir_set(payload: dict, session: AsyncSession = Depends(ge
     return {"ok": True, "toolsDir": val}
 
 
+@router.post("/tools/scan")
+async def tools_scan(session: AsyncSession = Depends(get_session),
+                     actor: User = Depends(get_actor)):
+    """Сканирует глобальную папку инструментов и синхронизирует реестр (вариант 4)."""
+    from usecase.settings import tools as tools_uc
+
+    try:
+        return await tools_uc.scan(session)
+    except DomainError as err:
+        raise ApiError(400, err.message)
+
+
+@router.get("/tools")
+async def tools_list(session: AsyncSession = Depends(get_session),
+                     actor: User = Depends(get_actor)):
+    """Реестр инструментов + живой статус синка с диском."""
+    from usecase.settings import tools as tools_uc
+
+    try:
+        return await tools_uc.list_artifacts(session)
+    except DomainError as err:
+        raise ApiError(400, err.message)
+
+
+@router.get("/tools/{kind}/{name}")
+async def tools_read(kind: str, name: str, session: AsyncSession = Depends(get_session),
+                     actor: User = Depends(get_actor)):
+    """Содержимое файла артефакта (только чтение — файлы не изменяются)."""
+    from usecase.settings import tools as tools_uc
+
+    try:
+        return await tools_uc.read_artifact(session, kind, name)
+    except DomainError as err:
+        raise ApiError(400, err.message)
+
+
 @router.post("/agents/{agent_id}/reset")
 async def agents_reset(agent_id: str, session: AsyncSession = Depends(get_session),
                        actor: User = Depends(get_actor)):

@@ -10,10 +10,11 @@ import { api } from '../../api/client'
 import { TYPE } from '../../shared/refs'
 import { pushUndo } from '../../shared/undo'
 import { toast } from '../../shared/toast'
+import { ToolsTab } from './ToolsTab'
 
 const TABS: [string, string][] = [
   ['flow', 'Status-flow'], ['projects', 'Проекты'], ['providers', 'ИИ-провайдеры'],
-  ['agents', 'Агенты и матрица'], ['queue', 'Очередь автомата'], ['journal', 'Журнал настроек'],
+  ['agents', 'Агенты и матрица'], ['tools', 'Инструменты'], ['queue', 'Очередь автомата'], ['journal', 'Журнал настроек'],
 ]
 const FLOW_TYPES: [string, string][] = [
   ['story', 'Истории'], ['common_task', 'Задачи'], ['qa_task', 'QA'],
@@ -35,6 +36,7 @@ export function Settings({ reload }: { reload: () => void }) {
         {tab === 'projects' && <Projects />}
         {tab === 'providers' && <Providers />}
         {tab === 'agents' && <AgentsAndMatrix />}
+        {tab === 'tools' && <ToolsTab />}
         {tab === 'queue' && <Queue />}
         {tab === 'journal' && <Journal />}
       </div>

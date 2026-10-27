@@ -20,11 +20,19 @@ interface CreateState {
 
 const STORE = (CreateDialog as unknown as { last?: CreateState })
 
-export function CreateDialog({ onClose, prefillTitle }: { onClose: () => void; prefillTitle?: string }) {
-  const [state, setState] = useState<CreateState>(() => STORE.last ?? {
-    projectId: 'AH', type: 'common_task', title: prefillTitle ?? '', priority: '',
-    authorTag: 'by_human', tags: '', descriptionMd: '', descMode: 'visual', psiPath: '',
-  })
+export function CreateDialog({ onClose, prefillTitle, prefill }: {
+  onClose: () => void
+  prefillTitle?: string
+  prefill?: { title?: string; descriptionMd?: string }
+}) {
+  const [state, setState] = useState<CreateState>(() => ({
+    ...(STORE.last ?? {
+      projectId: 'AH', type: 'common_task', title: '', priority: '',
+      authorTag: 'by_human', tags: '', descriptionMd: '', descMode: 'visual', psiPath: '',
+    }),
+    ...(prefillTitle ? { title: prefillTitle } : {}),
+    ...(prefill ? { title: prefill.title ?? '', descriptionMd: prefill.descriptionMd ?? '' } : {}),
+  }))
   const [error, setError] = useState<string | null>(null)
   const [psiWarn, setPsiWarn] = useState<{ custom: string } | null>(null)
   const [projects, setProjects] = useState<{ mnemonic: string; name: string; isArchived: boolean }[]>([])

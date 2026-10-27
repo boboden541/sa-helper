@@ -29,6 +29,25 @@ export function App() {
   const [typeFilter, setTypeFilter] = useState('')
   const [notifications, setNotifications] = useState<{ id: string; code: string; message: string }[]>([])
   const [createOpen, setCreateOpen] = useState(false)
+  const [createPrefill, setCreatePrefill] = useState<{ title?: string; descriptionMd?: string } | undefined>()
+  const [cmdOpen, setCmdOpen] = useState(false)
+  const [cmds, setCmds] = useState<{ name: string; description?: string | null }[]>([])
+  const toggleCmds = () => {
+    if (!cmdOpen && cmds.length === 0) {
+      void fetch('/api/v1/tools').then((r) => r.json()).then((d) => {
+        setCmds((d.items ?? []).filter((i: { kind: string }) => i.kind === 'command').map(
+          (i: { name: string; description?: string | null }) => ({ name: i.name, description: i.description })))
+      }).catch(() => {})
+    }
+    setCmdOpen((v) => !v)
+  }
+  const runCommand = (name: string, description?: string | null) => {
+    setCmdOpen(false)
+    void api.toolContent('command', name).then((t) => {
+      setCreatePrefill({ title: name, descriptionMd: t.content })
+      setCreateOpen(true)
+    }).catch((err: Error) => toast(err.message, 'bad'))
+  }
   const [undoLabel, setUndoLabel] = useState<string | null>(null)
   const [projects, setProjects] = useState<{ mnemonic: string; name: string; isArchived: boolean; openCount?: number }[]>([])
   const [needLogin, setNeedLogin] = useState(false)
@@ -114,6 +133,20 @@ export function App() {
           onClick={() => setBoardEdit(!boardEdit)}>✎ Правка доски</button>
       )}
       <button className="btn small primary" onClick={() => setCreateOpen(true)}>+ Задача</button>
+      <div style={{ position: 'relative' }}>
+        <button className="btn small" onClick={toggleCmds} title="Команды из папки инструментов">⚡ Команда</button>
+        {cmdOpen && (
+          <div className="proj-drop" style={{ right: 0 }}>
+            {cmds.length === 0 && <div className="muted" style={{ fontSize: 12 }}>Реестр пуст — просканируйте папку в «Настройки → Инструменты»</div>}
+            {cmds.map((c) => (
+              <div key={c.name} className="rel" onClick={() => runCommand(c.name, c.description)}>
+                <span className="code">/{c.name}</span>
+                <span className="rt">{(c.description ?? '').slice(0, 70)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 
@@ -233,7 +266,7 @@ export function App() {
         {view === 'settings' && <Settings reload={reload} />}
       </main>
 
-      {createOpen && <CreateDialog onClose={() => { setCreateOpen(false); reload() }} />}
+      {createOpen && <CreateDialog onClose={() => { setCreateOpen(false); setCreatePrefill(undefined); reload() }} prefill={createPrefill} />}
       <EveChat open={eveOpen} setOpen={setEve} navigate={navigate} onOpenCreate={onEveCreate} />
       {undoLabel && (
         <button className="undo-chip" onClick={() => void undoLast()}>

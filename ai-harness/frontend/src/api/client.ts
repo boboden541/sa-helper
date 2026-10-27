@@ -51,6 +51,7 @@ export const api = {
       method: 'PUT', body: JSON.stringify({ statusKey, entries }),
     }),
   agents: () => request<{ id: string; name: string; role: string; skillMd: string; connectionId: string; isPreset: boolean; model: string; allowedTools: string[]; mcpServers: Record<string, unknown> | null; agentDir: string }[]>('/api/v1/agents'),
+  toolContent: (kind: string, name: string) => request<{ kind: string; name: string; relPath: string; description?: string; content: string; changed: boolean }>(`/api/v1/tools/${kind}/${name}`),
   users: () => request<{ id: string; name: string; userType: string }[]>('/api/v1/users'),
   createColumn: (payload: { label: string; color?: string }) =>
     request<{ id: string }>('/api/v1/alias-columns', { method: 'POST', body: JSON.stringify(payload) }),
