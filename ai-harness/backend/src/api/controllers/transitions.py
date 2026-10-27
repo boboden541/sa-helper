@@ -103,6 +103,7 @@ class TaskCardOut(BaseModel):
     updatedAt: str
     blockedReason: str | None = None
     relations: list[dict] = []
+    tokens_used: int = Field(default=0, alias="tokensUsed")
     model_config = ConfigDict(populate_by_name=True)
 
 
@@ -151,10 +152,17 @@ async def card_view(code: str,
             sa.select(Task.code).where(Task.id == task.story_id)
         )).scalar_one_or_none()
 
+    from repository.models import TaskRun
+
+    tokens_used = (await session.execute(
+        sa.select(sa.func.coalesce(sa.func.sum(
+            TaskRun.input_tokens + TaskRun.output_tokens + TaskRun.cache_tokens), 0))
+        .where(TaskRun.task_id == task.id))).scalar_one()
+
     return TaskCardOut(
         code=task.code, title=task.title, priority=task.priority, type=type_key,
         statusKey=task.status_key, tags=list(tags), descriptionMd=task.description_md,
-        storyCode=story_code, psiPath=task.psi_path,
+        storyCode=story_code, psiPath=task.psi_path, tokensUsed=tokens_used,
         gate=GateOut(
             allowed=[to for to, d in decisions.items() if d.allowed],
             denied=[{"to": to, "reason": d.reason}
