@@ -4,6 +4,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'
+import { fmtTokens } from '../../shared/live'
 import { toast } from '../../shared/toast'
 
 interface RunInfo {
@@ -17,6 +18,10 @@ interface RunInfo {
   heartbeatAt: string | null
   finishedAt: string | null
   statusKey: string
+  input: number
+  output: number
+  cache: number
+  tokens: number
 }
 
 interface LogLine { seq: number; kind: string; text: string | null; data?: { [k: string]: unknown } | null; at: string }
@@ -156,6 +161,9 @@ export function RunLogPanel({ code }: { code: string }) {
             {r.running
               ? <span className="mini-chip mc-accent">{r.stale ? 'пульс потерян' : `работает · пульс ${hbAgo(r.heartbeatAt)}`}</span>
               : <span className={`mini-chip ${r.outcome === 'success' ? 'mc-green' : 'mc-red'}`}>{r.outcome ?? '—'}</span>}
+            {r.tokens
+              ? <span className="mini-chip" title={`${r.input} вход + ${r.output} ответ + ${r.cache} кэш`}>{fmtTokens(r.tokens)}</span>
+              : null}
             <span className="muted" style={{ fontSize: 11 }}>{new Date(r.startedAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
           </button>
         ))}

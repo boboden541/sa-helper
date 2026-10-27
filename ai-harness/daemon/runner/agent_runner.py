@@ -8,6 +8,11 @@
 через req.on_event(kind, text=None, data=None) — промт, размышления,
 вызовы инструментов, результаты, отчёт. Панель «вкладка Агент» стримит их
 в реальном времени; демон пишет строки в task_run_log.
+
+Токены (решение владельца 27.10.2026): usage каждого хода SDK накапливается
+и отдаётся событием req.emit("usage", data={input, output, cache}) —
+накопительные абсолютные значения за прогон; демон пишет их в task_run,
+а интерфейс показывает живой счётчик (например «1300К»).
 """
 
 from __future__ import annotations
@@ -258,15 +263,17 @@ class ClaudeCodeRunner:
                 os.environ.update(env)
 
         collected: list[str] = []
+        usage: dict = {"input": 0, "output": 0, "cache": 0, "total": 0}
         async for message in self._sdk.query(prompt=prompt, options=options):
-            await self._emit_message(req, message, collected)
+            await self._emit_message(req, message, collected, usage)
         report = parse_report("\n".join(collected))
         await req.emit("report", text=report.summary_md,
                        data={"status": report.status,
                              "proposed_transition": report.proposed_transition})
         return report
 
-    async def _emit_message(self, req: RunRequest, message, collected: list[str]) -> None:
+    async def _emit_message(self, req: RunRequest, message,
+                            collected: list[str], usage: dict) -> None:
         sdk = self._sdk
         subtype = getattr(message, "subtype", None)
         if subtype == "init":
@@ -275,6 +282,9 @@ class ClaudeCodeRunner:
                                  "cwd": getattr(message, "cwd", None),
                                  "tools": getattr(message, "tools", None)})
             return
+        _accumulate_usage(message, usage)
+        if usage.get("total"):
+            await req.emit("usage", data=dict(usage))
         content = getattr(message, "content", None)
         if content is None and getattr(message, "result", None) is not None:
             # ResultMessage: итоговый текст
@@ -295,6 +305,31 @@ class ClaudeCodeRunner:
             elif text:
                 collected.append(text)
                 await req.emit("thinking", text=text)
+
+
+def _uget(usage, key: str) -> int:
+    """usage бывает dict (ResultMessage) и объектом anthropic (AssistantMessage.message)."""
+    if usage is None:
+        return 0
+    val = usage.get(key, 0) if isinstance(usage, dict) else getattr(usage, key, 0)
+    return int(val or 0)
+
+
+def _accumulate_usage(message, acc: dict) -> None:
+    """Прибавляет usage хода к накопителю; сумма — input+output+cache («потрачено токенов»)."""
+    u = getattr(message, "usage", None)
+    if u is None:  # у AssistantMessage usage внутри исходного Message (message.message)
+        u = getattr(getattr(message, "message", None), "usage", None)
+    raw_in = _uget(u, "input_tokens")
+    raw_out = _uget(u, "output_tokens")
+    raw_cache = (_uget(u, "cache_read_input_tokens")
+                 + _uget(u, "cache_creation_input_tokens"))
+    if not (raw_in or raw_out or raw_cache):
+        return
+    acc["input"] += raw_in
+    acc["output"] += raw_out
+    acc["cache"] += raw_cache
+    acc["total"] = acc["input"] + acc["output"] + acc["cache"]
 
 
 def _short_input(inp, n: int = 400) -> dict | None:
@@ -324,14 +359,25 @@ class FakeRunner:
         async def beat() -> None:
             await asyncio.sleep(1.2)  # темп, похожий на реального агента
 
+        usage = {"input": 0, "output": 0, "cache": 0, "total": 0}
+
+        def spend(inp: int = 24000, out: int = 900, cache: int = 18000) -> None:
+            usage["input"] += inp
+            usage["output"] += out
+            usage["cache"] += cache
+            usage["total"] = usage["input"] + usage["output"] + usage["cache"]
+
         await req.emit("prompt", text=_build_prompt(req))
         await req.emit("system", text="сессия агента запущена (демо-режим без SDK)",
                        data={"model": "fake", "cwd": str(req.worktree_path or ".")})
         await beat()
+        spend(); await req.emit("usage", data=dict(usage))
         await req.emit("thinking", text="Читаю постановку задачи и чек-лист: "
                        "нужно понять, какой файл править и какие тесты затронуты.")
         await beat()
         await req.emit("tool", text="Read", data={"input": {"file_path": "src/board.tsx"}})
+        await beat()
+        spend(); await req.emit("usage", data=dict(usage))
         await beat()
         await req.emit("tool_result", text="export function Board() {\n  … 120 строк …}")
         await beat()
@@ -341,14 +387,22 @@ class FakeRunner:
         await req.emit("tool", text="Edit", data={"input": {"file_path": "src/board.tsx",
                                                             "new_string": "colIdOfStatus(t.type, …)"}})
         await beat()
+        spend(); await req.emit("usage", data=dict(usage))
+        await beat()
         await req.emit("tool", text="Bash", data={"input": {"command": "npm test -- board"}})
+        await beat()
+        spend(); await req.emit("usage", data=dict(usage))
         await beat()
         await req.emit("tool_result", text="Tests: 8 passed")
         await beat()
         await req.emit("tool", text="Bash", data={"input": {"command": "git add -A && git commit -m fix"}})
         await beat()
+        spend(); await req.emit("usage", data=dict(usage))
+        await beat()
         await req.emit("tool_result", text="[task/AH-59] 1 file changed")
         await beat()
+        await beat()
+        spend(inp=31000, out=1400, cache=22000); await req.emit("usage", data=dict(usage))
         await req.emit("report", text="Демо-прогон завершён")
         return RunReport(status="success",
                          summary_md="Демо-прогон: правка применена, тесты зелёные.",

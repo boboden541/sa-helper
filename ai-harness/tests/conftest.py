@@ -78,7 +78,9 @@ async def session(_test_db):
 
 @pytest.fixture
 async def client(_test_db):
-    """HTTP-клиент поверх приложения на тестовой БД."""
+    """HTTP-клиент поверх приложения на тестовой БД.
+    После теста чистим операционные таблицы — как session-фикстура, иначе
+    остатки client-тестов ломают тесты порядка очереди ниже по алфавиту."""
     from httpx import ASGITransport, AsyncClient
 
     from main import app
@@ -86,6 +88,15 @@ async def client(_test_db):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
+    async with async_sessionmaker(_test_db, expire_on_commit=False)() as s:
+        await s.execute(sa.text(
+            "TRUNCATE task, task_tag, tag, chronicle, chronicle_payload, notification, "
+            "task_run, task_run_log, task_relation, checklist, checklist_item, task_comment, "
+            "task_assignee, task_artifact, task_branch, psi_document, psi_run, psi_run_item, "
+            "assignment, dead_mnemonic RESTART IDENTITY CASCADE"
+        ))
+        await s.execute(sa.text("UPDATE project SET next_number = 1"))
+        await s.commit()
 
 
 @pytest.fixture

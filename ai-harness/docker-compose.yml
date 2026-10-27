@@ -63,6 +63,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://harness:harness@postgres:5432/ai_harness
       DAEMON_TICK_SECONDS: ${DAEMON_TICK_SECONDS:-30}
+      AI_HARNESS_TOKEN_KEY: ${AI_HARNESS_TOKEN_KEY:-}
       HARNESS_HOST_HOME: ${HOME}
       HARNESS_CONTAINER_HOME: /app/host-home
     command: ["python", "-m", "daemon.main"]

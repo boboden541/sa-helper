@@ -267,6 +267,18 @@ class Daemon:
                                    data: dict | None = None) -> None:
                     from repository.models import TaskRunLog
 
+                    if kind == "usage" and data:
+                        # накопительные значения за прогон — пишем как есть (идемпотентно),
+                        # интерфейс читает их живьём (решение владельца 27.10.2026)
+                        async with self._maker() as su:
+                            await su.execute(sa.text(
+                                "UPDATE task_run SET input_tokens = :i, output_tokens = :o, "
+                                "cache_tokens = :c WHERE id = :r"),
+                                {"i": int(data.get("input", 0)),
+                                 "o": int(data.get("output", 0)),
+                                 "c": int(data.get("cache", 0)), "r": str(run_id)})
+                            await su.commit()
+                        return
                     seq[0] += 1
                     async with self._maker() as s:
                         s.add(TaskRunLog(run_id=run_id, seq=seq[0], kind=kind,

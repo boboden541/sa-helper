@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from 'react'
 import { api, type TaskCard } from '../../api/client'
+import { fmtTokens } from '../../shared/live'
 import { RunLogPanel } from './RunLogPanel'
 import { renderMarkdown } from '../../shared/markdown'
 import { parseChecklist, serializeChecklist, type ChecklistLine } from '../../shared/checklist'
@@ -13,6 +14,16 @@ import { RichText } from '../../shared/editor/RichText'
 import { ALIAS_OF, esc, prioBadge, stChip, tagHtml, typeChip, xIcon, TYPE, S_LABEL } from '../../shared/refs'
 
 const PENCIL = '<svg width="13" height="13" viewBox="0 0 14 14"><path d="M9.7 1.8l2.5 2.5L4.5 12H2V9.5l7.7-7.7z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>'
+
+interface ChronicleItem {
+  id: string
+  type: string
+  authorKind: string
+  ruleCode?: string
+  message: string
+  at: string
+  live?: boolean  // запись пришла живым потоком, пока открыт экран
+}
 import { toast } from '../../shared/toast'
 
 function useTaskCode(): string | null {
@@ -70,7 +81,7 @@ function TaskFullPage({ code }: { code: string }) {
 
 function TaskBody({ code }: { code: string }) {
   const [card, setCard] = useState<TaskCard | null>(null)
-  const [chronicle, setChronicle] = useState<{ id: string; type: string; authorKind: string; ruleCode?: string; message: string; at: string }[]>([])
+  const [chronicle, setChronicle] = useState<ChronicleItem[]>([])
   const [chronTab, setChronTab] = useState('all')
   const [storyEdit, setStoryEdit] = useState(false)
   const [editingDesc, setEditingDesc] = useState(false)
@@ -82,6 +93,8 @@ function TaskBody({ code }: { code: string }) {
   const [forceReason, setForceReason] = useState('')
   const [tagsEditing, setTagsEditing] = useState(false)
   const [tagsDraft, setTagsDraft] = useState<string[]>([])
+  const [liveRun, setLiveRun] = useState<{ agent: string; minutes: number; total: number; stale: boolean } | null>(null)
+  const [lastLog, setLastLog] = useState('')
 
   const reload = () => {
     void api.task(code).then((c) => { setCard(c); setDescDraft(c.descriptionMd ?? ''); setTitleDraft(c.title) })
@@ -89,6 +102,33 @@ function TaskBody({ code }: { code: string }) {
     void api.chronicle(code).then((r) => setChronicle(r.items))
   }
   useEffect(reload, [code])
+
+  // живой поток карточки (решение владельца 27.10.2026): активный прогон, токены,
+  // строки лога и новые записи хроники появляются в реальном времени
+  useEffect(() => {
+    const es = new EventSource(`/api/v1/tasks/${code}/live`)
+    es.addEventListener('run', (e) => {
+      try {
+        const d = JSON.parse((e as MessageEvent).data) as { agent?: string; minutes?: number; total?: number; stale?: boolean }
+        setLiveRun(d.agent ? { agent: d.agent, minutes: d.minutes ?? 0, total: d.total ?? 0, stale: Boolean(d.stale) } : null)
+        if (d.agent) reload()
+      } catch { /* пустое событие — прогон завершён */ }
+    })
+    es.addEventListener('log', (e) => {
+      try {
+        const d = JSON.parse((e as MessageEvent).data) as { kind: string; text: string | null }
+        if (d.text && d.kind !== 'prompt') setLastLog((d.text ?? '').slice(0, 140))
+      } catch { /* ignore */ }
+    })
+    es.addEventListener('chronicle', (e) => {
+      try {
+        const item = JSON.parse((e as MessageEvent).data) as ChronicleItem
+        setChronicle((cur) => cur.some((x) => x.id === item.id) ? cur : [{ ...item, live: true }, ...cur])
+      } catch { /* ignore */ }
+    })
+    es.onerror = () => { /* браузер переподключится сам */ }
+    return () => es.close()
+  }, [code])
 
   if (!card) return <div className="empty"><b>Загрузка…</b></div>
 
@@ -177,7 +217,17 @@ function TaskBody({ code }: { code: string }) {
           <span className="meta-item"><span className="lbl">Создана</span> <time>{card.createdAt?.slice(0, 16).replace('T', ' ')}</time></span>
           <span className="meta-item"><span className="lbl">Обновлена</span> <time>{card.updatedAt?.slice(0, 16).replace('T', ' ')}</time></span>
           <span className="meta-item" dangerouslySetInnerHTML={{ __html: typeChip(card.type) }} />
-          {card.agent && <span className="meta-item"><span className="dot pulse" style={{ background: '#7d4fd1' }} /> в работе у {card.agent.name}</span>}
+          {liveRun
+            ? <span className="meta-item live-run" title="Агент работает прямо сейчас (живой поток)">
+                <span className={`dot ${liveRun.stale ? '' : 'pulse'}`} style={{ background: liveRun.stale ? '#c07d1e' : '#25935b' }} />
+                {liveRun.agent} работает · {liveRun.minutes} мин{liveRun.total ? ` · ${fmtTokens(liveRun.total)}` : ''}
+              </span>
+            : card.agent && <span className="meta-item"><span className="dot pulse" style={{ background: '#7d4fd1' }} /> в работе у {card.agent.name}</span>}
+          {(card.tokensUsed ?? 0) > 0 && (
+            <span className="meta-item" title="Суммарный расход токенов всеми прогонами задачи">
+              <span className="lbl">Токены</span> <b className="tok">{fmtTokens(card.tokensUsed)}</b>
+            </span>
+          )}
         </div>
         <div className="card-tags mt8">
           {(card.tags ?? []).map((t) => <span key={t} dangerouslySetInnerHTML={{ __html: tagHtml(t) }} />)}
@@ -297,8 +347,15 @@ function TaskBody({ code }: { code: string }) {
             <button key={key} className={chronTab === key ? 'active' : ''} onClick={() => setChronTab(key)}>{label}</button>
           ))}
         </div>
+        {chronTab !== 'runs' && liveRun && (
+          <div className="chron-live" title="Записи появляются по мере работы агента">
+            <span className={`dot ${liveRun.stale ? '' : 'pulse'}`} style={{ background: liveRun.stale ? '#c07d1e' : '#25935b' }} />
+            <b>{liveRun.agent}</b> работает{liveRun.minutes ? ` · ${liveRun.minutes} мин` : ''}{liveRun.total ? ` · ${fmtTokens(liveRun.total)} токенов` : ''}
+            {lastLog && <span className="ll"> · {lastLog}</span>}
+          </div>
+        )}
         {chronTab === 'runs' ? <RunLogPanel code={code} /> : chronFiltered.map((c) => (
-          <div key={c.id} className="chron-row">
+          <div key={c.id} className={`chron-row ${c.live ? 'chron-new' : ''}`}>
             <time>{c.at.slice(11, 16)} · {c.at.slice(5, 10)}</time>
             <div className="chron-body">
               <span className="evt" style={{ ['--ec' as string]: evtColor(c.type) }}>{c.type}</span>

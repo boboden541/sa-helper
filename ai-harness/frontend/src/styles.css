@@ -1209,3 +1209,20 @@ button.conn.off:hover{color:var(--accent-text)}
   background:rgba(0,0,0,.45); z-index:120}
 .psi-warn .modal-card{width:560px; max-width:92vw; display:flex; flex-direction:column; gap:10px}
 .psi-warn input:disabled{color:var(--text3); opacity:.85}
+/* Живая активность агентов: индикаторы на доске/списке/карточке, живая хроника,
+   счётчик токенов (решение владельца 27.10.2026) */
+.agent.live{color:var(--ok); font-weight:550}
+.token-row{margin-top:5px}
+.card .token-row .mini-chip{font-size:10.5px}
+.meta-item.live-run{color:var(--ok); font-weight:600}
+.meta-item .tok{color:var(--accent-text); font-variant-numeric:tabular-nums}
+.chron-live{
+  display:flex; align-items:center; gap:7px; flex-wrap:wrap;
+  margin:8px 0; padding:7px 10px; border-radius:8px;
+  background:color-mix(in srgb, #25935b 9%, var(--surface));
+  border:1px solid color-mix(in srgb, #25935b 25%, transparent);
+  font-size:12px; color:var(--text2);
+}
+.chron-live .ll{color:var(--text3); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:52%}
+.chron-row.chron-new{animation:chronNew 2.4s ease-out}
+@keyframes chronNew{0%{background:color-mix(in srgb, #25935b 14%, transparent)}100%{background:transparent}}

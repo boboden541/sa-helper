@@ -7,14 +7,16 @@
 import { DndContext, PointerSensor, useSensor, useSensors,
   useDraggable, useDroppable,
   type DragEndEvent, type DragStartEvent } from '@dnd-kit/core'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { api, type TaskCard } from '../../api/client'
+import { currentLive, fmtTokens, subscribeLive } from '../../shared/live'
 import {
   ALIAS_OF, esc, prioBadge, stChip, tagHtml, typeChip,
 } from '../../shared/refs'
 import { pushUndo } from '../../shared/undo'
 import { toast } from '../../shared/toast'
 import { ColmapPanel } from './ColmapPanel'
+import type { LiveTask } from '../../shared/live'
 
 interface Column { id: string; label: string; color: string; position: number }
 
@@ -31,7 +33,11 @@ const STATUS_COLORS: Record<string, string> = {
   done: '#25935b', canceled: '#8792a3', blocked: '#cf4436',
 }
 
-function cardHtml(t: TaskCard, merged: boolean): string {
+function useLiveMap(): Record<string, LiveTask> {
+  return useSyncExternalStore(subscribeLive, currentLive)
+}
+
+function cardHtml(t: TaskCard, merged: boolean, live?: LiveTask): string {
   return `<article class="card ${t.statusKey === 'blocked' ? 'top' : ''}" style="--st:${STATUS_COLORS[t.statusKey] ?? '#8792a3'}">
     <div class="card-top">
       <span class="code" data-open-page="${t.code}">${t.code}</span>
@@ -42,7 +48,10 @@ function cardHtml(t: TaskCard, merged: boolean): string {
     </div>
     <div class="card-title">${esc(t.title)}</div>
     <div class="card-tags">${(t.tags ?? []).map(tagHtml).join('')}</div>
-    ${t.agent ? `<div class="agent"><span class="dot pulse" style="background:#7d4fd1"></span>${esc(t.agent.name)}</div>` : ''}
+    ${live
+      ? `<div class="agent live">${live.stale ? '⚠' : '<span class="dot pulse" style="background:#25935b"></span>'}${esc(live.agent)} работает · ${live.minutes} мин${live.total ? ` · ${fmtTokens(live.total)} токенов` : ''}</div>`
+      : t.agent ? `<div class="agent"><span class="dot pulse" style="background:#7d4fd1"></span>${esc(t.agent.name)}</div>` : ''}
+    ${(live?.total || t.tokensUsed) ? `<div class="token-row"><span class="mini-chip mc-violet" title="Токены, потраченные агентами на задачу">${live?.total ? `${fmtTokens(live.total)} · сейчас` : `${fmtTokens(t.tokensUsed ?? 0)} токенов`}</span></div>` : ''}
     ${t.statusKey === 'blocked' ? `<div class="card-sub">✕ Требуется человек: ${esc(t.blockedReason ?? '')}</div>` : ''}
   </article>`
 }
@@ -53,6 +62,7 @@ function DraggableCard({ task, merged, onOpen, onOpenPage }: {
   onOpen: () => void
   onOpenPage: () => void
 }) {
+  const live = useLiveMap()[task.code]
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: task.code })
   const style = transform
     ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, zIndex: 40 }
@@ -60,7 +70,7 @@ function DraggableCard({ task, merged, onOpen, onOpenPage }: {
   return (
     <div ref={setNodeRef} style={style} {...listeners} {...attributes}
       className={isDragging ? 'card-dragging-src' : ''}>
-      <div dangerouslySetInnerHTML={{ __html: cardHtml(task, merged) }}
+      <div dangerouslySetInnerHTML={{ __html: cardHtml(task, merged, live) }}
         onClick={(e) => {
           if ((e.target as HTMLElement).closest('[data-open-page]')) onOpenPage()
           else if ((e.target as HTMLElement).closest('.card')) onOpen()

@@ -48,6 +48,7 @@ class TaskCardOut(BaseModel):
     psi_path: str | None = Field(default=None, alias="psiPath")
     tags: list[str] = []
     agent: dict | None = None
+    tokens_used: int = Field(default=0, alias="tokensUsed")
     gate: GateOut = GateOut()
     changed_by_other: bool | None = Field(default=None, alias="changedByOther", exclude=True)
 

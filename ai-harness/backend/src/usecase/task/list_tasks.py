@@ -8,7 +8,7 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from domain.model.enums import PRIORITY_RANK
-from repository.models import Project, Task, TaskType, User
+from repository.models import Project, Task, TaskRun, TaskType, User
 
 
 @dataclass
@@ -23,6 +23,7 @@ class TaskCard:
     story_code: str | None = None
     tags: list[str] = field(default_factory=list)
     agent: dict | None = None
+    tokens_used: int = 0  # сумма токенов всех прогонов (формат «1300К»)
     gate: dict = field(default_factory=lambda: {"allowed": [], "denied": []})
 
 
@@ -33,12 +34,19 @@ def build_query(projects: list[str] | None = None,
     type_t = TaskType.__table__
 
     proj_t = Project.__table__
+    # суммарный расход токенов по всем прогонам задачи (решение владельца 27.10.2026)
+    tokens_sq = (
+        sa.select(sa.func.coalesce(sa.func.sum(
+            TaskRun.input_tokens + TaskRun.output_tokens + TaskRun.cache_tokens), 0))
+        .where(TaskRun.task_id == Task.id).correlate(Task).scalar_subquery()
+    )
     query = (
         sa.select(
             Task,
             type_t.c.key.label("type_key"),
             User.name.label("agent_name"),
             proj_t.c.mnemonic.label("project_mnemonic"),
+            tokens_sq.label("tokens_used"),
         )
         .join(type_t, type_t.c.id == Task.task_type_id)
         .outerjoin(User, User.id == Task.reserved_by)
@@ -88,6 +96,7 @@ async def list_tasks(
             project=row.project_mnemonic or "",
             psi_path=row.Task.psi_path,
             agent={"name": row.agent_name} if row.agent_name else None,
+            tokens_used=int(row.tokens_used or 0),
         )
         for row in rows
     ]

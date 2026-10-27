@@ -357,14 +357,105 @@ def _run_out(r) -> dict:
     hb = r.TaskRun.heartbeat_at
     stale = running and hb is not None and (
         dt.datetime.now(dt.timezone.utc) - hb).total_seconds() > 120
-    return {"id": str(r.TaskRun.id), "attempt": r.TaskRun.attempt_no,
-            "statusKey": r.TaskRun.status_key,
+    tr = r.TaskRun
+    return {"id": str(tr.id), "attempt": tr.attempt_no,
+            "statusKey": tr.status_key,
             "running": running, "stale": stale,
-            "outcome": r.TaskRun.outcome,
+            "outcome": tr.outcome,
             "agent": r.agent_name,
-            "startedAt": r.TaskRun.started_at.isoformat(),
+            "input": tr.input_tokens or 0, "output": tr.output_tokens or 0,
+            "cache": tr.cache_tokens or 0,
+            "tokens": (tr.input_tokens or 0) + (tr.output_tokens or 0) + (tr.cache_tokens or 0),
+            "startedAt": tr.started_at.isoformat(),
             "heartbeatAt": hb.isoformat() if hb else None,
-            "finishedAt": r.TaskRun.finished_at.isoformat() if r.TaskRun.finished_at else None}
+            "finishedAt": tr.finished_at.isoformat() if tr.finished_at else None}
+
+
+# ---------- живые события интерфейса (решение владельца 27.10.2026) ----------
+
+@router.get("/activity/stream")
+async def activity_stream(actor: User = Depends(get_actor)):
+    """SSE: задачи «агент работает сейчас» — индикаторы на доске, в списке, в шапке.
+    Каждые 2 с — снапшот (изменился → событие); через ~30 мин поток закрывается,
+    EventSource переподключается сам."""
+    import asyncio
+
+    from fastapi.responses import StreamingResponse
+
+    from usecase.journal.live import activity_snapshot
+
+    from database import get_sessionmaker
+
+    async def gen():
+        last = ""
+        for _ in range(900):
+            async with get_sessionmaker()() as s:
+                items = await activity_snapshot(s)
+            payload = json.dumps({"tasks": items}, ensure_ascii=False)
+            if payload != last:
+                last = payload
+                yield f"data: {payload}\n\n"
+            else:
+                yield ": keep-alive\n\n"
+            await asyncio.sleep(2.0)
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"X-Accel-Buffering": "no",
+                                      "Cache-Control": "no-cache"})
+
+
+@router.get("/tasks/{code}/live")
+async def task_live_stream(code: str, actor: User = Depends(get_actor)):
+    """SSE карточки: активный прогон (агент, минуты, токены), новые строки лога
+    и новые записи хроники — события run / log / chronicle, end в конце цикла."""
+    import asyncio
+    import datetime as dt
+
+    import sqlalchemy as sa
+
+    from fastapi.responses import StreamingResponse
+
+    from repository.models import Task
+    from usecase.journal.live import chronicle_after, log_after, task_activity
+
+    async def gen():
+        from database import get_sessionmaker
+
+        after: dt.datetime | None = dt.datetime.now(dt.timezone.utc)
+        seen: set[str] = set()
+        last_seq = 0
+        last_run = ""
+        for _ in range(600):  # ~15 мин по 1.5 с
+            async with get_sessionmaker()() as s:
+                task = (await s.execute(
+                    sa.select(Task).where(Task.code == code.upper()))).scalar_one_or_none()
+                if task is None:
+                    yield "event: end\ndata: not-found\n\n"
+                    return
+                act = await task_activity(s, task.id)
+                if act is not None:
+                    payload = json.dumps(act, ensure_ascii=False)
+                    if payload != last_run:
+                        last_run = payload
+                        yield f"event: run\ndata: {payload}\n\n"
+                    for line in await log_after(s, act["runId"], last_seq):
+                        last_seq = line["seq"]
+                        yield f"event: log\ndata: {json.dumps(line, ensure_ascii=False)}\n\n"
+                else:
+                    if last_run:  # прогон закончился — снимаем живой индикатор карточки
+                        yield "event: run\ndata: {}\n\n"
+                    last_run = ""
+                    last_seq = 0
+                items, after = await chronicle_after(s, task.id, after, seen)
+                for it in items:
+                    yield f"event: chronicle\ndata: {json.dumps(it, ensure_ascii=False)}\n\n"
+            yield ": keep-alive\n\n"
+            await asyncio.sleep(1.5)
+        yield "event: end\ndata: cycle\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"X-Accel-Buffering": "no",
+                                      "Cache-Control": "no-cache"})
 
 
 @router.get("/tasks/{code}/runs")
