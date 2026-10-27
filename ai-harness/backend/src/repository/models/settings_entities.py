@@ -48,6 +48,7 @@ class AgentProfile(Base):
     allowed_tools: Mapped[list | None] = mapped_column(JSONB)  # None = стандартный набор раннера
     mcp_servers: Mapped[dict | None] = mapped_column(JSONB)  # {имя: {url|command, …}}
     agent_dir: Mapped[str | None] = mapped_column(String(500))  # путь на компьютере пользователя
+    skills: Mapped[list | None] = mapped_column(JSONB)  # явно назначенные скиллы из реестра инструментов
 
 
 class Assignment(Base):

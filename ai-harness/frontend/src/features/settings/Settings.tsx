@@ -663,11 +663,15 @@ function Providers() {
 /* ==================== Агенты и матрица ==================== */
 
 function AgentsAndMatrix() {
-  const [agents, setAgents] = useState<{ id: string; name: string; role: string; skillMd: string; connectionId: string; isPreset: boolean; model: string; allowedTools: string[]; mcpServers: Record<string, unknown> | null; agentDir: string }[]>([])
+  const [agents, setAgents] = useState<{ id: string; name: string; role: string; skillMd: string; connectionId: string; isPreset: boolean; model: string; allowedTools: string[]; mcpServers: Record<string, unknown> | null; agentDir: string; skills: string[] }[]>([])
   const [users, setUsers] = useState<{ id: string; name: string; userType: string }[]>([])
-  const [editor, setEditor] = useState<{ id?: string; name: string; role: string; skillMd: string; model: string; tools: string; mcpJson: string; agentDir: string } | null>(null)
+  const [editor, setEditor] = useState<{ id?: string; name: string; role: string; skillMd: string; model: string; tools: string; mcpJson: string; agentDir: string; skills: string[] } | null>(null)
+  const [regSkills, setRegSkills] = useState<{ name: string; status: string }[]>([])
   const [note, setNote] = useState<string | null>(null)
-  const reload = async () => {
+    const reload = async () => {
+    void fetch('/api/v1/tools').then((r) => r.json()).then((d) => setRegSkills(
+      (d.items ?? []).filter((i: { kind: string }) => i.kind === 'skill').map(
+        (i: { name: string; status: string }) => ({ name: i.name, status: i.status })))).catch(() => {})
     setAgents(await api.agents())
     setUsers(await api.users())
   }
@@ -712,7 +716,7 @@ function AgentsAndMatrix() {
     }
     const payload = { name: editor.name, role: editor.role, skillMd: editor.skillMd,
       model: editor.model, allowedTools: editor.tools.split(/[\s,]+/).filter(Boolean),
-      mcpServers: mcp, agentDir: editor.agentDir.trim() }
+      mcpServers: mcp, agentDir: editor.agentDir.trim(), skills: editor.skills }
     const res = editor.id
       ? await fetch(`/api/v1/agents/${editor.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload) })
@@ -731,7 +735,7 @@ function AgentsAndMatrix() {
         <span className="sp" />
         <button className="btn primary small" onClick={() => setEditor({
           name: '', role: '', skillMd: '## Роль и цель\nОдин абзац: за что агент отвечает.\n\n## Процедура\n1. …\n\n## Критерии качества\n- …\n\n## Формат результата\n- …\n\n## Ограничения\n- …',
-          model: '', tools: '', mcpJson: '', agentDir: '' })}>＋ Агент</button>
+          model: '', tools: '', mcpJson: '', agentDir: '', skills: [] })}>＋ Агент</button>
       </div>
       <div className="agent-editor" style={{ marginBottom: 12 }}>
         <div className="ag-fields">
@@ -754,7 +758,7 @@ function AgentsAndMatrix() {
               <b>{a.name}</b>
               {a.isPreset && <span className="mini-chip">предустановленный</span>}
               <span className="sp" />
-              <button className="link" style={{ fontSize: 12 }} onClick={() => setEditor({ id: a.id, name: a.name, role: a.role, skillMd: a.skillMd, model: a.model ?? '', tools: (a.allowedTools ?? []).join(', '), mcpJson: a.mcpServers ? JSON.stringify(a.mcpServers, null, 2) : '', agentDir: a.agentDir ?? '' })}>править</button>
+              <button className="link" style={{ fontSize: 12 }} onClick={() => setEditor({ id: a.id, name: a.name, role: a.role, skillMd: a.skillMd, model: a.model ?? '', tools: (a.allowedTools ?? []).join(', '), mcpJson: a.mcpServers ? JSON.stringify(a.mcpServers, null, 2) : '', agentDir: a.agentDir ?? '', skills: a.skills ?? [] })}>править</button>
               <span className="muted">·</span>
               <button className="link" style={{ fontSize: 12 }} onClick={() => void clone(a.id)}>клонировать</button>
               <span className="muted">·</span>
@@ -765,6 +769,7 @@ function AgentsAndMatrix() {
               <span className="mini-chip">{a.connectionId ? 'своё подключение' : 'активное подключение'}</span>
               {a.model && <span className="mini-chip">модель: {a.model}</span>}
               {a.agentDir && <span className="mini-chip">папка скиллов</span>}
+              {!!a.skills?.length && <span className="mini-chip">скиллы: {a.skills.join(', ')}</span>}
               {a.mcpServers && <span className="mini-chip">MCP: {Object.keys(a.mcpServers).length}</span>}
               {!!a.allowedTools?.length && <span className="mini-chip">инструменты: {a.allowedTools.length}</span>}
             </div>
@@ -785,6 +790,22 @@ function AgentsAndMatrix() {
             <div className="f-field"><label>Инструменты через запятую (пусто — стандартный набор: Read, Grep, Glob, Edit, Write, Bash)</label>
               <input value={editor.tools} placeholder="Read, Edit, Bash"
                 onChange={(e) => setEditor({ ...editor, tools: e.target.value })} /></div>
+
+            <div className="f-field" style={{ gridColumn: '1 / -1' }}>
+              <label>Скиллы из реестра (подключаются к прогону явно; пусто — агент сам найдёт скиллы в папке инструментов)</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {regSkills.map((s) => (
+                  <span key={s.name} className="mini-chip" style={{ cursor: 'pointer' }}
+                    onClick={() => setEditor({ ...editor, skills: editor.skills.includes(s.name)
+                      ? editor.skills.filter((x) => x !== s.name)
+                      : [...editor.skills, s.name] })}>
+                    {editor.skills.includes(s.name) ? '✓ ' : ''}{s.name}
+                  </span>
+                ))}
+                {regSkills.length === 0 && <span className="muted" style={{ fontSize: 12 }}>
+                  Реестр пуст — просканируйте папку в «Настройки → Инструменты»</span>}
+              </div>
+            </div>
             <div className="f-field" style={{ gridColumn: '1 / -1' }}>
               <label>Папка агентов на вашем компьютере (необязательно) — подключается к работе агента без копий: скиллы, команды, субагенты. Если пусто — берётся глобальная папка инструментов</label>
               <input className="mono" value={editor.agentDir} placeholder="/Users/raaliev/…/sa-helper/.claude"

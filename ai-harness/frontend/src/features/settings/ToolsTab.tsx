@@ -2,6 +2,7 @@
    глобальной папки как карточки с версиями; файлы только читаются и отслеживаются. */
 
 import { useEffect, useState } from 'react'
+import { api } from '../../api/client'
 
 interface ToolItem {
   kind: string
@@ -26,6 +27,8 @@ export function ToolsTab() {
   } | null>(null)
   const [note, setNote] = useState<string | null>(null)
   const [viewer, setViewer] = useState<{ kind: string; name: string; content: string; changed: boolean } | null>(null)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
 
   const reload = async () => {
     try {
@@ -42,11 +45,22 @@ export function ToolsTab() {
     void reload()
   }
 
+  const saveEdit = async () => {
+    if (!viewer) return
+    try {
+      const res = await api.toolWrite(viewer.kind, viewer.name, draft)
+      setViewer({ ...viewer, content: draft, changed: false })
+      setEditing(false)
+      setNote(`Файл записан, версия ${res.hash}`)
+      void reload()
+    } catch (err) { setNote((err as Error).message) }
+  }
+
   const open = async (kind: string, name: string) => {
     const res = await fetch(`/api/v1/tools/${kind}/${name}`)
     const body = await res.json().catch(() => ({}))
     if (!res.ok) { setNote(body.message); return }
-    setViewer(body)
+    setViewer(body); setEditing(false); setDraft('')
   }
 
   if (data && !data.toolsDir) {
@@ -108,10 +122,27 @@ export function ToolsTab() {
               {viewer.kind === 'command' ? `/${viewer.name}` : viewer.name}
               {viewer.changed && <span className="mini-chip" style={{ marginLeft: 8, color: 'var(--danger)' }}>изменился на диске</span>}
             </h3></div>
-            <pre className="mono" style={{ maxHeight: '60vh', overflow: 'auto', fontSize: 12.5,
-              whiteSpace: 'pre-wrap' }}>{viewer.content}</pre>
+            {editing ? (
+              <textarea value={draft} onChange={(e) => setDraft(e.target.value)} className="mono"
+                style={{ width: '100%', minHeight: '50vh', fontSize: 12.5 }} />
+            ) : (
+              <pre className="mono" style={{ maxHeight: '60vh', overflow: 'auto', fontSize: 12.5,
+                whiteSpace: 'pre-wrap' }}>{viewer.content}</pre>
+            )}
             <div className="edit-actions">
-              <button className="btn" onClick={() => setViewer(null)}>Закрыть</button>
+              {editing ? (
+                <>
+                  <button className="btn" onClick={() => setEditing(false)}>Отмена</button>
+                  <button className="btn primary" onClick={() => void saveEdit()}>Сохранить в файл</button>
+                </>
+              ) : (
+                <>
+                  <button className="btn" disabled={viewer.changed}
+                    title={viewer.changed ? 'Файл изменился на диске — просканируйте реестр и откройте заново' : ''}
+                    onClick={() => { setDraft(viewer.content); setEditing(true) }}>Редактировать</button>
+                  <button className="btn" onClick={() => setViewer(null)}>Закрыть</button>
+                </>
+              )}
             </div>
           </div>
         </div>

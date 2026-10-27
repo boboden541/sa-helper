@@ -69,3 +69,21 @@ def test_exclude_written_for_worktree(tmp_path: Path):
     (wt / ".git").write_text(f"gitdir: {gitdir}\n", encoding="utf-8")
     _link_agent_dir(str(src), wt)
     assert ".claude/" in (gitdir / "info" / "exclude").read_text(encoding="utf-8")
+
+
+def test_build_prompt_with_skills():
+    from daemon.runner.agent_runner import _build_prompt
+
+    req = _req(skills_md=("## Скилл: demo\n\nТело скилла",))
+    prompt = _build_prompt(req)
+    assert "# Подключённые скиллы (реестр инструментов)" in prompt
+    assert "Тело скилла" in prompt
+    assert "summary_md" in prompt  # контракт отчёта на месте
+
+
+def test_build_prompt_without_skills():
+    from daemon.runner.agent_runner import _build_prompt
+
+    prompt = _build_prompt(_req())
+    assert "Подключённые скиллы" not in prompt
+    assert "summary_md" in prompt

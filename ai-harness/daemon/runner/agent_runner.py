@@ -34,6 +34,7 @@ class RunRequest:
     model: str | None = None         # модель прогона (иначе модель подключения)
     mcp_servers: dict | None = None  # {имя: {url|command, …}} — MCP-серверы
     agent_dir: str | None = None     # папка агентов (.claude); путь уже в координатах контейнера
+    skills_md: tuple[str, ...] = ()  # содержимое явно назначенных скиллов (реестр инструментов)
     on_event: EventFn | None = None  # async (kind, text=None, data=None)
 
     async def emit(self, kind: str, text: str | None = None, data: dict | None = None) -> None:
@@ -102,6 +103,15 @@ def parse_report(text: str) -> RunReport:
 def _tail(s: str, n: int = 600) -> str:
     s = (s or "").strip()
     return s if len(s) <= n else f"…{s[-n:]}"
+
+
+def _build_prompt(req: RunRequest) -> str:
+    """Промт прогона: скилл агента + контекст задачи + явно назначенные скиллы + контракт отчёта."""
+    parts = [f"# Скилл\n{req.skill_md}\n\n# Контекст задачи\n{req.context_md}"]
+    if req.skills_md:
+        parts.append("# Подключённые скиллы (реестр инструментов)\n" + "\n\n".join(req.skills_md))
+    parts.append(REPORT_CONTRACT)
+    return "\n\n".join(parts)
 
 
 def _options_cls(sdk) -> type:
@@ -225,8 +235,7 @@ class ClaudeCodeRunner:
             " (и CLI Claude Code: npm i -g @anthropic-ai/claude-code)") from err
 
     async def run(self, req: RunRequest) -> RunReport:
-        prompt = (f"# Скилл\n{req.skill_md}\n\n# Контекст задачи\n{req.context_md}\n"
-                  f"{REPORT_CONTRACT}")
+        prompt = _build_prompt(req)
         await req.emit("prompt", text=prompt)
         opts_cls = _options_cls(self._sdk)
         fields = {f.name for f in dataclasses.fields(opts_cls)}

@@ -26,7 +26,8 @@ def _clean_runner_fields(data: dict) -> dict:
     Пустые/отсутствующие значения → None (стандартное поведение раннера).
     Папка агентов — путь как на компьютере пользователя; должна существовать."""
 
-    out: dict = {"model": None, "allowed_tools": None, "mcp_servers": None, "agent_dir": None}
+    out: dict = {"model": None, "allowed_tools": None, "mcp_servers": None, "agent_dir": None,
+                 "skills": None}
 
     model = (data.get("model") or "").strip()
     if len(model) > 128:
@@ -63,7 +64,29 @@ def _clean_runner_fields(data: dict) -> dict:
             raise DomainError(f"Папка агентов не найдена: {agent_dir} — укажите существующую "
                               "(например sa-helper/.claude)", field="agentDir")
     out["agent_dir"] = agent_dir
+
+    skills = data.get("skills")
+    if skills is not None:
+        cleaned = [s.strip() for s in skills if isinstance(s, str) and s.strip()]
+        if len(cleaned) > 8:
+            raise DomainError("Скиллов на агенте: до 8", field="skills")
+        out["skills"] = cleaned or None
     return out
+
+
+async def _check_skills_in_registry(session: AsyncSession, skills: list[str] | None) -> None:
+    """Назначаемые скиллы должны существовать в реестре инструментов."""
+    if not skills:
+        return
+    from repository.models import ToolArtifact
+
+    names = set((await session.execute(
+        sa.select(ToolArtifact.name).where(ToolArtifact.kind == "skill",
+                                           ToolArtifact.name.in_(skills)))).scalars())
+    missing = [s for s in skills if s not in names]
+    if missing:
+        raise DomainError(f"Скиллов нет в реестре: {', '.join(missing)} — "
+                          "просканируйте папку инструментов", field="skills")
 
 
 async def create_agent(session: AsyncSession, data: dict) -> User:
@@ -74,6 +97,8 @@ async def create_agent(session: AsyncSession, data: dict) -> User:
                               .where(User.name == name))).scalar_one():
         raise DomainError(f"Имя {name!r} занято", field="name")
     user = await _ensure_agent_user(session, name)
+    runner_fields = _clean_runner_fields(data)
+    await _check_skills_in_registry(session, runner_fields["skills"])
     profile = AgentProfile(
         user_id=user.id,
         role=data.get("role") or "исполнитель этапа конвейера",
@@ -81,7 +106,7 @@ async def create_agent(session: AsyncSession, data: dict) -> User:
         connection_id=data.get("connection_id"),
         is_preset=bool(data.get("is_preset")),
         preset_source=data.get("preset_source"),
-        **_clean_runner_fields(data),
+        **runner_fields,
     )
     session.add(profile)
     await session.commit()
@@ -98,7 +123,9 @@ async def update_agent(session: AsyncSession, user_id: uuid.UUID, fields: dict) 
             setattr(profile, field, fields[field])
     # опции раннера меняются только явно переданными ключами (пустая строка/JSON = сброс)
     runner = _clean_runner_fields(fields)
-    for key in ("model", "allowed_tools", "mcp_servers", "agent_dir"):
+    if "skills" in fields:
+        await _check_skills_in_registry(session, runner["skills"])
+    for key in ("model", "allowed_tools", "mcp_servers", "agent_dir", "skills"):
         if key in fields:
             setattr(profile, key, runner[key])
     await session.commit()

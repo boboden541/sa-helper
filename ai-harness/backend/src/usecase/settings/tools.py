@@ -153,3 +153,36 @@ async def read_artifact(session: AsyncSession, kind: str, name: str) -> dict:
     return {"kind": kind, "name": name, "relPath": row.rel_path,
             "description": row.description, "content": data.decode("utf-8", "replace"),
             "changed": hashlib.sha256(data).hexdigest() != row.content_hash}
+
+
+async def write_artifact(session: AsyncSession, who_id, kind: str, name: str, content: str) -> dict:
+    """Обратная запись (вариант 4: два входа — файл и веб): правка карточки из UI пишет файл.
+
+    Оптимистическая блокировка: если файл изменился на диске после последнего скана —
+    отказ, чтобы не затереть чужие правки. Пустая правка отклоняется."""
+    if not content.strip():
+        raise DomainError("Пустая правка отклонена", field="content")
+    _user_root, root = await _global_dir(session)
+    row = (await session.execute(sa.select(ToolArtifact).where(
+        ToolArtifact.kind == kind, ToolArtifact.name == name))).scalar_one_or_none()
+    if row is None:
+        raise DomainError("Артефакт не найден в реестре — просканируйте папку")
+    path = root / row.rel_path
+    if not path.is_file():
+        raise DomainError(f"Файл исчез с диска: {row.rel_path}")
+    current = hashlib.sha256(path.read_bytes()).hexdigest()
+    if current != row.content_hash:
+        raise DomainError(f"Файл изменился на диске после последнего скана ({row.rel_path}) — "
+                          "просканируйте реестр, откройте карточку заново; правка не записана, "
+                          "чтобы не затереть чужие изменения")
+    data = content.encode("utf-8")
+    path.write_bytes(data)
+    row.content_hash = hashlib.sha256(data).hexdigest()
+    row.size_bytes = len(data)
+    row.description = _parse(content)
+    from usecase.journal.settings_journal import record_and_commit
+
+    await record_and_commit(session, who_id, "tools",
+                            f"Правка файла инструментария: {row.rel_path}",
+                            [{"field": row.rel_path, "old": current[:7], "new": row.content_hash[:7]}])
+    return {"ok": True, "hash": row.content_hash[:7]}

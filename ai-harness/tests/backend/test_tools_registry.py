@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 import sqlalchemy as sa
 
 from repository.models import AppSetting
@@ -87,5 +88,75 @@ async def test_tools_api(client, session, tmp_path):
 
         r4 = await client.get("/api/v1/tools/skill/нет-такого")
         assert r4.status_code == 400
+    finally:
+        await _set_dir(session, saved or "")
+
+
+# ---------- обратная запись (два входа: файл и веб) ----------
+
+async def test_tools_write_roundtrip(client, session, tmp_path):
+    from domain.model.validators import DomainError
+
+    from usecase.settings import tools as tools_uc
+
+    saved = (await session.execute(sa.select(AppSetting.value).where(AppSetting.key == KEY))).scalar_one_or_none()
+    root = _mk_tools(tmp_path)
+    from repository.models import ToolArtifact
+
+    await session.execute(sa.delete(ToolArtifact))
+    await session.commit()
+    await _set_dir(session, root)
+    try:
+        await tools_uc.scan(session)
+        who = (await session.execute(sa.text('SELECT id FROM "user" WHERE user_type = :t'),
+                                     {"t": "human"})).scalar_one()
+        res = await tools_uc.write_artifact(session, who, "command", "hello", "# hello v3\nОбновлено")
+        assert res["ok"] is True
+        assert (root / "commands" / "hello.md").read_text(encoding="utf-8").startswith("# hello v3")
+
+        art = await tools_uc.read_artifact(session, "command", "hello")
+        assert art["content"].startswith("# hello v3") and art["changed"] is False
+
+        # конфликт: файл изменился на диске после скана — запись отклоняется
+        (root / "commands" / "hello.md").write_text("# правка с диска", encoding="utf-8")
+        with pytest.raises(DomainError, match="изменился на диске"):
+            await tools_uc.write_artifact(session, who, "command", "hello", "# затрём?")
+
+        # пустая правка отклоняется
+        with pytest.raises(DomainError, match="Пустая"):
+            await tools_uc.write_artifact(session, who, "command", "hello", "  \n")
+    finally:
+        await _set_dir(session, saved or "")
+
+
+# ---------- назначение скиллов агентам ----------
+
+async def test_agent_skills_assign(client, session, tmp_path):
+    from repository.models import AgentProfile, ToolArtifact
+
+    from usecase.settings.agents import create_agent, update_agent
+
+    saved = (await session.execute(sa.select(AppSetting.value).where(AppSetting.key == KEY))).scalar_one_or_none()
+    root = _mk_tools(tmp_path)
+    await session.execute(sa.delete(ToolArtifact))
+    await session.commit()
+    await _set_dir(session, root)
+    try:
+        from usecase.settings import tools as tools_uc
+
+        await tools_uc.scan(session)
+        user = await create_agent(session, {"name": "Скилловый", "role": "тест",
+                                            "skills": ["demo"]})
+        p = (await session.execute(sa.select(AgentProfile)
+             .where(AgentProfile.user_id == user.id))).scalar_one()
+        assert p.skills == ["demo"]
+
+        with pytest.raises(Exception, match="нет в реестре"):
+            await update_agent(session, user.id, {"skills": ["нет-такого"]})
+
+        await update_agent(session, user.id, {"skills": []})
+        p2 = (await session.execute(sa.select(AgentProfile)
+              .where(AgentProfile.user_id == user.id))).scalar_one()
+        assert p2.skills is None
     finally:
         await _set_dir(session, saved or "")

@@ -529,6 +529,7 @@ class AgentIn(BaseModel):
     allowed_tools: list[str] | None = Field(default=None, alias="allowedTools")
     mcp_servers: dict | None = Field(default=None, alias="mcpServers")
     agent_dir: str | None = Field(default=None, alias="agentDir")
+    skills: list[str] | None = None  # скиллы из реестра инструментов (вариант 4)
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
 
@@ -545,7 +546,7 @@ async def agents_list(session: AsyncSession = Depends(get_session),
              "skillMd": p.skill_md, "connectionId": str(p.connection_id or ""),
              "isPreset": p.is_preset, "model": p.model or "",
              "allowedTools": p.allowed_tools or [], "mcpServers": p.mcp_servers,
-             "agentDir": p.agent_dir or ""} for u, p in rows]
+             "agentDir": p.agent_dir or "", "skills": p.skills or []} for u, p in rows]
 
 
 @router.post("/agents")
@@ -703,6 +704,20 @@ async def tools_read(kind: str, name: str, session: AsyncSession = Depends(get_s
 
     try:
         return await tools_uc.read_artifact(session, kind, name)
+    except DomainError as err:
+        raise ApiError(400, err.message)
+
+
+@router.put("/tools/{kind}/{name}")
+async def tools_write(kind: str, name: str, payload: dict,
+                      session: AsyncSession = Depends(get_session),
+                      actor: User = Depends(get_actor)):
+    """Обратная запись (вариант 4: два входа — файл и веб) с оптимистической блокировкой."""
+    from usecase.settings import tools as tools_uc
+
+    try:
+        return await tools_uc.write_artifact(session, actor.id, kind, name,
+                                             (payload or {}).get("content") or "")
     except DomainError as err:
         raise ApiError(400, err.message)
 

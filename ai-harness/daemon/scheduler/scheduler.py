@@ -292,6 +292,10 @@ class Daemon:
                     req_kwargs["allowed_tools"] = tuple(profile["allowed_tools"])
                 if agent_dir:  # в БД путь как на компьютере; раннеру нужен контейнерный
                     req_kwargs["agent_dir"] = host_to_container(agent_dir)
+                skill_names = [s for s in ((profile or {}).get("skills") or []) if s]
+                if skill_names:  # явно назначенные скиллы — в промт прогона (вариант 4)
+                    req_kwargs["skills_md"] = tuple(
+                        await self._registry_skills_md(session, skill_names))
                 req = RunRequest(**req_kwargs)
                 report = await self.runner.run(req)
                 from daemon.runner.circuit import record_failure, record_success
@@ -416,6 +420,34 @@ class Daemon:
         from usecase.task.context_bundle import build_context_md
 
         return await build_context_md(session, task)
+
+    async def _registry_skills_md(self, session, names: list[str]) -> list[str]:
+        """Содержимое явно назначенных агенту скиллов из реестра инструментов.
+
+        Пропавший файл не роняет прогон — в промт уходит честная пометка."""
+        from domain.model.validators import DomainError
+        from repository.models import ToolArtifact
+
+        from usecase.settings import tools as tools_uc
+
+        try:
+            _user, root = await tools_uc._global_dir(session)
+        except DomainError:
+            return []
+        rows = (await session.execute(sa.select(ToolArtifact).where(
+            ToolArtifact.kind == "skill", ToolArtifact.name.in_(names)))).scalars().all()
+        by_name = {r.name: r for r in rows}
+        out: list[str] = []
+        for n in names:
+            r = by_name.get(n)
+            path = root / r.rel_path if r else None
+            if path and path.is_file():
+                out.append(f"## Скилл: {n}\n\n"
+                           + path.read_text(encoding="utf-8", errors="replace"))
+            else:
+                out.append(f"## Скилл: {n}\n\n"
+                           "(файл не найден в папке инструментов — скилл пропущен)")
+        return out
 
     async def _apply_report(self, session, task, agent, report, cfg) -> None:
         from repository.models import Chronicle, Task
