@@ -82,13 +82,32 @@ async def save_draft(session: AsyncSession, type_key: str, definition: dict) -> 
     await session.execute(sa.delete(FlowStatus).where(FlowStatus.flow_version_id == draft.id))
     await session.execute(sa.delete(FlowTransition).where(FlowTransition.flow_version_id == draft.id))
     await session.flush()
+    # привязка к колонке доски: редактор присылает id, пресеты — ключ колонки
+    # из YAML («pending», «progress», …); резолвим все три формы
+    cols = (await session.execute(sa.text("SELECT id, label FROM alias_column"))).all()
+    by_label = {label: str(cid) for cid, label in cols}
+    known_ids = {str(cid) for cid, _ in cols}
+    try:
+        from db.seeds.flow_seed import ALIAS_COLUMNS
+
+        by_yaml_key = {key: str(by_label[label]) for key, label, _, _ in ALIAS_COLUMNS
+                       if label in by_label}
+    except Exception:  # noqa: BLE001 — сиды недоступны (нестандартная установка)
+        by_yaml_key = {}
+
+    def _col_id(st: dict) -> str | None:
+        raw = str(st.get("alias_column_id") or st.get("alias") or "").strip()
+        if not raw:
+            return None
+        return raw if raw in known_ids else (by_label.get(raw) or by_yaml_key.get(raw))
+
     for st in definition["statuses"]:
         session.add(FlowStatus(
             flow_version_id=draft.id, status_key=st["key"], label=st["label"],
             stage_desc=st.get("stage_desc"), checklist_gate=st.get("gate"),
             is_entry=bool(st.get("entry")), is_terminal=bool(st.get("terminal")),
             is_blocking=bool(st.get("blocking")),
-            alias_column_id=st.get("alias_column_id")))
+            alias_column_id=_col_id(st)))
     await session.flush()
     for tr in definition["transitions"]:
         session.add(FlowTransition(

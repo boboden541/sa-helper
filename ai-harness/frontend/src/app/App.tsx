@@ -71,10 +71,13 @@ export function App() {
   const project = useApp((s) => s.project)
   const setProject = useApp((s) => s.setProject)
   const reload = () => {
+    // лимит 200: доска/список не должны терять открытые задачи из-за
+    // усечения выборки очередью (приоритет → баги → старые выше)
     void api.tasks({
       q: query || undefined,
       type: typeFilter || undefined,
       project: project ?? undefined,
+      limit: '200',
     }).then((r) => setTasks(r.items)).catch(on401)
     void api.notifications().then((r) => setNotifications(r.items)).catch(on401)
   }
