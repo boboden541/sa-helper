@@ -66,8 +66,7 @@ async def handle_message(session: AsyncSession, user: User, text: str,
     elif WHY_VERBS.search(text) and task is not None:
         reply = await _explain_blocked(session, task)
     elif REPORT_VERBS.search(text) and task is not None:
-        reply = {"reply": f"{task.code} «{task.title}»: статус «{task.status_key}», "
-                          f"приоритет {task.priority}.", "task": task.code}
+        reply = await _task_digest(session, task)
     elif re.search(r"создай задачу", text, re.IGNORECASE):
         title = re.search(r"«(.+?)»|\"(.+?)\"", text)
         reply = {"action": "open_create_dialog",
@@ -99,6 +98,7 @@ async def free_chat_reply(session: AsyncSession, user: User, text: str,
                          "отвечать на любые вопросы."}
 
     context = await _system_context(session)
+    deep = await _deep_details(session, text, task)
     screen = f"Открыт экран задачи {task.code} «{task.title}» (статус {task.status_key})." if task \
         else "Открыт канбан-доска или общий экран."
     system = (
@@ -110,7 +110,12 @@ async def free_chat_reply(session: AsyncSession, user: User, text: str,
         "статусах с назначениями из матрицы; агенты работают в git-worktree; проверки качества — "
         "чеклисты-гейты, ревью, тестирование, ПСИ; компоненты: backend (FastAPI), frontend (React), "
         "PostgreSQL, демон; всё поднято в docker compose.\n\n"
-        f"Текущее состояние системы:\n{context}\n\n{screen}\n\n"
+        "У тебя ПОЛНЫЙ доступ на чтение к трекеру: ниже — индекс всех задач с названиями, "
+        "статусами и расходом токенов; по упомянутым в вопросе кодам — полное содержимое "
+        "карточек, хроники, чек-листы, прогоны и комментарии; по названному проекту — дайджест "
+        "всех его задач. Опирайся на эти данные и отвечай конкретно: коды, статусы, цифры. "
+        "Если данных нет в контексте — так и скажи, не выдумывай.\n\n"
+        f"Текущее состояние системы:\n{context}\n\n{screen}\n\n{deep}\n\n"
         "Важно: изменяющие действия (переводы статусов, создание) выполняются только через "
         "специальные команды — если тебя просят действие, скажи точную фразу-команду, например "
         "«переведи <код> на ревью». На вопросы о контейнерах docker отвечай по описанию стека "
@@ -151,6 +156,125 @@ async def _system_context(session: AsyncSession) -> str:
     if blocked:
         lines.append("Заблокированы: " + "; ".join(f"{c} ({r})" for c, r in blocked))
     return "\n".join(lines)
+
+
+_CTX_BUDGET = 70000  # символов на весь добор контекста
+
+
+async def _deep_details(session: AsyncSession, text: str,
+                        screen_task: Task | None) -> str:
+    """Добор контекста для свободного вопроса: индекс всех задач, полная
+    раскопка упомянутых кодов (карточка, хроники, чек-листы, прогоны,
+    комментарии) и дайджест названного проекта. Решение владельца 27.10.2026:
+    Eve — полноценно читающий ассистент, а не голая статистика."""
+    codes: list[str] = []
+    for m in _CODE_RE.findall(text or ""):
+        c = m.upper()
+        if c not in codes:
+            codes.append(c)
+    if screen_task is not None and screen_task.code not in codes:
+        codes.insert(0, screen_task.code)
+
+    projects = (await session.execute(sa.text(
+        "SELECT mnemonic FROM project ORDER BY mnemonic"))).scalars().all()
+    text_wo_codes = _CODE_RE.sub(" ", text or "")
+    mentioned_projects = [m for m in projects
+                          if len(m) >= 3 and re.search(rf"\b{m}\b(?!-)", text_wo_codes.upper())]
+
+    parts: list[str] = []
+    budget = _CTX_BUDGET
+
+    # индекс всех задач по проектам
+    index_lines: list[str] = []
+    rows = (await session.execute(sa.text(
+        "SELECT p.mnemonic AS pr, tt.key AS tp, t.code, t.status_key AS st, "
+        "t.priority AS pr2, t.title, coalesce(t.blocked_reason,'') AS br, "
+        "(SELECT coalesce(sum(r.input_tokens + r.output_tokens + r.cache_tokens),0) "
+        " FROM task_run r WHERE r.task_id = t.id) AS tok "
+        "FROM task t JOIN project p ON p.id = t.project_id "
+        "JOIN task_type tt ON tt.id = t.task_type_id "
+        "ORDER BY p.mnemonic, t.status_key, t.code"))).all()
+    cur = None
+    for pr, tp, code, st, prio, title, br, tok in rows:
+        if pr != cur:
+            cur = pr
+            index_lines.append(f"Проект {pr}:")
+        line = (f"  {code} [{tp}/{st}] {title[:70]}"
+                + (f" · {tok} токенов" if tok else "")
+                + (f" · ЗАБЛОКИРОВАНА: {br[:80]}" if br else ""))
+        index_lines.append(line)
+    parts.append("ИНДЕКС ЗАДАЧ:\n" + "\n".join(index_lines))
+    budget -= sum(len(x) for x in index_lines)
+
+    # дайджест названного проекта: по каждой задаче с кусочком описания
+    for mn in mentioned_projects[:2]:
+        digest: list[str] = [f"ПРОЕКТ {mn} — все задачи с описаниями:"]
+        for t in (await session.execute(sa.text(
+                "SELECT t.code, tt.key AS tp, t.status_key AS st, t.title, "
+                "t.description_md FROM task t "
+                "JOIN task_type tt ON tt.id = t.task_type_id "
+                "JOIN project p ON p.id = t.project_id "
+                "WHERE p.mnemonic = :m ORDER BY t.code"), {"m": mn})).all():
+            desc = (t.description_md or "").strip()
+            head = desc[:600] + ("…" if len(desc) > 600 else "")
+            digest.append(f"\n{t.code} [{t.tp}/{t.st}] {t.title}\n{head}")
+        chunk = "\n".join(digest)
+        if len(chunk) > budget:
+            chunk = chunk[:budget] + "\n…(дайджест обрезан по лимиту контекста)"
+        parts.append(chunk)
+        budget -= len(chunk)
+        if budget <= 0:
+            break
+
+    # полная раскопка упомянутых кодов
+    for code in codes[:6]:
+        t = (await session.execute(
+            sa.select(Task).where(Task.code == code))).scalar_one_or_none()
+        if t is None:
+            continue
+        block: list[str] = [f"ЗАДАЧА {t.code} [{t.status_key}] «{t.title}» "
+                            f"(приоритет {t.priority})"]
+        desc = (t.description_md or "").strip()
+        block.append("Карточка:\n" + desc[:4000] + ("…" if len(desc) > 4000 else ""))
+        chron = (await session.execute(sa.text(
+            "SELECT event_type, author_kind, message FROM chronicle "
+            "WHERE task_id = :i ORDER BY created_at DESC LIMIT 12"),
+            {"i": str(t.id)})).all()
+        if chron:
+            block.append("Хроника (свежие сверху):\n" + "\n".join(
+                f"- [{c[0]}/{c[1]}] {c[2][:200]}" for c in chron))
+        cl = (await session.execute(sa.text(
+            "SELECT c.kind, count(*) FILTER (WHERE i.status IN ('done','closed')) AS done_n, "
+            "count(*) FILTER (WHERE i.kind='item') AS total FROM checklist c "
+            "LEFT JOIN checklist_item i ON i.checklist_id = c.id "
+            "WHERE c.task_id = :i GROUP BY c.kind"), {"i": str(t.id)})).all()
+        if cl:
+            block.append("Чек-листы: " + "; ".join(
+                f"{c[0]} {c[1]}/{c[2]}" for c in cl))
+        runs = (await session.execute(sa.text(
+            "SELECT u.name, r.outcome, r.input_tokens + r.output_tokens + r.cache_tokens "
+            "FROM task_run r JOIN \"user\" u ON u.id = r.agent_id "
+            "WHERE r.task_id = :i ORDER BY r.started_at DESC LIMIT 5"),
+            {"i": str(t.id)})).all()
+        if runs:
+            block.append("Прогоны: " + "; ".join(
+                f"{a} ({o}, {tok or 0} ток.)" for a, o, tok in runs))
+        com = (await session.execute(sa.text(
+            "SELECT u.name, c.body FROM task_comment c JOIN \"user\" u ON u.id = c.author_id "
+            "WHERE c.task_id = :i ORDER BY c.created_at DESC LIMIT 3"),
+            {"i": str(t.id)})).all()
+        if com:
+            block.append("Комментарии (свежие):\n" + "\n".join(
+                f"- {a}: {b[:200]}" for a, b in com))
+        chunk = "\n".join(block)
+        if len(chunk) > budget:
+            chunk = chunk[:max(budget, 2000)] + "\n…(обрезано по лимиту контекста)"
+        parts.append(chunk)
+        budget -= len(chunk)
+        if budget <= 0:
+            break
+
+    return "\n\n".join(parts)
 
 
 async def _flow_statuses(session, task) -> list[tuple[str, str]]:
@@ -260,6 +384,37 @@ async def plan_force(session: AsyncSession, user: User, task_code: str, to: str,
         dt.datetime.now(dt.timezone.utc) + _INTENT_TTL)
     return {"action": "confirm", "intent": {"kind": "force", "task": task_code, "to": to},
             "reply": f"Форс-переход {task_code} в «{to}» с причиной: {reason}. «да»?"}
+
+
+async def _task_digest(session: AsyncSession, task: Task) -> dict:
+    """Досье задачи без LLM: статус, карточка-выжимка, чек-листы, прогоны, хроника."""
+    lines = [f"{task.code} «{task.title}» — статус «{task.status_key}», "
+             f"приоритет {task.priority}."]
+    desc = (task.description_md or "").strip()
+    if desc:
+        lines.append("Карточка (выжимка): " + desc[:800] + ("…" if len(desc) > 800 else ""))
+    cl = (await session.execute(sa.text(
+        "SELECT c.kind, count(*) FILTER (WHERE i.status IN ('done','closed')) AS done_n, "
+        "count(*) FILTER (WHERE i.kind='item') AS total FROM checklist c "
+        "LEFT JOIN checklist_item i ON i.checklist_id = c.id "
+        "WHERE c.task_id = :i GROUP BY c.kind"), {"i": str(task.id)})).all()
+    if cl:
+        lines.append("Чек-листы: " + "; ".join(f"{c[0]} {c[1]}/{c[2]}" for c in cl))
+    runs = (await session.execute(sa.text(
+        "SELECT u.name, r.outcome, r.input_tokens + r.output_tokens + r.cache_tokens "
+        "FROM task_run r JOIN \"user\" u ON u.id = r.agent_id "
+        "WHERE r.task_id = :i ORDER BY r.started_at DESC LIMIT 5"),
+        {"i": str(task.id)})).all()
+    if runs:
+        lines.append("Прогоны: " + "; ".join(
+            f"{a} ({o}, {tok or 0} ток.)" for a, o, tok in runs))
+    chron = (await session.execute(sa.text(
+        "SELECT event_type, message FROM chronicle WHERE task_id = :i "
+        "ORDER BY created_at DESC LIMIT 7"), {"i": str(task.id)})).all()
+    if chron:
+        lines.append("Хроника (свежие сверху):\n" + "\n".join(
+            f"- [{c[0]}] {c[1][:160]}" for c in chron))
+    return {"reply": "\n\n".join(lines), "task": task.code}
 
 
 async def _explain_blocked(session: AsyncSession, task: Task) -> dict:

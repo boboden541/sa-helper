@@ -9,8 +9,11 @@ import httpx
 
 
 async def chat_call(protocol: str, url: str, model: str, token: str,
-                    system: str, messages: list[dict], max_tokens: int = 1024) -> str:
-    """Возвращает текст ответа модели. messages: [{role: user|assistant, content}]."""
+                    system: str, messages: list[dict], max_tokens: int = 8192) -> str:
+    """Возвращает текст ответа модели. messages: [{role: user|assistant, content}].
+
+    max_tokens 8192: рассуждающие модели (GLM и др.) тратят заметный бюджет на
+    блок thinking — при 1024 до текста дело не доходило (stop_reason=max_tokens)."""
     url = (url or "").rstrip("/")
     async with httpx.AsyncClient(timeout=60) as client:
         if protocol == "anthropic":
@@ -30,9 +33,8 @@ async def chat_call(protocol: str, url: str, model: str, token: str,
         r.raise_for_status()
         data = r.json()
     if protocol == "anthropic":
-        for block in data.get("content", []):
-            if block.get("type") == "text":
-                return block.get("text", "")
-        return ""
+        texts = [b.get("text", "") for b in data.get("content", [])
+                 if b.get("type") == "text"]
+        return "".join(texts).strip()
     choices = data.get("choices", [])
-    return (choices[0].get("message") or {}).get("content", "") if choices else ""
+    return ((choices[0].get("message") or {}).get("content") or "").strip() if choices else ""
