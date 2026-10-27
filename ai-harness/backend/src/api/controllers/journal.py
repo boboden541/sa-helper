@@ -64,6 +64,7 @@ class PsiSectionIn(BaseModel):
 
 class PsiCreateIn(BaseModel):
     sections: list[PsiSectionIn]
+    preambleMd: str | None = None  # шапка идеального ПСИ: «что реализовано», словарик, правила
     model_config = ConfigDict(extra="forbid")
 
 
@@ -86,7 +87,8 @@ async def psi_create(code: str, payload: PsiCreateIn,
                      actor: User = Depends(get_actor)):
     version = await psi_uc.create_version(
         session, code, actor,
-        [s.model_dump() for s in payload.sections])
+        [s.model_dump() for s in payload.sections],
+        preamble_md=payload.preambleMd)
     return {"version": version}
 
 

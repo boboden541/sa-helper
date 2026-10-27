@@ -1,13 +1,21 @@
-"""ПСИ: документ с версиями, прогоны со снапшотом пунктов, баги (СТ §4.5.2)."""
+"""ПСИ: документ с версиями, прогоны со снапшотом пунктов, баги (СТ §4.5.2).
+
+Каждая версия документа автоматически сохраняется файлом по пути истории
+(task.psi_path, «Путь сохранения ПСИ» — например …/FNR/FNR_8/psi.md);
+путь не задан — стандартный <путь проекта>/.harness/psi/<код истории>/psi.md
+(решение владельца 27.10.2026)."""
 
 from __future__ import annotations
+
+from datetime import datetime, timezone
+from pathlib import Path
 
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from domain.model.validators import DomainError
 from repository.models import (
-    Checklist, ChecklistItem, Chronicle, PsiDocument, PsiRun, PsiRunItem, Task, User,
+    Checklist, ChecklistItem, Chronicle, PsiDocument, PsiRun, PsiRunItem, Project, Task, User,
 )
 
 
@@ -19,10 +27,52 @@ async def _story(session: AsyncSession, code: str) -> Task:
     return story
 
 
+def render_psi_md(story: Task, version: int, sections: list[dict],
+                  preamble_md: str | None = None) -> str:
+    """Рендер документа в канон идеального ПСИ (пример — FNR_8/psi.md)."""
+    today = datetime.now(timezone.utc).date().isoformat()
+    lines = [f"# Процедура приёмо-сдаточных испытаний (ПСИ): {story.title} ({story.code})",
+             "",
+             "**Назначение.** Этот документ — пошаговый сценарий проверки реализованного "
+             "функционала. Каждый пункт — пара «Действие → Ожидаемый результат»: выполняете "
+             "действие, сверяете факт с ожиданием, ставите вердикт ✓/✗.",
+             f"**Дата документа:** {today}. **Версия документа:** v{version}.", ""]
+    if preamble_md and preamble_md.strip():
+        lines += [preamble_md.strip(), ""]
+    position = 0
+    for section in sections:
+        lines += [f"## {section.get('heading', 'Раздел')}", ""]
+        for item in section.get("items", []):
+            position += 1
+            lines += [f"### П.{position} {item.get('action', '')}", "",
+                      f"**Ожидаемый результат:** {item.get('expected', '')}", ""]
+    return "\n".join(lines)
+
+
+async def save_psi_file(session: AsyncSession, story: Task, md: str) -> str:
+    """Пишет psi.md по пути истории (или в стандартное место); возвращает путь как на компьютере."""
+    import os
+
+    from infrastructure.paths import host_to_container
+
+    user_path = (story.psi_path or "") .strip() if story.psi_path else ""
+    if not user_path:
+        project = await session.get(Project, story.project_id)
+        base = (project.path if project else "").rstrip("/")
+        user_path = f"{base}/.harness/psi/{story.code}/psi.md" if base else ""
+    if not user_path:
+        raise DomainError("Путь сохранения ПСИ не задан и путь проекта неизвестен")
+    target = Path(host_to_container(user_path))
+    os.makedirs(target.parent, exist_ok=True)
+    target.write_text(md, encoding="utf-8")
+    return user_path
+
+
 async def create_version(session: AsyncSession, story_code: str, author: User,
-                         sections: list[dict]) -> int:
+                         sections: list[dict], preamble_md: str | None = None) -> int:
     """sections: [{"heading": str, "items": [{"action": str, "expected": str}]}].
-    Пункт ПСИ — строка чеклиста особого типа kind='psi' (ФТ-ah-39)."""
+    Пункт ПСИ — строка чеклиста особого типа kind='psi' (ФТ-ah-39).
+    Версия сохраняется файлом по пути истории (psi_path)."""
     story = await _story(session, story_code)
     version = (await session.execute(
         sa.select(sa.func.coalesce(sa.func.max(PsiDocument.version), 0))
@@ -35,6 +85,7 @@ async def create_version(session: AsyncSession, story_code: str, author: User,
     session.add(chk)
     await session.flush()
     position = 0
+    items_count = 0
     for section in sections:
         session.add(ChecklistItem(checklist_id=chk.id, position=position, kind="heading",
                                   level=1, text=section.get("heading", "Раздел")))
@@ -45,10 +96,25 @@ async def create_version(session: AsyncSession, story_code: str, author: User,
                 text=item.get("action", ""), status="todo",
                 psi_expected=item.get("expected", "")))
             position += 1
+            items_count += 1
     session.add(Chronicle(task_id=story.id, event_type="psi",
                           author_id=author.id, author_kind="agent" if author.user_type == "agent" else "human",
-                          message=f"Составлен ПСИ v{version} ({position - len(sections)} пунктов)"))
+                          message=f"Составлен ПСИ v{version} ({items_count} пунктов)"))
     await session.commit()
+
+    # файл psi.md — в папку назначения (например, sa_documentation/FNR/FNR_<N>/psi.md)
+    try:
+        md = render_psi_md(story, version, sections, preamble_md)
+        saved_to = await save_psi_file(session, story, md)
+        session.add(Chronicle(task_id=story.id, event_type="psi", author_id=author.id,
+                              author_kind="auto", rule_code="PSI_FILE",
+                              message=f"Файл ПСИ v{version} сохранён: {saved_to}"))
+        await session.commit()
+    except (OSError, DomainError) as err:
+        session.add(Chronicle(task_id=story.id, event_type="psi", author_id=author.id,
+                              author_kind="auto", rule_code="PSI_FILE",
+                              message=f"Файл ПСИ v{version} НЕ сохранён: {err}"))
+        await session.commit()
     return version
 
 
