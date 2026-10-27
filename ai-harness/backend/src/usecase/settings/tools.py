@@ -29,7 +29,7 @@ async def _global_dir(session: AsyncSession) -> tuple[str, Path]:
     root = (await session.execute(sa.select(AppSetting.value).where(AppSetting.key == TOOLS_KEY))
             ).scalar_one_or_none() or ""
     if not root.strip():
-        raise DomainError("Глобальная папка инструментов не задана — укажите её во вкладке «Агенты и матрица»")
+        raise DomainError("Глобальная папка инструментов не задана — укажите её во вкладке «Настройки → Инструменты»")
     p = Path(host_to_container(root))
     if not os.path.isdir(p):
         raise DomainError(f"Глобальная папка инструментов недоступна: {root}")

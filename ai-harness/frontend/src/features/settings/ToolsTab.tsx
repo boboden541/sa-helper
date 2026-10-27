@@ -27,6 +27,8 @@ export function ToolsTab() {
   } | null>(null)
   const [note, setNote] = useState<string | null>(null)
   const [viewer, setViewer] = useState<{ kind: string; name: string; content: string; changed: boolean } | null>(null)
+  const [toolsDir, setToolsDir] = useState('')
+  const [toolsInfo, setToolsInfo] = useState('')
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
 
@@ -36,6 +38,22 @@ export function ToolsTab() {
     } catch { setNote('Не удалось загрузить реестр') }
   }
   useEffect(() => { void reload() }, [])
+  useEffect(() => {
+    void fetch('/api/v1/agents-tools-dir').then((r) => r.json()).then((d) => {
+      setToolsDir(d.toolsDir ?? '')
+      setToolsInfo(d.toolsDir ? (d.found ? 'папка найдена — отслеживается' : 'папка не найдена') : '')
+    }).catch(() => {})
+  }, [])
+
+  const saveToolsDir = async () => {
+    const res = await fetch('/api/v1/agents-tools-dir', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ toolsDir: toolsDir.trim() }) })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) { setNote(body.message); return }
+    setNote(null)
+    setToolsInfo(toolsDir.trim() ? 'сохранено' : '')
+    void reload()
+  }
 
   const scan = async () => {
     const res = await fetch('/api/v1/tools/scan', { method: 'POST' })
@@ -63,19 +81,26 @@ export function ToolsTab() {
     setViewer(body); setEditing(false); setDraft('')
   }
 
-  if (data && !data.toolsDir) {
-    return (
-      <div className="set-body">
-        <div className="callout"><span className="ci">!</span>
-          <div className="body">Глобальная папка инструментов не задана — укажите её во вкладке
-            «Агенты и матрица», затем нажмите «Сканировать».</div></div>
-      </div>
-    )
-  }
-
   return (
     <div className="set-body">
       {note && <div className="check-row err">{note}</div>}
+      <div className="agent-editor" style={{ marginBottom: 12 }}>
+        <div className="ag-fields">
+          <div className="f-field" style={{ gridColumn: '1 / -1' }}>
+            <label>Папка инструментов — один путь на все проекты (папка .claude, куда SA-Helper установлен install.sh); подключается к работе агентов как есть, без копий</label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input className="mono" value={toolsDir} placeholder="/Users/raaliev/…/sa-helper/.claude"
+                onChange={(e) => setToolsDir(e.target.value)} />
+              <button className="btn" onClick={() => void saveToolsDir()}>Сохранить</button>
+            </div>
+            {toolsInfo && <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{toolsInfo}</div>}
+          </div>
+        </div>
+      </div>
+      {data && !data.toolsDir && (
+        <div className="callout"><span className="ci">!</span>
+          <div className="body">Папка не задана — укажите её выше и нажмите «Сканировать».</div></div>
+      )}
       <div className="flow-toolbar">
         <div className="q-sec" style={{ margin: 0 }}>Инструменты из глобальной папки</div>
         <span className="sp" />
