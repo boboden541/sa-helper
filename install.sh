@@ -327,28 +327,6 @@ fi
 # Удаление .DS_Store
 find "$TARGET_DIR" -name ".DS_Store" -delete 2>/dev/null || true
 
-# 5.1 Установка индексатора графа (Tree-sitter Engine)
-if [ -d "$TEMP_DIR/indexer" ]; then
-    echo -e "${YELLOW}📊 Настройка индексатора кодовой базы (Tree-sitter Engine)...${NC}"
-
-    mkdir -p "indexer/semgrep_rules"
-    cp -R "$TEMP_DIR/indexer/." "indexer/"
-    chmod +x "indexer/main.py" 2>/dev/null
-fi
-
-# 5.2 Установка утилит AI Harness (runner, scanner, UI)
-if [ -d "$TEMP_DIR/harness" ]; then
-    echo -e "${YELLOW}⚙️  Настройка утилит AI Harness (runner / scanner / UI)...${NC}"
-
-    mkdir -p "harness/presets" "harness/semgrep_rules"
-    cp -R "$TEMP_DIR/harness/." "harness/"
-    chmod +x "harness/runner.py" 2>/dev/null
-    chmod +x "harness/web/server.py" 2>/dev/null
-    chmod +x "harness/sahelper.py" 2>/dev/null
-    echo -e "${YELLOW}   Витрина: python3 harness/web/server.py --workspace <воркспейс>${NC}"
-    echo -e "${YELLOW}   Адаптер агентов: python3 harness/sahelper.py --help (allowlist: Bash(python3 harness/sahelper.py:*))${NC}"
-fi
-
 # 6. Надежная очистка временной папки (с поддержкой Windows/Git Bash)
 chmod -R 777 "$TEMP_DIR" 2>/dev/null || true
 rm -rf "$TEMP_DIR" 2>/dev/null || true
