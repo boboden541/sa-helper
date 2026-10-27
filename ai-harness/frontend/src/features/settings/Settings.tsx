@@ -1,5 +1,5 @@
 // Настройки — DOM design_mockup/settings.js:
-// вкладки SETTINGS_TABS (пайплайн: Проекты, ИИ-провайдеры, Status-flow, Агенты и матрица,
+// вкладки SETTINGS_TABS (пайплайн: ИИ-провайдеры, Инструменты, Проекты, Status-flow, Агенты и матрица,
 // Очередь автомата, Журнал настроек); flow: seg типов, граф (fs-card + edges +
 // fs-conn протягивание) и таблица (tr-chip) одной рабочей копии, flow-panel,
 // publish-panel; провайдеры prov-grid; агенты agents-grid + agent-editor;
@@ -13,8 +13,8 @@ import { toast } from '../../shared/toast'
 import { ToolsTab } from './ToolsTab'
 
 const TABS: [string, string][] = [
-  ['projects', 'Проекты'], ['providers', 'ИИ-провайдеры'], ['flow', 'Status-flow'],
-  ['agents', 'Агенты и матрица'], ['tools', 'Инструменты'], ['queue', 'Очередь автомата'],
+  ['providers', 'ИИ-провайдеры'], ['tools', 'Инструменты'], ['projects', 'Проекты'],
+  ['flow', 'Status-flow'], ['agents', 'Агенты и матрица'], ['queue', 'Очередь автомата'],
   ['journal', 'Журнал настроек'],
 ]
 const FLOW_TYPES: [string, string][] = [
@@ -47,7 +47,7 @@ export function Settings({ reload }: { reload: () => void }) {
 
 function useSettingsTab(): string {
   const m = window.location.hash.match(/settings\/(\w+)/)
-  return m ? m[1] : 'projects'
+  return m ? m[1] : 'providers'
 }
 
 /* ==================== Status-flow — полноценный редактор ==================== */
