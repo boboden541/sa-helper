@@ -661,9 +661,9 @@ function Providers() {
 /* ==================== Агенты и матрица ==================== */
 
 function AgentsAndMatrix() {
-  const [agents, setAgents] = useState<{ id: string; name: string; role: string; skillMd: string; connectionId: string; isPreset: boolean }[]>([])
+  const [agents, setAgents] = useState<{ id: string; name: string; role: string; skillMd: string; connectionId: string; isPreset: boolean; model: string; allowedTools: string[]; mcpServers: Record<string, unknown> | null; agentDir: string }[]>([])
   const [users, setUsers] = useState<{ id: string; name: string; userType: string }[]>([])
-  const [editor, setEditor] = useState<{ id?: string; name: string; role: string; skillMd: string } | null>(null)
+  const [editor, setEditor] = useState<{ id?: string; name: string; role: string; skillMd: string; model: string; tools: string; mcpJson: string; agentDir: string } | null>(null)
   const [note, setNote] = useState<string | null>(null)
   const reload = async () => {
     setAgents(await api.agents())
@@ -685,11 +685,18 @@ function AgentsAndMatrix() {
   }
   const saveEditor = async () => {
     if (!editor) return
+    let mcp: Record<string, unknown> | null = null
+    if (editor.mcpJson.trim()) {
+      try { mcp = JSON.parse(editor.mcpJson) } catch { setNote('MCP-серверы: некорректный JSON'); return }
+    }
+    const payload = { name: editor.name, role: editor.role, skillMd: editor.skillMd,
+      model: editor.model, allowedTools: editor.tools.split(/[\s,]+/).filter(Boolean),
+      mcpServers: mcp, agentDir: editor.agentDir.trim() }
     const res = editor.id
       ? await fetch(`/api/v1/agents/${editor.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: editor.name, role: editor.role, skillMd: editor.skillMd }) })
+          body: JSON.stringify(payload) })
       : await fetch('/api/v1/agents', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: editor.name, role: editor.role, skillMd: editor.skillMd }) })
+          body: JSON.stringify(payload) })
     const body = await res.json().catch(() => ({}))
     if (!res.ok) { setNote(body.message); return }
     setEditor(null); setNote(null); void reload()
@@ -703,7 +710,7 @@ function AgentsAndMatrix() {
         <span className="sp" />
         <button className="btn primary small" onClick={() => setEditor({
           name: '', role: '', skillMd: '## Роль и цель\nОдин абзац: за что агент отвечает.\n\n## Процедура\n1. …\n\n## Критерии качества\n- …\n\n## Формат результата\n- …\n\n## Ограничения\n- …',
-        })}>＋ Агент</button>
+          model: '', tools: '', mcpJson: '', agentDir: '' })}>＋ Агент</button>
       </div>
       <div className="agents-grid">
         {agents.map((a) => (
@@ -713,7 +720,7 @@ function AgentsAndMatrix() {
               <b>{a.name}</b>
               {a.isPreset && <span className="mini-chip">предустановленный</span>}
               <span className="sp" />
-              <button className="link" style={{ fontSize: 12 }} onClick={() => setEditor({ id: a.id, name: a.name, role: a.role, skillMd: a.skillMd })}>править</button>
+              <button className="link" style={{ fontSize: 12 }} onClick={() => setEditor({ id: a.id, name: a.name, role: a.role, skillMd: a.skillMd, model: a.model ?? '', tools: (a.allowedTools ?? []).join(', '), mcpJson: a.mcpServers ? JSON.stringify(a.mcpServers, null, 2) : '', agentDir: a.agentDir ?? '' })}>править</button>
               <span className="muted">·</span>
               <button className="link" style={{ fontSize: 12 }} onClick={() => void clone(a.id)}>клонировать</button>
               <span className="muted">·</span>
@@ -722,6 +729,10 @@ function AgentsAndMatrix() {
             <div className="muted" style={{ fontSize: 12.5, marginTop: 6 }}>{a.role}</div>
             <div className="flex mt8" style={{ flexWrap: 'wrap' }}>
               <span className="mini-chip">{a.connectionId ? 'своё подключение' : 'активное подключение'}</span>
+              {a.model && <span className="mini-chip">модель: {a.model}</span>}
+              {a.agentDir && <span className="mini-chip">папка скиллов</span>}
+              {a.mcpServers && <span className="mini-chip">MCP: {Object.keys(a.mcpServers).length}</span>}
+              {!!a.allowedTools?.length && <span className="mini-chip">инструменты: {a.allowedTools.length}</span>}
             </div>
           </div>
         ))}
@@ -734,6 +745,20 @@ function AgentsAndMatrix() {
               <input value={editor.name} onChange={(e) => setEditor({ ...editor, name: e.target.value })} /></div>
             <div className="f-field"><label>Роль (за что отвечает)</label>
               <input value={editor.role} onChange={(e) => setEditor({ ...editor, role: e.target.value })} /></div>
+            <div className="f-field"><label>Модель прогона (необязательно — иначе модель подключения)</label>
+              <input value={editor.model} placeholder="например glm-5.3-flash"
+                onChange={(e) => setEditor({ ...editor, model: e.target.value })} /></div>
+            <div className="f-field"><label>Инструменты через запятую (пусто — стандартный набор: Read, Grep, Glob, Edit, Write, Bash)</label>
+              <input value={editor.tools} placeholder="Read, Edit, Bash"
+                onChange={(e) => setEditor({ ...editor, tools: e.target.value })} /></div>
+            <div className="f-field" style={{ gridColumn: '1 / -1' }}>
+              <label>Папка агентов на вашем компьютере (необязательно) — содержимое копируется в рабочую директорию задачи как .claude: скиллы, команды, субагенты</label>
+              <input className="mono" value={editor.agentDir} placeholder="/Users/raaliev/…/sa-helper/.claude"
+                onChange={(e) => setEditor({ ...editor, agentDir: e.target.value })} /></div>
+            <div className="f-field" style={{ gridColumn: '1 / -1' }}>
+              <label>MCP-серверы — JSON (необязательно), например {'{"graph": {"type": "http", "url": "http://host.docker.internal:8000/mcp"}}'} (пусто — без MCP)</label>
+              <textarea rows={3} className="mono" value={editor.mcpJson}
+                onChange={(e) => setEditor({ ...editor, mcpJson: e.target.value })} /></div>
             <div className="f-field" style={{ gridColumn: '1 / -1' }}><label>Скилл (markdown: роль, процедура, критерии, формат, ограничения)</label>
               <textarea rows={12} value={editor.skillMd} onChange={(e) => setEditor({ ...editor, skillMd: e.target.value })} /></div>
           </div>

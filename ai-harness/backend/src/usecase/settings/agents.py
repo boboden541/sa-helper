@@ -20,6 +20,52 @@ async def _ensure_agent_user(session: AsyncSession, name: str) -> User:
     return user
 
 
+def _clean_runner_fields(data: dict) -> dict:
+    """Нормализует и проверяет опции раннера («мост»): модель, инструменты, MCP, папка агентов.
+
+    Пустые/отсутствующие значения → None (стандартное поведение раннера).
+    Папка агентов — путь как на компьютере пользователя; должна существовать."""
+
+    out: dict = {"model": None, "allowed_tools": None, "mcp_servers": None, "agent_dir": None}
+
+    model = (data.get("model") or "").strip()
+    if len(model) > 128:
+        raise DomainError("Модель: до 128 символов", field="model")
+    out["model"] = model or None
+
+    tools = data.get("allowed_tools")
+    if tools is not None:
+        cleaned = [t.strip() for t in tools if isinstance(t, str) and t.strip()]
+        if len(cleaned) > 32 or any(len(t) > 96 or any(ch.isspace() for ch in t) for t in cleaned):
+            raise DomainError("Инструменты: до 32 имён без пробелов (Read, Bash, mcp__сервер__инструмент…)",
+                              field="allowedTools")
+        out["allowed_tools"] = cleaned or None
+
+    servers = data.get("mcp_servers")
+    if servers is not None:
+        if not isinstance(servers, dict) or len(servers) > 16 or not servers:
+            raise DomainError("MCP-серверы: JSON-объект {имя: {url|command…}}, до 16 серверов",
+                              field="mcpServers")
+        for name, cfg in servers.items():
+            if not isinstance(cfg, dict) or not (cfg.get("url") or cfg.get("command")):
+                raise DomainError(f"MCP-сервер {name!r}: нужен url (http) или command (stdio)",
+                                  field="mcpServers")
+        out["mcp_servers"] = servers
+
+    agent_dir = (data.get("agent_dir") or "").strip() or None
+    if agent_dir:
+        import os
+
+        from infrastructure.paths import host_to_container
+
+        # проверяем существование в координатах той машины, где реально работает backend
+        if not os.path.isdir(host_to_container(agent_dir)):
+            raise DomainError(f"Папка агентов не найдена: {agent_dir} — укажите существующую "
+                              "(например sa-helper/.claude)", field="agentDir")
+    out["agent_dir"] = agent_dir
+    return out
+
+
 async def create_agent(session: AsyncSession, data: dict) -> User:
     name = (data.get("name") or "").strip()
     if not (1 <= len(name) <= 64):
@@ -35,6 +81,7 @@ async def create_agent(session: AsyncSession, data: dict) -> User:
         connection_id=data.get("connection_id"),
         is_preset=bool(data.get("is_preset")),
         preset_source=data.get("preset_source"),
+        **_clean_runner_fields(data),
     )
     session.add(profile)
     await session.commit()
@@ -49,6 +96,11 @@ async def update_agent(session: AsyncSession, user_id: uuid.UUID, fields: dict) 
     for field in ("role", "skill_md", "connection_id"):
         if field in fields:
             setattr(profile, field, fields[field])
+    # опции раннера меняются только явно переданными ключами (пустая строка/JSON = сброс)
+    runner = _clean_runner_fields(fields)
+    for key in ("model", "allowed_tools", "mcp_servers", "agent_dir"):
+        if key in fields:
+            setattr(profile, key, runner[key])
     await session.commit()
 
 
@@ -117,17 +169,6 @@ async def _reject_no_agent_work(session: AsyncSession, task_type_id: uuid.UUID,
         raise DomainError(
             f"Статус «{status_key}» без агентной работы (только ручные переходы): "
             "назначение агентов отклонено — назначьте здесь человека")
-
-
-async def reset_preset_agent(session: AsyncSession, user_id: uuid.UUID) -> None:
-    profile = (await session.execute(
-        sa.select(AgentProfile).where(AgentProfile.user_id == user_id))).scalar_one_or_none()
-    if profile is None or not profile.is_preset or not profile.preset_source:
-        raise DomainError("Сброс доступен только предустановленным агентам")
-    profile.role = profile.preset_source.get("role", profile.role)
-    profile.skill_md = profile.preset_source.get("skill_md", profile.skill_md)
-    await session.commit()
-
 
 
 async def agent_usages(session: AsyncSession, user_id: uuid.UUID) -> list[str]:

@@ -248,10 +248,12 @@ class Daemon:
                 task = (await session.execute(
                     sa.select(Task).where(Task.code == task_code))).scalar_one()
                 agent = await session.get(User, agent_id)
-                skill = (await session.execute(
-                    sa.text("SELECT skill_md FROM agent_profile WHERE user_id = :u"),
+                profile = (await session.execute(
+                    sa.text("SELECT skill_md, model, allowed_tools, mcp_servers, agent_dir "
+                            "FROM agent_profile WHERE user_id = :u"),
                     {"u": str(agent_id)},
-                )).scalar_one_or_none() or "Ты исполнитель этапа конвейера."
+                )).mappings().one_or_none()
+                skill = (profile or {}).get("skill_md") or "Ты исполнитель этапа конвейера."
 
                 worktree = await self._ensure_worktree(session, task)
 
@@ -270,15 +272,25 @@ class Daemon:
                                          text=text, data=data))
                         await s.commit()
 
-                req = RunRequest(
+                from infrastructure.paths import host_to_container
+
+                agent_dir = (profile or {}).get("agent_dir")
+                req_kwargs: dict = dict(
                     task_code=task_code, skill_md=skill,
                     context_md=await self._context_md(session, task),
                     worktree_path=worktree,
                     provider=await self._provider_for(session, agent_id),
                     timeouts={"start": int(cfg["daemon.timeout_start_seconds"]),
                               "work": int(cfg["daemon.timeout_work_seconds"])},
+                    model=(profile or {}).get("model"),
+                    mcp_servers=(profile or {}).get("mcp_servers"),
                     on_event=on_event,
                 )
+                if profile and profile.get("allowed_tools"):
+                    req_kwargs["allowed_tools"] = tuple(profile["allowed_tools"])
+                if agent_dir:  # в БД путь как на компьютере; раннеру нужен контейнерный
+                    req_kwargs["agent_dir"] = host_to_container(agent_dir)
+                req = RunRequest(**req_kwargs)
                 report = await self.runner.run(req)
                 from daemon.runner.circuit import record_failure, record_success
 
@@ -405,7 +417,7 @@ class Daemon:
 
     async def _apply_report(self, session, task, agent, report, cfg) -> None:
         from repository.models import Chronicle, Task
-        from usecase.task.transition import apply_transition
+        from usecase.task.transition import TransitionDenied, apply_transition
 
         task = (await session.execute(
             sa.select(Task).where(Task.code == task.code))).scalar_one()

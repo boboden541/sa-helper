@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import re
 from collections.abc import Awaitable, Callable
@@ -30,6 +31,9 @@ class RunRequest:
     provider: dict | None = None   # {protocol,url,model,token} расшифрован только здесь
     timeouts: dict = field(default_factory=lambda: {"start": 300, "work": 1800})
     allowed_tools: tuple[str, ...] = ("Read", "Grep", "Glob", "Edit", "Write", "Bash")
+    model: str | None = None         # модель прогона (иначе модель подключения)
+    mcp_servers: dict | None = None  # {имя: {url|command, …}} — MCP-серверы
+    agent_dir: str | None = None     # папка агентов (.claude); путь уже в координатах контейнера
     on_event: EventFn | None = None  # async (kind, text=None, data=None)
 
     async def emit(self, kind: str, text: str | None = None, data: dict | None = None) -> None:
@@ -100,6 +104,44 @@ def _tail(s: str, n: int = 600) -> str:
     return s if len(s) <= n else f"…{s[-n:]}"
 
 
+def _options_cls(sdk) -> type:
+    """Класс опций: в SDK 0.2+ это ClaudeAgentOptions, в старых версиях — ClaudeCodeOptions."""
+    cls = getattr(sdk, "ClaudeAgentOptions", None) or getattr(sdk, "ClaudeCodeOptions", None)
+    if cls is None:
+        raise RuntimeError("claude-agent-sdk: не найден класс опций "
+                           "(ClaudeAgentOptions/ClaudeCodeOptions)")
+    return cls
+
+
+def _options_kwargs(req: RunRequest, fields: set[str]) -> dict:
+    """Опции вызова SDK — только те, что поддерживаются данной версией пакета.
+
+    Неизвестные данной версии опции тихо отбрасываются: старый SDK не падает
+    от новых полей профиля агента."""
+    kwargs: dict = {"cwd": str(req.worktree_path) if req.worktree_path else None,
+              "allowed_tools": list(req.allowed_tools),
+              "permission_mode": "acceptEdits",
+              "max_turns": 100}
+    if req.model:
+        kwargs["model"] = req.model
+    if req.mcp_servers:
+        kwargs["mcp_servers"] = req.mcp_servers
+    if req.agent_dir:
+        # подхват .claude из worktree: скиллы, команды, субагенты, настройки
+        kwargs["setting_sources"] = ["project"]
+    return {k: v for k, v in kwargs.items() if k in fields}
+
+
+def _materialize_agent_dir(agent_dir: str, worktree) -> int:
+    """Копирует папку агентов пользователя в worktree как .claude (с дополнением)."""
+    import shutil
+
+    src = Path(agent_dir).expanduser()
+    dst = Path(worktree) / ".claude"
+    shutil.copytree(src, dst, dirs_exist_ok=True)
+    return sum(1 for p in dst.rglob("*") if p.is_file())
+
+
 def _sdk_env(provider: dict | None) -> dict[str, str]:
     """ANTHROPIC_* из расшифрованного подключения (Anthropic-совместимый прокси)."""
     if not provider or provider.get("protocol") not in (None, "anthropic"):
@@ -137,12 +179,13 @@ class ClaudeCodeRunner:
         prompt = (f"# Скилл\n{req.skill_md}\n\n# Контекст задачи\n{req.context_md}\n"
                   f"{REPORT_CONTRACT}")
         await req.emit("prompt", text=prompt)
-        options = self._sdk.ClaudeCodeOptions(
-            cwd=str(req.worktree_path) if req.worktree_path else None,
-            allowed_tools=list(req.allowed_tools),
-            permission_mode="acceptEdits",
-            max_turns=100,
-        )
+        opts_cls = _options_cls(self._sdk)
+        fields = {f.name for f in dataclasses.fields(opts_cls)}
+        if req.agent_dir and req.worktree_path:
+            copied = _materialize_agent_dir(req.agent_dir, req.worktree_path)
+            await req.emit("system", text=f"подключена папка агентов: {req.agent_dir} "
+                                         f"({copied} файлов → .claude)")
+        options = opts_cls(**_options_kwargs(req, fields))
         env = _sdk_env(req.provider)
         if env:
             try:

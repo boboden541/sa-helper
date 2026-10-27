@@ -11,7 +11,11 @@ from repository.models.base import Base
 
 
 class AgentProfile(Base):
-    """Карточка агента (ФТ-ah-62): скилл, роль, своё или активное подключение."""
+    """Карточка агента (ФТ-ah-62): скилл, роль, своё или активное подключение.
+
+    Опции раннера («мост», решение владельца 27.10.2026): модель, инструменты,
+    MCP-серверы, папка агентов на компьютере пользователя (копируется в worktree
+    как .claude и подхватывается SDK). NULL = стандартное поведение раннера."""
 
     __tablename__ = "agent_profile"
 
@@ -21,6 +25,10 @@ class AgentProfile(Base):
     connection_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("connection.id"))  # NULL = активное
     is_preset: Mapped[bool] = mapped_column(Boolean, default=False)
     preset_source: Mapped[dict | None] = mapped_column(JSONB)  # исходный скилл для сброса
+    model: Mapped[str | None] = mapped_column(String(128))  # переопределение модели прогона
+    allowed_tools: Mapped[list | None] = mapped_column(JSONB)  # None = стандартный набор раннера
+    mcp_servers: Mapped[dict | None] = mapped_column(JSONB)  # {имя: {url|command, …}}
+    agent_dir: Mapped[str | None] = mapped_column(String(500))  # путь на компьютере пользователя
 
 
 class Assignment(Base):

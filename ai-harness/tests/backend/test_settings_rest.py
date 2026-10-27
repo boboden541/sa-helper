@@ -271,3 +271,45 @@ async def test_task_type_wizard_creates_type_and_flow(client, session):
     r2 = await client.post("/api/v1/task-types", json={
         "key": "wizard_test", "label": "Дубль", "cloneFrom": "qa_task"})
     assert r2.status_code == 400
+
+
+# ---------- опции раннера агента («мост», решение владельца 27.10.2026) ----------
+
+async def test_agent_runner_options_roundtrip(session, actor_id, tmp_path):
+    """Модель/инструменты/MCP/папка агентов сохраняются, очищаются и не задевают соседей."""
+    from repository.models import AgentProfile
+
+    from usecase.settings.agents import create_agent, update_agent
+
+    folder = tmp_path / "claude"
+    folder.mkdir()
+    user = await create_agent(session, {
+        "name": "Мост-агент", "role": "исполнитель", "skill_md": "скилл",
+        "model": "glm-5.3-flash", "allowed_tools": ["Read", "Bash"],
+        "mcp_servers": {"graph": {"type": "http", "url": "http://x/mcp"}},
+        "agent_dir": str(folder)})
+    p = (await session.execute(sa.select(AgentProfile)
+         .where(AgentProfile.user_id == user.id))).scalar_one()
+    assert p.model == "glm-5.3-flash"
+    assert p.allowed_tools == ["Read", "Bash"]
+    assert p.mcp_servers["graph"]["url"] == "http://x/mcp"
+    assert p.agent_dir == str(folder)
+
+    await update_agent(session, user.id, {"model": "", "mcp_servers": None})
+    p2 = (await session.execute(sa.select(AgentProfile)
+          .where(AgentProfile.user_id == user.id))).scalar_one()
+    assert p2.model is None and p2.mcp_servers is None
+    assert p2.allowed_tools == ["Read", "Bash"]  # не задет
+
+
+async def test_agent_runner_options_validation(session, actor_id, tmp_path):
+    from domain.model.validators import DomainError
+
+    from usecase.settings.agents import _clean_runner_fields
+
+    with pytest.raises(DomainError, match="url"):
+        _clean_runner_fields({"mcp_servers": {"x": {}}})
+    with pytest.raises(DomainError, match="без пробелов"):
+        _clean_runner_fields({"allowed_tools": ["Web Search"]})
+    with pytest.raises(DomainError, match="не найдена"):
+        _clean_runner_fields({"agent_dir": str(tmp_path / "нет-такой")})
