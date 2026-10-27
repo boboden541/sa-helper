@@ -1226,3 +1226,16 @@ button.conn.off:hover{color:var(--accent-text)}
 .chron-live .ll{color:var(--text3); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:52%}
 .chron-row.chron-new{animation:chronNew 2.4s ease-out}
 @keyframes chronNew{0%{background:color-mix(in srgb, #25935b 14%, transparent)}100%{background:transparent}}
+/* Статус-flow: табличный режим по макету — read-only ячейки, чипы переходов,
+   редактирование в панели по клику на строку */
+.tr-cell{position:relative; max-width:420px; display:flex; flex-wrap:wrap; gap:4px; align-items:center}
+.tr-chip{display:inline-flex; align-items:center; gap:3px}
+.tr-x{
+  width:14px; height:14px; border-radius:4px; display:grid; place-items:center;
+  color:inherit; opacity:.65; margin-left:2px; border:0; background:none; cursor:pointer;
+  padding:0; font-size:9px; line-height:1;
+}
+.tr-x:hover{opacity:1; background:rgba(207,68,54,.22); color:var(--danger)}
+.flow-table .tasks td{vertical-align:top; padding:10px 14px}
+.flow-table .tasks .key{font-size:10.5px}
+.flow-table .tasks tr.sel-row td{background:var(--surface3)}
