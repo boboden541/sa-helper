@@ -391,7 +391,6 @@ echo -e "    ${BRIGHT_BLUE}/fnr-new-task${NC}             — Постановк
 echo -e "    ${BRIGHT_BLUE}/fnr-concept${NC}              — Генерация спектра архитектурных решений"
 echo -e "    ${BRIGHT_BLUE}/fnr-debate${NC}               — Дебаты: Архитектор vs Адвокат Дьявола"
 echo -e "    ${BRIGHT_BLUE}/fnr-system-requirements${NC}  — Формирование BR/FR/NFR + Jira"
-echo -e "    ${BRIGHT_BLUE}/project-map${NC}             — Построение графа проекта (Neo4j)"
 echo ""
 echo -e "${YELLOW}⚠️  Важно: Перезагрузите окно вашей IDE (Reload Window) для активации.${NC}"
 echo -e "${BLUE}----------------------------------------------------------------------${NC}"
