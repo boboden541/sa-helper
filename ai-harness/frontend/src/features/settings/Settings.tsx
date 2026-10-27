@@ -664,9 +664,9 @@ function Providers() {
 /* ==================== Агенты и матрица ==================== */
 
 function AgentsAndMatrix() {
-  const [agents, setAgents] = useState<{ id: string; name: string; role: string; skillMd: string; connectionId: string; isPreset: boolean; model: string; allowedTools: string[]; mcpServers: Record<string, unknown> | null; agentDir: string; skills: string[] }[]>([])
+  const [agents, setAgents] = useState<{ id: string; name: string; role: string; connectionId: string; isPreset: boolean; model: string; allowedTools: string[]; mcpServers: Record<string, unknown> | null; agentDir: string; skills: string[] }[]>([])
   const [users, setUsers] = useState<{ id: string; name: string; userType: string }[]>([])
-  const [editor, setEditor] = useState<{ id?: string; name: string; role: string; skillMd: string; model: string; tools: string; mcpJson: string; agentDir: string; skills: string[] } | null>(null)
+  const [editor, setEditor] = useState<{ id?: string; name: string; role: string; model: string; tools: string; mcpJson: string; agentDir: string; skills: string[] } | null>(null)
   const [regSkills, setRegSkills] = useState<{ name: string; status: string }[]>([])
   const [note, setNote] = useState<string | null>(null)
     const reload = async () => {
@@ -697,7 +697,7 @@ function AgentsAndMatrix() {
     if (editor.mcpJson.trim()) {
       try { mcp = JSON.parse(editor.mcpJson) } catch { setNote('MCP-серверы: некорректный JSON'); return }
     }
-    const payload = { name: editor.name, role: editor.role, skillMd: editor.skillMd,
+    const payload = { name: editor.name, role: editor.role,
       model: editor.model, allowedTools: editor.tools.split(/[\s,]+/).filter(Boolean),
       mcpServers: mcp, agentDir: editor.agentDir.trim(), skills: editor.skills }
     const res = editor.id
@@ -717,7 +717,7 @@ function AgentsAndMatrix() {
         <div className="q-sec" style={{ margin: 0 }}>Пользователи-агенты</div>
         <span className="sp" />
         <button className="btn primary small" onClick={() => setEditor({
-          name: '', role: '', skillMd: '## Роль и цель\nОдин абзац: за что агент отвечает.\n\n## Процедура\n1. …\n\n## Критерии качества\n- …\n\n## Формат результата\n- …\n\n## Ограничения\n- …',
+          name: '', role: '',
           model: '', tools: '', mcpJson: '', agentDir: '', skills: [] })}>＋ Агент</button>
       </div>
       <div className="agents-grid">
@@ -728,7 +728,7 @@ function AgentsAndMatrix() {
               <b>{a.name}</b>
               {a.isPreset && <span className="mini-chip">предустановленный</span>}
               <span className="sp" />
-              <button className="link" style={{ fontSize: 12 }} onClick={() => setEditor({ id: a.id, name: a.name, role: a.role, skillMd: a.skillMd, model: a.model ?? '', tools: (a.allowedTools ?? []).join(', '), mcpJson: a.mcpServers ? JSON.stringify(a.mcpServers, null, 2) : '', agentDir: a.agentDir ?? '', skills: a.skills ?? [] })}>править</button>
+              <button className="link" style={{ fontSize: 12 }} onClick={() => setEditor({ id: a.id, name: a.name, role: a.role, model: a.model ?? '', tools: (a.allowedTools ?? []).join(', '), mcpJson: a.mcpServers ? JSON.stringify(a.mcpServers, null, 2) : '', agentDir: a.agentDir ?? '', skills: a.skills ?? [] })}>править</button>
               <span className="muted">·</span>
               <button className="link" style={{ fontSize: 12 }} onClick={() => void clone(a.id)}>клонировать</button>
               <span className="muted">·</span>
@@ -784,8 +784,6 @@ function AgentsAndMatrix() {
               <label>MCP-серверы — JSON (необязательно), например {'{"graph": {"type": "http", "url": "http://host.docker.internal:8000/mcp"}}'} (пусто — без MCP)</label>
               <textarea rows={3} className="mono" value={editor.mcpJson}
                 onChange={(e) => setEditor({ ...editor, mcpJson: e.target.value })} /></div>
-            <div className="f-field" style={{ gridColumn: '1 / -1' }}><label>Скилл (markdown: роль, процедура, критерии, формат, ограничения)</label>
-              <textarea rows={12} value={editor.skillMd} onChange={(e) => setEditor({ ...editor, skillMd: e.target.value })} /></div>
           </div>
           <div className="flex mt12">
             <button className="btn primary" onClick={() => void saveEditor()}>Сохранить</button>

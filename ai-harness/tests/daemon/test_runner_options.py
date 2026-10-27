@@ -8,7 +8,7 @@ from daemon.runner.agent_runner import RunRequest, _link_agent_dir, _options_kwa
 
 
 def _req(**kw) -> RunRequest:
-    return RunRequest(task_code="AH-1", skill_md="s", context_md="c", **kw)
+    return RunRequest(task_code="AH-1", context_md="c", persona="Тестер — роль", **kw)
 
 
 def test_options_new_sdk_keeps_all():

@@ -40,7 +40,6 @@ class AgentProfile(Base):
 
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"), primary_key=True)
     role: Mapped[str] = mapped_column(String(200))
-    skill_md: Mapped[str] = mapped_column(Text)
     connection_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("connection.id"))  # NULL = активное
     is_preset: Mapped[bool] = mapped_column(Boolean, default=False)
     preset_source: Mapped[dict | None] = mapped_column(JSONB)  # исходный скилл для сброса

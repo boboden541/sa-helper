@@ -523,7 +523,6 @@ async def connections_delete(connection_id: str,
 class AgentIn(BaseModel):
     name: str | None = None
     role: str | None = None
-    skill_md: str | None = Field(default=None, alias="skillMd")
     connection_id: str | None = Field(default=None, alias="connectionId")
     model: str | None = None  # модель прогона («мост», 27.10.2026)
     allowed_tools: list[str] | None = Field(default=None, alias="allowedTools")
@@ -543,7 +542,7 @@ async def agents_list(session: AsyncSession = Depends(get_session),
         .join(AgentProfile, AgentProfile.user_id == User.id)
         .where(User.is_service.is_(False)))).all()
     return [{"id": str(u.id), "name": u.name, "role": p.role,
-             "skillMd": p.skill_md, "connectionId": str(p.connection_id or ""),
+             "connectionId": str(p.connection_id or ""),
              "isPreset": p.is_preset, "model": p.model or "",
              "allowedTools": p.allowed_tools or [], "mcpServers": p.mcp_servers,
              "agentDir": p.agent_dir or "", "skills": p.skills or []} for u, p in rows]
@@ -586,7 +585,6 @@ async def agents_clone(agent_id: str, session: AsyncSession = Depends(get_sessio
     session.add(user)
     await session.flush()
     session.add(AgentProfile(user_id=user.id, role=src_profile.role,
-                             skill_md=src_profile.skill_md,
                              connection_id=src_profile.connection_id,
                              is_preset=False,
                              model=src_profile.model,

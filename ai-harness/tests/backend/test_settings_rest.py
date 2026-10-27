@@ -284,7 +284,7 @@ async def test_agent_runner_options_roundtrip(session, actor_id, tmp_path):
     folder = tmp_path / "claude"
     folder.mkdir()
     user = await create_agent(session, {
-        "name": "Мост-агент", "role": "исполнитель", "skill_md": "скилл",
+        "name": "Мост-агент", "role": "исполнитель",
         "model": "glm-5.3-flash", "allowed_tools": ["Read", "Bash"],
         "mcp_servers": {"graph": {"type": "http", "url": "http://x/mcp"}},
         "agent_dir": str(folder)})

@@ -50,7 +50,7 @@ export const api = {
     request<{ ok: boolean }>(`/api/v1/matrix/${typeKey}/${statusKey}`, {
       method: 'PUT', body: JSON.stringify({ statusKey, entries }),
     }),
-  agents: () => request<{ id: string; name: string; role: string; skillMd: string; connectionId: string; isPreset: boolean; model: string; allowedTools: string[]; mcpServers: Record<string, unknown> | null; agentDir: string; skills: string[] }[]>('/api/v1/agents'),
+  agents: () => request<{ id: string; name: string; role: string; connectionId: string; isPreset: boolean; model: string; allowedTools: string[]; mcpServers: Record<string, unknown> | null; agentDir: string; skills: string[] }[]>('/api/v1/agents'),
   toolContent: (kind: string, name: string) => request<{ kind: string; name: string; relPath: string; description?: string; content: string; changed: boolean }>(`/api/v1/tools/${kind}/${name}`),
   toolWrite: (kind: string, name: string, content: string) => request<{ ok: boolean; hash: string }>(`/api/v1/tools/${kind}/${name}`, { method: 'PUT', body: JSON.stringify({ content }) }),
   users: () => request<{ id: string; name: string; userType: string }[]>('/api/v1/users'),

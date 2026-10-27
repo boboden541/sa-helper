@@ -249,11 +249,12 @@ class Daemon:
                     sa.select(Task).where(Task.code == task_code))).scalar_one()
                 agent = await session.get(User, agent_id)
                 profile = (await session.execute(
-                    sa.text("SELECT skill_md, model, allowed_tools, mcp_servers, agent_dir "
+                    sa.text("SELECT role, model, allowed_tools, mcp_servers, agent_dir, skills "
                             "FROM agent_profile WHERE user_id = :u"),
                     {"u": str(agent_id)},
                 )).mappings().one_or_none()
-                skill = (profile or {}).get("skill_md") or "Ты исполнитель этапа конвейера."
+                # персона агента — одна строка; методологии живут в назначенных скиллах
+                persona = (f"{agent.name} — {(profile or {}).get('role') or 'исполнитель этапа конвейера'}"[:300])
 
                 worktree = await self._ensure_worktree(session, task)
 
@@ -278,7 +279,7 @@ class Daemon:
                 agent_dir = ((profile or {}).get("agent_dir")
                              or (cfg.get("agents.tools_dir") or "").strip() or None)
                 req_kwargs: dict = dict(
-                    task_code=task_code, skill_md=skill,
+                    task_code=task_code, persona=persona,
                     context_md=await self._context_md(session, task),
                     worktree_path=worktree,
                     provider=await self._provider_for(session, agent_id),

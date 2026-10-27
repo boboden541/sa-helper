@@ -25,8 +25,8 @@ EventFn = Callable[..., Awaitable[None]]
 @dataclass
 class RunRequest:
     task_code: str
-    skill_md: str
     context_md: str
+    persona: str | None = None   # «Имя — роль»: единственная персона-строка от агента
     worktree_path: Path | None = None
     provider: dict | None = None   # {protocol,url,model,token} расшифрован только здесь
     timeouts: dict = field(default_factory=lambda: {"start": 300, "work": 1800})
@@ -106,8 +106,12 @@ def _tail(s: str, n: int = 600) -> str:
 
 
 def _build_prompt(req: RunRequest) -> str:
-    """Промт прогона: скилл агента + контекст задачи + явно назначенные скиллы + контракт отчёта."""
-    parts = [f"# Скилл\n{req.skill_md}\n\n# Контекст задачи\n{req.context_md}"]
+    """Промт прогона: персона + контекст задачи + назначенные скиллы + контракт отчёта.
+
+    Свободного текста у агента больше нет (решение владельца 27.10.2026):
+    методологии — в скиллах реестра, персона — одна строка «Имя — роль»."""
+    parts = [f"Ты — {req.persona or 'исполнитель этапа конвейера'}.",
+             f"# Контекст задачи\n{req.context_md}"]
     if req.skills_md:
         parts.append("# Подключённые скиллы (реестр инструментов)\n" + "\n\n".join(req.skills_md))
     parts.append(REPORT_CONTRACT)
@@ -320,7 +324,7 @@ class FakeRunner:
         async def beat() -> None:
             await asyncio.sleep(1.2)  # темп, похожий на реального агента
 
-        await req.emit("prompt", text=f"# Скилл\n{req.skill_md}\n\n# Контекст\n{req.context_md}")
+        await req.emit("prompt", text=_build_prompt(req))
         await req.emit("system", text="сессия агента запущена (демо-режим без SDK)",
                        data={"model": "fake", "cwd": str(req.worktree_path or ".")})
         await beat()

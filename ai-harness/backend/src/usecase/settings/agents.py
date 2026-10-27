@@ -102,7 +102,6 @@ async def create_agent(session: AsyncSession, data: dict) -> User:
     profile = AgentProfile(
         user_id=user.id,
         role=data.get("role") or "исполнитель этапа конвейера",
-        skill_md=data.get("skill_md") or "",
         connection_id=data.get("connection_id"),
         is_preset=bool(data.get("is_preset")),
         preset_source=data.get("preset_source"),
@@ -118,7 +117,7 @@ async def update_agent(session: AsyncSession, user_id: uuid.UUID, fields: dict) 
         sa.select(AgentProfile).where(AgentProfile.user_id == user_id))).scalar_one_or_none()
     if profile is None:
         raise DomainError("Агент не найден")
-    for field in ("role", "skill_md", "connection_id"):
+    for field in ("role", "connection_id"):
         if field in fields:
             setattr(profile, field, fields[field])
     # опции раннера меняются только явно переданными ключами (пустая строка/JSON = сброс)
@@ -154,7 +153,6 @@ async def reset_preset_agent(session: AsyncSession, user_id: uuid.UUID) -> None:
     if profile is None or not profile.is_preset or not profile.preset_source:
         raise DomainError("Сброс доступен только предустановленным агентам")
     profile.role = profile.preset_source.get("role", profile.role)
-    profile.skill_md = profile.preset_source.get("skill_md", profile.skill_md)
     await session.commit()
 
 
