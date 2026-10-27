@@ -132,14 +132,63 @@ def _options_kwargs(req: RunRequest, fields: set[str]) -> dict:
     return {k: v for k, v in kwargs.items() if k in fields}
 
 
-def _materialize_agent_dir(agent_dir: str, worktree) -> int:
-    """Копирует папку агентов пользователя в worktree как .claude (с дополнением)."""
-    import shutil
+def _link_agent_dir(agent_dir: str, worktree) -> str:
+    """Подключает папку инструментов к worktree БЕЗ копии (решение владельца 27.10.2026:
+    SA-Helper уже установлен в папке — плодить копии по каждой задаче нельзя).
 
-    src = Path(agent_dir).expanduser()
+    Симлинк (Windows — junction, совсем без прав — копия). Ссылка живая: правки
+    пользователя в папке сразу видны агенту. Возвращает способ подключения."""
+    import shutil
+    import sys
+
+    src = Path(agent_dir).expanduser().resolve()
     dst = Path(worktree) / ".claude"
-    shutil.copytree(src, dst, dirs_exist_ok=True)
-    return sum(1 for p in dst.rglob("*") if p.is_file())
+    if dst.is_symlink():
+        dst.unlink()
+    elif dst.exists():  # копия от прежней версии механики
+        shutil.rmtree(dst)
+    mode = "симлинк"
+    try:
+        dst.symlink_to(src, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        linked = False
+        if sys.platform == "win32":
+            try:
+                import _winapi
+
+                _winapi.CreateJunction(str(src), str(dst))
+                mode, linked = "junction", True
+            except OSError:
+                pass
+        if not linked:
+            shutil.copytree(src, dst, dirs_exist_ok=True)
+            mode = "копия"
+    _exclude_from_git(worktree, ".claude/")
+    return mode
+
+
+def _exclude_from_git(worktree, pattern: str) -> None:
+    """Прячет служебную папку из git-статуса агента (только внутри worktree)."""
+    dot_git = Path(worktree) / ".git"
+    try:
+        if dot_git.is_file():  # linked worktree: файл «gitdir: …»
+            target = dot_git.read_text(encoding="utf-8").strip()
+            gitdir = Path(target.removeprefix("gitdir:").strip())
+            if not gitdir.is_absolute():
+                gitdir = (Path(worktree) / gitdir).resolve()
+        elif dot_git.is_dir():
+            gitdir = dot_git
+        else:
+            return
+        info = gitdir / "info"
+        info.mkdir(parents=True, exist_ok=True)
+        exclude = info / "exclude"
+        lines = exclude.read_text(encoding="utf-8").splitlines() if exclude.exists() else []
+        if pattern not in lines:
+            lines.append(pattern)
+            exclude.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    except OSError:
+        pass  # не критично: worst case — .claude видна в git status
 
 
 def _sdk_env(provider: dict | None) -> dict[str, str]:
@@ -182,9 +231,9 @@ class ClaudeCodeRunner:
         opts_cls = _options_cls(self._sdk)
         fields = {f.name for f in dataclasses.fields(opts_cls)}
         if req.agent_dir and req.worktree_path:
-            copied = _materialize_agent_dir(req.agent_dir, req.worktree_path)
-            await req.emit("system", text=f"подключена папка агентов: {req.agent_dir} "
-                                         f"({copied} файлов → .claude)")
+            mode = _link_agent_dir(req.agent_dir, req.worktree_path)
+            await req.emit("system", text=f"папка инструментов подключена ({mode}): "
+                                         f"{req.agent_dir} → .claude")
         options = opts_cls(**_options_kwargs(req, fields))
         env = _sdk_env(req.provider)
         if env:

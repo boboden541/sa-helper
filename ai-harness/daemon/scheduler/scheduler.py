@@ -274,7 +274,9 @@ class Daemon:
 
                 from infrastructure.paths import host_to_container
 
-                agent_dir = (profile or {}).get("agent_dir")
+                # приоритет: свой путь агента → глобальная папка инструментов (одна на все проекты)
+                agent_dir = ((profile or {}).get("agent_dir")
+                             or (cfg.get("agents.tools_dir") or "").strip() or None)
                 req_kwargs: dict = dict(
                     task_code=task_code, skill_md=skill,
                     context_md=await self._context_md(session, task),
@@ -487,6 +489,7 @@ class Daemon:
         from repository.models import Project
 
         from infrastructure.git.worktree import GitError, merge_task_branch
+        from usecase.task.transition import TransitionDenied
 
         project = await session.get(Project, task.project_id)
         try:

@@ -624,6 +624,53 @@ async def agents_delete(agent_id: str, session: AsyncSession = Depends(get_sessi
     return {"ok": True}
 
 
+@router.get("/agents-tools-dir")
+async def agents_tools_dir_get(session: AsyncSession = Depends(get_session),
+                               actor: User = Depends(get_actor)):
+    """Глобальная папка инструментов — один путь на все проекты (решение владельца 27.10.2026)."""
+    import os
+
+    import sqlalchemy as sa
+
+    from infrastructure.paths import host_to_container
+    from repository.models import AppSetting
+
+    val = (await session.execute(
+        sa.select(AppSetting.value).where(AppSetting.key == "agents.tools_dir")
+    )).scalar_one_or_none() or ""
+    return {"toolsDir": val,
+            "found": bool(val) and os.path.isdir(host_to_container(val))}
+
+
+@router.put("/agents-tools-dir")
+async def agents_tools_dir_set(payload: dict, session: AsyncSession = Depends(get_session),
+                               actor: User = Depends(get_actor)):
+    import os
+
+    import sqlalchemy as sa
+
+    from infrastructure.paths import host_to_container
+    from repository.models import AppSetting
+
+    val = (payload.get("toolsDir") or "").strip()
+    if val and not os.path.isdir(host_to_container(val)):
+        raise ApiError(400, f"Папка инструментов не найдена: {val} — укажите существующую "
+                            "(например папку .claude, куда SA-Helper установлен install.sh)")
+    row = (await session.execute(
+        sa.select(AppSetting).where(AppSetting.key == "agents.tools_dir"))).scalar_one_or_none()
+    old = row.value if row else ""
+    if row is None:
+        session.add(AppSetting(key="agents.tools_dir", value=val))
+    else:
+        row.value = val
+    from usecase.journal.settings_journal import record_and_commit
+
+    await record_and_commit(session, actor.id, "agents",
+                            "Изменена глобальная папка инструментов",
+                            [{"field": "agents.tools_dir", "old": old, "new": val}])
+    return {"ok": True, "toolsDir": val}
+
+
 @router.post("/agents/{agent_id}/reset")
 async def agents_reset(agent_id: str, session: AsyncSession = Depends(get_session),
                        actor: User = Depends(get_actor)):

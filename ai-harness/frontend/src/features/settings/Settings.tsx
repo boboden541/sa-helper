@@ -671,6 +671,25 @@ function AgentsAndMatrix() {
   }
   useEffect(() => { void reload() }, [])
 
+  const [toolsDir, setToolsDir] = useState('')
+  const [toolsInfo, setToolsInfo] = useState('')
+  useEffect(() => {
+    void fetch('/api/v1/agents-tools-dir').then((r) => r.json()).then((d) => {
+      setToolsDir(d.toolsDir ?? '')
+      setToolsInfo(d.toolsDir ? (d.found ? 'папка найдена — отслеживается' : 'папка не найдена') : '')
+    }).catch(() => {})
+  }, [])
+
+  const saveToolsDir = async () => {
+    const res = await fetch('/api/v1/agents-tools-dir', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ toolsDir: toolsDir.trim() }) })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) { setNote(body.message); return }
+    setNote(null)
+    toast(toolsDir.trim() ? 'Папка инструментов сохранена' : 'Папка инструментов очищена', 'ok')
+    setToolsInfo(toolsDir.trim() ? 'сохранено' : '')
+  }
+
   const clone = async (id: string) => {
     const res = await fetch(`/api/v1/agents/${id}/clone`, { method: 'POST' })
     const body = await res.json().catch(() => ({}))
@@ -712,6 +731,19 @@ function AgentsAndMatrix() {
           name: '', role: '', skillMd: '## Роль и цель\nОдин абзац: за что агент отвечает.\n\n## Процедура\n1. …\n\n## Критерии качества\n- …\n\n## Формат результата\n- …\n\n## Ограничения\n- …',
           model: '', tools: '', mcpJson: '', agentDir: '' })}>＋ Агент</button>
       </div>
+      <div className="agent-editor" style={{ marginBottom: 12 }}>
+        <div className="ag-fields">
+          <div className="f-field" style={{ gridColumn: '1 / -1' }}>
+            <label>Папка инструментов — один путь на все проекты (папка .claude, куда SA-Helper установлен install.sh); подключается к работе агентов как есть, без копий</label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input className="mono" value={toolsDir} placeholder="/Users/raaliev/…/sa-helper/.claude"
+                onChange={(e) => setToolsDir(e.target.value)} />
+              <button className="btn" onClick={() => void saveToolsDir()}>Сохранить</button>
+            </div>
+            {toolsInfo && <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{toolsInfo}</div>}
+          </div>
+        </div>
+      </div>
       <div className="agents-grid">
         {agents.map((a) => (
           <div key={a.id} className="agent-card">
@@ -752,7 +784,7 @@ function AgentsAndMatrix() {
               <input value={editor.tools} placeholder="Read, Edit, Bash"
                 onChange={(e) => setEditor({ ...editor, tools: e.target.value })} /></div>
             <div className="f-field" style={{ gridColumn: '1 / -1' }}>
-              <label>Папка агентов на вашем компьютере (необязательно) — содержимое копируется в рабочую директорию задачи как .claude: скиллы, команды, субагенты</label>
+              <label>Папка агентов на вашем компьютере (необязательно) — подключается к работе агента без копий: скиллы, команды, субагенты. Если пусто — берётся глобальная папка инструментов</label>
               <input className="mono" value={editor.agentDir} placeholder="/Users/raaliev/…/sa-helper/.claude"
                 onChange={(e) => setEditor({ ...editor, agentDir: e.target.value })} /></div>
             <div className="f-field" style={{ gridColumn: '1 / -1' }}>

@@ -313,3 +313,31 @@ async def test_agent_runner_options_validation(session, actor_id, tmp_path):
         _clean_runner_fields({"allowed_tools": ["Web Search"]})
     with pytest.raises(DomainError, match="не найдена"):
         _clean_runner_fields({"agent_dir": str(tmp_path / "нет-такой")})
+
+
+# ---------- глобальная папка инструментов (решение владельца 27.10.2026) ----------
+
+async def test_agents_tools_dir_roundtrip(client, session, tmp_path):
+    """Один путь на все проекты: сохранение, негатив, сброс."""
+    r = await client.get("/api/v1/agents-tools-dir")
+    assert r.status_code == 200
+    before = r.json()["toolsDir"]
+
+    folder = tmp_path / "claude"
+    folder.mkdir()
+    r2 = await client.put("/api/v1/agents-tools-dir", json={"toolsDir": str(folder)})
+    assert r2.status_code == 200 and r2.json()["toolsDir"] == str(folder)
+
+    r3 = await client.get("/api/v1/agents-tools-dir")
+    assert r3.json()["toolsDir"] == str(folder) and r3.json()["found"] is True
+
+    r4 = await client.put("/api/v1/agents-tools-dir", json={"toolsDir": str(tmp_path / "нет")})
+    assert r4.status_code == 400 and "не найдена" in r4.json()["message"]
+
+    r5 = await client.put("/api/v1/agents-tools-dir", json={"toolsDir": ""})
+    assert r5.status_code == 200
+    r6 = await client.get("/api/v1/agents-tools-dir")
+    assert r6.json()["toolsDir"] == "" and r6.json()["found"] is False
+
+    if before:  # вернуть как было — не ломать другие тесты
+        await client.put("/api/v1/agents-tools-dir", json={"toolsDir": before})
