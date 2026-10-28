@@ -135,9 +135,12 @@ def _build_tools(register_intent):
             " FROM task_run r WHERE r.task_id = t.id) AS tok "
             "FROM task t JOIN task_type tt ON tt.id = t.task_type_id "
             "WHERE t.story_id = :i ORDER BY t.code", {"i": str(story["id"])})
+        # tok — NUMERIC из sum() → Decimal, json.dumps его не переваривает
+        tasks = [{"code": k["code"], "type": k["tp"], "status": k["st"],
+                  "title": k["title"], "tokens": int(k["tok"] or 0)} for k in kids]
         out = {"story": f"{story['code']} [{story['st']}] {story['title']}",
-               "tasks": [dict(k) for k in kids],
-               "total_tokens": sum(int(k["tok"] or 0) for k in kids)}
+               "tasks": tasks,
+               "total_tokens": sum(t["tokens"] for t in tasks)}
         return {"content": [{"type": "text", "text": _cap(json.dumps(out, ensure_ascii=False, indent=1))}]}
 
     @tool("projects_status", "Проекты: открытые задачи, пауза конвейера, активные прогоны", {})
