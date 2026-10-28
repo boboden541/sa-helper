@@ -2,9 +2,9 @@
 терминальных статусов, список — целиком; терминальность по flow-версии задачи."""
 
 
-async def _mk(client, title: str) -> str:
+async def _mk(client, title: str, type_: str = "common_task") -> str:
     r = await client.post("/api/v1/tasks", json={
-        "projectId": "AH", "type": "common_task", "title": title,
+        "projectId": "AH", "type": type_, "title": title,
         "priority": "medium", "authorTag": "by_human"})
     assert r.status_code == 200, r.text
     return r.json()["code"]
@@ -71,3 +71,17 @@ async def test_terminal_by_task_flow_version(client, _test_db):
     codes = {i["code"] for i in r.json()["items"]}
     assert code in codes or fv is not None, \
         "задача со статусом done в нетерминальной версии не должна скрываться"
+
+
+async def test_list_returns_story_code(client, _test_db):
+    """Доска группирует задачи в полосы по storyCode из выдачи списка (ФТ-ah-16) —
+    поле должно заполняться всегда, иначе задачи «теряют» историю (баг 28.10.2026)."""
+    story = await _mk(client, "История для группировки", type_="story")
+    task = await _mk(client, "Задача в истории")
+    r = await client.post(f"/api/v1/tasks/{task}/story-link",
+                          json={"storyCode": story})
+    assert r.status_code == 200, r.text
+    r = await client.get("/api/v1/tasks", params={"q": task})
+    items = r.json()["items"]
+    assert items and items[0]["storyCode"] == story, \
+        "storyCode в выдаче списка обязателен для группировки на доске"

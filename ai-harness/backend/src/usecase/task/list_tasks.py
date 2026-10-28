@@ -38,6 +38,13 @@ def build_query(projects: list[str] | None = None,
     самой задачи."""
     type_t = TaskType.__table__
     flow_status_t = FlowStatus.__table__
+    # код истории задачи (доска группирует задачи в полосы по storyCode)
+    story_t = sa.alias(Task.__table__)
+    story_sq = (
+        sa.select(story_t.c.code)
+        .where(story_t.c.id == Task.story_id)
+        .correlate(Task).scalar_subquery()
+    )
 
     proj_t = Project.__table__
     # суммарный расход токенов по всем прогонам задачи (решение владельца 27.10.2026)
@@ -52,6 +59,7 @@ def build_query(projects: list[str] | None = None,
             type_t.c.key.label("type_key"),
             User.name.label("agent_name"),
             proj_t.c.mnemonic.label("project_mnemonic"),
+            story_sq.label("story_code"),
             tokens_sq.label("tokens_used"),
         )
         .join(type_t, type_t.c.id == Task.task_type_id)
@@ -110,6 +118,7 @@ async def list_tasks(
             status_key=row.Task.status_key,
             project=row.project_mnemonic or "",
             psi_path=row.Task.psi_path,
+            story_code=row.story_code,
             agent={"name": row.agent_name} if row.agent_name else None,
             tokens_used=int(row.tokens_used or 0),
         )
