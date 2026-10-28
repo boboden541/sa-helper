@@ -269,11 +269,22 @@ SYSTEM_PROMPT = """Ты — Eve, встроенный ИИ-агент AI-Harness
 async def agent_reply(session, user, text: str, register_intent,
                       screen_task_code: str | None = None,
                       edits_confirmed: bool = False,
-                      emit=None) -> dict | None:
-    """Запускает Eve-агента. None → вызывающий код отвечает прежним режимом."""
+                      emit=None, turn_id: str | None = None) -> dict | None:
+    """Запускает Eve-агента. None → вызывающий код отвечает прежним режимом.
+
+    Память диалога: резюмится CLI-сессия (app_setting eve.session_id.<user>);
+    при неудаче — свежий запуск с блоком истории чата. Изменяющие действия —
+    через propose_action → «да». turn_id — ключ стоп-кнопки прерывания."""
+
+    def _emit(event: dict) -> None:
+        if emit:
+            try:
+                emit(event)
+            except Exception:  # noqa: BLE001 — клиент мог отключиться
+                pass
 
     if not sdk_available():
-        log.warning('eve_agent откат: %s', 'sdk_available=False')
+        log.warning("eve_agent откат: SDK/CLI недоступны")
         return None
     try:
         from claude_agent_sdk import ClaudeAgentOptions, HookMatcher, query
@@ -285,12 +296,12 @@ async def agent_reply(session, user, text: str, register_intent,
         "SELECT id, protocol, url, model, name FROM connection "
         "WHERE is_active LIMIT 1"))).mappings().first()
     if conn is None:
-        log.warning('eve_agent откат: %s', 'нет активного провайдера')
+        log.warning("eve_agent откат: нет активного провайдера")
         return None
     env_model = await _env_and_model(session, conn)
     if env_model is None:
-        log.warning('eve_agent откат: %s', 'протокол не anthropic')
-        return None  # не anthropic-протокол — SDK не примет; отвечает прежний режим
+        log.warning("eve_agent откат: протокол не anthropic")
+        return None
     env, model = env_model
 
     server, harness_tools = _build_tools(register_intent)
@@ -298,116 +309,172 @@ async def agent_reply(session, user, text: str, register_intent,
     allowed = ["Read", "Grep", "Glob", "Bash", "WebFetch"] + harness_tools
     if edits_confirmed:
         allowed += ["Edit", "Write"]
-    note = ("\n\nПользователь подтвердил применение правок из предыдущего ответа — "
-            "примени их точно, только обозначенные изменения." if edits_confirmed else "")
 
-    answer_parts: list[str] = []
-    result_text: str | None = None
-    tools_used = 0
-    stderr_lines: list[str] = []
-    def _emit(event: dict) -> None:
-        if emit:
-            try:
-                emit(event)
-            except Exception:  # noqa: BLE001 — клиент мог отключиться
-                pass
+    # подпись статуса и лента инструментов: GLM через z.ai приходит с пустыми
+    # AssistantMessage — живой процесс берём из PreToolUse-хука и thinking_tokens
+    feed: list[str] = []
 
-    # GLM через z.ai приходит с пустыми AssistantMessage — видимых
-    # thinking/tool_use блоков нет. Живой процесс берём из двух надёжных
-    # источников: хук PreToolUse (каждый вызов инструмента) и
-    # SystemMessage thinking_tokens (объём размышлений).
     async def _pre_tool(input_data, tool_use_id=None, context=None):
         data = input_data if isinstance(input_data, dict) else {}
         name = data.get("tool_name", "?")
         ti = data.get("tool_input") or {}
         hint = (ti.get("code") or ti.get("file_path") or ti.get("command")
                 or ti.get("pattern") or ti.get("q") or "")
-        _emit({"type": "progress",
-               "detail": f"инструмент {name} {str(hint)[:90]}".rstrip()})
+        line = f"🔧 {name} {str(hint)[:80]}".rstrip()
+        feed.append(line)
+        _emit({"type": "progress", "detail": f"инструмент {name} {str(hint)[:90]}".rstrip()})
         return {}
-
-    options = ClaudeAgentOptions(
-        cwd=home,
-        allowed_tools=allowed,
-        disallowed_tools=[] if edits_confirmed else ["Edit", "Write", "NotebookEdit"],
-        permission_mode="acceptEdits" if edits_confirmed else "default",
-        max_turns=AGENT_TURNS,
-        mcp_servers={"harness": server},
-        hooks={"PreToolUse": [HookMatcher(hooks=[_pre_tool])]},
-        setting_sources=[],
-        system_prompt=SYSTEM_PROMPT + note,
-        model=model or None,
-        env=env,
-    )
 
     answer_parts: list[str] = []
     result_text: str | None = None
     tools_used = 0
     stderr_lines: list[str] = []
-    options.stderr = lambda line: (stderr_lines.append(line), None)[1] if len(stderr_lines) < 200 else None
-    def _emit(event: dict) -> None:
-        if emit:
-            try:
-                emit(event)
-            except Exception:  # noqa: BLE001 — клиент мог отключиться
-                pass
+    session_id_seen: str | None = None
+    aborted = False
 
-    # GLM через z.ai приходит с пустыми AssistantMessage — видимых
-    # thinking/tool_use блоков нет. Живой процесс берём из двух надёжных
-    # источников: хук PreToolUse (каждый вызов инструмента) и
-    # SystemMessage thinking_tokens (объём размышлений).
-    async def _pre_tool(input_data, tool_use_id=None, context=None):
-        data = input_data if isinstance(input_data, dict) else {}
-        name = data.get("tool_name", "?")
-        ti = data.get("tool_input") or {}
-        hint = (ti.get("code") or ti.get("file_path") or ti.get("command")
-                or ti.get("pattern") or ti.get("q") or "")
-        _emit({"type": "progress",
-               "detail": f"инструмент {name} {str(hint)[:90]}".rstrip()})
-        return {}
+    def _options(resume_sid: str | None):
+        options = ClaudeAgentOptions(
+            cwd=home,
+            allowed_tools=allowed,
+            disallowed_tools=[] if edits_confirmed else ["Edit", "Write", "NotebookEdit"],
+            permission_mode="acceptEdits" if edits_confirmed else "default",
+            max_turns=AGENT_TURNS,
+            mcp_servers={"harness": server},
+            hooks={"PreToolUse": [HookMatcher(hooks=[_pre_tool])]},
+            setting_sources=[],
+            system_prompt=SYSTEM_PROMPT,
+            model=model or None,
+            env=env,
+        )
+        if resume_sid:
+            options.resume = resume_sid
+        options.stderr = lambda line: (
+            (stderr_lines.append(line), None)[1] if len(stderr_lines) < 200 else None)
+        return options
 
-    try:
-        async for message in query(prompt=text, options=options):
-            kind = type(message).__name__
-            if kind == "SystemMessage":
-                data = getattr(message, "data", None)
-                if isinstance(data, dict) and data.get("subtype") == "thinking_tokens":
-                    est = data.get("estimated_tokens")
-                    _emit({"type": "progress",
-                           "detail": f"думает… (~{est} ток. размышлений)"})
-            elif kind == "AssistantMessage":
-                for block in getattr(message, "content", []) or []:
-                    btype = getattr(block, "type", "")
-                    if btype == "thinking":
-                        preview = (getattr(block, "thinking", "") or "").strip()[:120]
+    async def run_once(resume_sid: str | None, prompt: str) -> Exception | None:
+        nonlocal result_text, tools_used, session_id_seen, aborted
+        try:
+            async for message in query(prompt=prompt, options=_options(resume_sid)):
+                if _aborted(turn_id):
+                    aborted = True
+                    break
+                kind = type(message).__name__
+                if kind == "SystemMessage":
+                    data = getattr(message, "data", None)
+                    if isinstance(data, dict) and data.get("subtype") == "thinking_tokens":
                         _emit({"type": "progress",
-                               "detail": f"думает: {preview}…" if preview else "думает…"})
-                    elif btype == "tool_use":
-                        tools_used += 1
-                        inp = getattr(block, "input", None) or {}
-                        hint = inp.get("code") or inp.get("args") or inp.get("title") or ""
-                        _emit({"type": "progress",
-                               "detail": f"инструмент {getattr(block, 'name', '?')} {str(hint)[:80]}"})
-                    elif btype == "text":
-                        chunk = block.text
-                        answer_parts.append(chunk)
-                        _emit({"type": "delta", "text": chunk})
-            elif kind == "ResultMessage":
-                # GLM через z.ai может отдавать AssistantMessage с пустым
-                # контентом — итоговый текст живёт в ResultMessage.result
-                result_text = (getattr(message, "result", None) or "").strip() or result_text
-                if getattr(message, "is_error", False) and not answer_parts and not result_text:
-                    return {"reply": f"Агент завершился с ошибкой: "
-                                     f"{getattr(message, 'result', '') or 'без деталей'}"}
-    except Exception as err:  # noqa: BLE001 — двухслойный ответ наружу
-        log.warning("eve_agent упал: %s", err, exc_info=True)
+                               "detail": f"думает… (~{data.get('estimated_tokens')} ток. размышлений)"})
+                elif kind == "AssistantMessage":
+                    for block in getattr(message, "content", []) or []:
+                        btype = getattr(block, "type", "")
+                        if btype == "text":
+                            answer_parts.append(block.text)
+                            _emit({"type": "delta", "text": block.text})
+                        elif btype == "tool_use":
+                            tools_used += 1
+                elif kind == "ResultMessage":
+                    sid = getattr(message, "session_id", None)
+                    if sid:
+                        session_id_seen = str(sid)
+                    result_text = (getattr(message, "result", None) or "").strip() or result_text
+                    if getattr(message, "is_error", False) and not answer_parts and not result_text:
+                        return Exception(getattr(message, "result", "") or "ошибка агента")
+        except Exception as err:  # noqa: BLE001 — двухслойный ответ наружу
+            return err
+        return None
+
+    err = await run_once(stored_sid := await _load_session_id(session, user), text)
+    if err is not None and stored_sid:
+        # сессия не resume-ится (устарела) — повтор свежим запуском с историей чата
+        log.warning("eve_agent: resume не удался (%s) — свежий запуск", str(err)[:120])
+        answer_parts.clear()
+        result_text = None
+        history = await _history_block(session, user)
+        err = await run_once(None, f"{history}\n\nЗапрос пользователя: {text}" if history else text)
+    if err is not None:
+        log.warning("eve_agent упал: %s", err, exc_info=err)
         if not answer_parts and not result_text:
             return None  # тихий откат в прежний режим
         answer_parts.append(f"\n\n(обрыв агента: {err})")
+    if _aborted(turn_id):
+        answer_parts.append("\n\n_(прервано пользователем)_")
 
     answer = ("".join(answer_parts).strip() or (result_text or "").strip())
     if not answer:
         log.warning("eve_agent откат: пустой ответ (tools_used=%s, stderr=%s)",
                     tools_used, stderr_lines[-3:])
         return None
+    if feed:
+        block = "\n".join(f"> {l}" for l in feed[-20:])
+        answer = f"{answer}\n\n---\n**Ход работы:**\n\n{block}"
+    if session_id_seen:
+        try:
+            await _save_session_id(session, user, session_id_seen)
+        except Exception:  # noqa: BLE001 — сессия вторична
+            pass
     return {"reply": answer, "agent": True}
+
+
+# --- память диалога, лента инструментов, прерывание (решение владельца 28.10.2026) ---
+
+_ACTIVE_TURNS: dict[str, dict] = {}
+
+
+def register_turn(turn_id: str) -> None:
+    _ACTIVE_TURNS[turn_id] = {"aborted": False}
+
+
+def request_abort(turn_id: str) -> bool:
+    item = _ACTIVE_TURNS.get(turn_id)
+    if item is None:
+        return False
+    item["aborted"] = True
+    return True
+
+
+def _aborted(turn_id: str | None) -> bool:
+    return bool(turn_id and _ACTIVE_TURNS.get(turn_id, {}).get("aborted"))
+
+
+def _session_key(user) -> str:
+    return f"eve.session_id.{user.id}"
+
+
+async def _load_session_id(session, user) -> str | None:
+    row = (await session.execute(sa.text(
+        "SELECT value FROM app_setting WHERE key = :k"),
+        {"k": _session_key(user)})).scalar_one_or_none()
+    return row or None
+
+
+async def _save_session_id(session, user, sid: str) -> None:
+    from repository.models import AppSetting
+
+    exists = (await session.execute(sa.text(
+        "SELECT key FROM app_setting WHERE key = :k"),
+        {"k": _session_key(user)})).scalar_one_or_none()
+    if exists:
+        await session.execute(sa.text(
+            "UPDATE app_setting SET value = :v WHERE key = :k"),
+            {"v": sid, "k": _session_key(user)})
+    else:
+        session.add(AppSetting(key=_session_key(user), value=sid))
+
+
+async def _history_block(session, user, limit: int = 10) -> str:
+    """Последние сообщения чата — контекст диалога для свежего запуска."""
+    from repository.models import ChatMessage
+
+    rows = (await session.execute(sa.text(
+        "SELECT role, body FROM chat_message WHERE user_id = :u "
+        "ORDER BY created_at DESC LIMIT :n"),
+        {"u": str(user.id), "n": limit})).mappings().all()
+    if not rows:
+        return ""
+    lines = []
+    for r in reversed(rows):
+        who = "Eve" if r["role"] == "assistant" else "Пользователь"
+        body = (r["body"] or "").strip()[:400]
+        lines.append(f"{who}: {body}")
+    return "История недавнего диалога:\n" + "\n".join(lines) + "\n"

@@ -40,6 +40,7 @@ export function EveChat({ open, setOpen, navigate, onOpenCreate }: {
   const [input, setInput] = useState('')
   // живой процесс формирования ответа (решение владельца 28.10.2026)
   const [stream, setStream] = useState<{ status: string; text: string } | null>(null)
+  const [turn, setTurn] = useState<string | null>(null)
   const [geom, setGeom] = useState<PanelGeom | null>(loadGeom)
   const boxRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLElement>(null)
@@ -139,9 +140,10 @@ export function EveChat({ open, setOpen, navigate, onOpenCreate }: {
           const line = part.trim()
           if (!line.startsWith('data:')) continue
           const ev = JSON.parse(line.slice(5)) as {
-            type: string; detail?: string; text?: string
+            type: string; turn?: string; detail?: string; text?: string
             reply?: string; action?: string; intent?: { kind: string; task: string; to: string }
           }
+          if (ev.type === 'start' && ev.turn) setTurn(ev.turn)
           if (ev.type === 'progress') setStream((s) => ({ status: ev.detail ?? '', text: s?.text ?? '' }))
           else if (ev.type === 'delta') setStream((s) => ({ status: s?.status ?? '', text: (s?.text ?? '') + (ev.text ?? '') }))
           else if (ev.type === 'done') final = ev
@@ -206,6 +208,14 @@ export function EveChat({ open, setOpen, navigate, onOpenCreate }: {
               <div className="bub md live-bub">
                 <div className="live-status">
                   <span className="dot pulse" style={{ background: '#25935b' }} /> {stream.status || 'формирую ответ…'}
+                  <button className="btn small eve-stop"
+                    onClick={async () => {
+                      if (!turn) return
+                      await fetch('/api/v1/assistant/messages/abort', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        credentials: 'same-origin', body: JSON.stringify({ turn }),
+                      })
+                    }}>■ Стоп</button>
                 </div>
                 {stream.text && (
                   <div className="live-text"

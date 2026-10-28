@@ -46,7 +46,7 @@ async def _find_task(session: AsyncSession, text: str) -> Task | None:
 
 async def handle_message(session: AsyncSession, user: User, text: str,
                          screen_task_code: str | None = None,
-                         emit=None) -> dict:
+                         emit=None, turn_id: str | None = None) -> dict:
     """Обрабатывает фразу; возвращает ответ Eve. Аудит — chat_message всегда.
     emit(dict) — колбэк живого процесса (стриминг агента, решение 28.10.2026)."""
     session.add(ChatMessage(user_id=user.id, role="user", body=text,
@@ -85,7 +85,7 @@ async def handle_message(session: AsyncSession, user: User, text: str,
             result = await eve_agent.agent_reply(
                 session, user, text, _register,
                 screen_task_code=task.code if task else None,
-                edits_confirmed=edits_confirmed, emit=emit)
+                edits_confirmed=edits_confirmed, emit=emit, turn_id=turn_id)
         except Exception as err:  # noqa: BLE001 — агент не поднялся, отвечает прежний режим
             import logging
 

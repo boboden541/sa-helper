@@ -1265,3 +1265,4 @@ button.conn.off:hover{color:var(--accent-text)}
 /* нативный resize:both глушим — масштабирование делает JS-хэндлером
    (с сохранением геометрии в localStorage) */
 .eve-panel{resize:none}
+.eve-stop{margin-left:auto; flex-shrink:0}

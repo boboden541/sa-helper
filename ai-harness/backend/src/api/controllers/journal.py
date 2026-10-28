@@ -150,6 +150,12 @@ async def assistant_message_stream(payload: MessageIn,
 
     from fastapi.responses import StreamingResponse
 
+    import uuid as uuid_mod
+
+    from usecase.assistant import eve_agent
+
+    turn = uuid_mod.uuid4().hex
+    eve_agent.register_turn(turn)
     queue: asyncio.Queue = asyncio.Queue()
 
     def emit(event: dict) -> None:
@@ -158,12 +164,14 @@ async def assistant_message_stream(payload: MessageIn,
     async def run():
         try:
             result = await eve_uc.handle_message(session, actor, payload.text,
-                                                 payload.screenTaskCode, emit=emit)
+                                                 payload.screenTaskCode, emit=emit,
+                                                 turn_id=turn)
         except Exception as err:  # noqa: BLE001 — ошибка уходит в чат
             result = {"reply": f"Внутренняя ошибка: {err}"}
         queue.put_nowait({"type": "done", **result})
 
     async def gen():
+        yield f"data: {json.dumps({'type': 'start', 'turn': turn}, ensure_ascii=False)}\n\n"
         task = asyncio.create_task(run())
         while True:
             event = await queue.get()
@@ -177,6 +185,20 @@ async def assistant_message_stream(payload: MessageIn,
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"X-Accel-Buffering": "no",
                                       "Cache-Control": "no-cache"})
+
+
+class TurnAbortIn(BaseModel):
+    turn: str
+    model_config = ConfigDict(extra="forbid")
+
+
+@router.post("/assistant/messages/abort")
+async def assistant_message_abort(payload: TurnAbortIn,
+                                  actor: User = Depends(get_actor)):
+    """Стоп-кнопка чата Eve: прерывает формирующийся ответ (решение 28.10.2026)."""
+    from usecase.assistant import eve_agent
+
+    return {"ok": eve_agent.request_abort(payload.turn)}
 
 
 @router.post("/assistant/force")
