@@ -268,14 +268,17 @@ SYSTEM_PROMPT = """Ты — Eve, встроенный ИИ-агент AI-Harness
 
 async def agent_reply(session, user, text: str, register_intent,
                       screen_task_code: str | None = None,
-                      edits_confirmed: bool = False) -> dict | None:
+                      edits_confirmed: bool = False,
+                      emit=None) -> dict | None:
     """Запускает Eve-агента. None → вызывающий код отвечает прежним режимом."""
+
     if not sdk_available():
         log.warning('eve_agent откат: %s', 'sdk_available=False')
         return None
     try:
-        from claude_agent_sdk import ClaudeAgentOptions, query
-    except Exception:  # noqa: BLE001
+        from claude_agent_sdk import ClaudeAgentOptions, HookMatcher, query
+    except Exception as err:  # noqa: BLE001
+        log.warning("eve_agent откат: импорт SDK: %s", err)
         return None
 
     conn = (await session.execute(sa.text(
@@ -298,6 +301,31 @@ async def agent_reply(session, user, text: str, register_intent,
     note = ("\n\nПользователь подтвердил применение правок из предыдущего ответа — "
             "примени их точно, только обозначенные изменения." if edits_confirmed else "")
 
+    answer_parts: list[str] = []
+    result_text: str | None = None
+    tools_used = 0
+    stderr_lines: list[str] = []
+    def _emit(event: dict) -> None:
+        if emit:
+            try:
+                emit(event)
+            except Exception:  # noqa: BLE001 — клиент мог отключиться
+                pass
+
+    # GLM через z.ai приходит с пустыми AssistantMessage — видимых
+    # thinking/tool_use блоков нет. Живой процесс берём из двух надёжных
+    # источников: хук PreToolUse (каждый вызов инструмента) и
+    # SystemMessage thinking_tokens (объём размышлений).
+    async def _pre_tool(input_data, tool_use_id=None, context=None):
+        data = input_data if isinstance(input_data, dict) else {}
+        name = data.get("tool_name", "?")
+        ti = data.get("tool_input") or {}
+        hint = (ti.get("code") or ti.get("file_path") or ti.get("command")
+                or ti.get("pattern") or ti.get("q") or "")
+        _emit({"type": "progress",
+               "detail": f"инструмент {name} {str(hint)[:90]}".rstrip()})
+        return {}
+
     options = ClaudeAgentOptions(
         cwd=home,
         allowed_tools=allowed,
@@ -305,6 +333,7 @@ async def agent_reply(session, user, text: str, register_intent,
         permission_mode="acceptEdits" if edits_confirmed else "default",
         max_turns=AGENT_TURNS,
         mcp_servers={"harness": server},
+        hooks={"PreToolUse": [HookMatcher(hooks=[_pre_tool])]},
         setting_sources=[],
         system_prompt=SYSTEM_PROMPT + note,
         model=model or None,
@@ -316,15 +345,53 @@ async def agent_reply(session, user, text: str, register_intent,
     tools_used = 0
     stderr_lines: list[str] = []
     options.stderr = lambda line: (stderr_lines.append(line), None)[1] if len(stderr_lines) < 200 else None
+    def _emit(event: dict) -> None:
+        if emit:
+            try:
+                emit(event)
+            except Exception:  # noqa: BLE001 — клиент мог отключиться
+                pass
+
+    # GLM через z.ai приходит с пустыми AssistantMessage — видимых
+    # thinking/tool_use блоков нет. Живой процесс берём из двух надёжных
+    # источников: хук PreToolUse (каждый вызов инструмента) и
+    # SystemMessage thinking_tokens (объём размышлений).
+    async def _pre_tool(input_data, tool_use_id=None, context=None):
+        data = input_data if isinstance(input_data, dict) else {}
+        name = data.get("tool_name", "?")
+        ti = data.get("tool_input") or {}
+        hint = (ti.get("code") or ti.get("file_path") or ti.get("command")
+                or ti.get("pattern") or ti.get("q") or "")
+        _emit({"type": "progress",
+               "detail": f"инструмент {name} {str(hint)[:90]}".rstrip()})
+        return {}
+
     try:
         async for message in query(prompt=text, options=options):
             kind = type(message).__name__
-            if kind == "AssistantMessage":
+            if kind == "SystemMessage":
+                data = getattr(message, "data", None)
+                if isinstance(data, dict) and data.get("subtype") == "thinking_tokens":
+                    est = data.get("estimated_tokens")
+                    _emit({"type": "progress",
+                           "detail": f"думает… (~{est} ток. размышлений)"})
+            elif kind == "AssistantMessage":
                 for block in getattr(message, "content", []) or []:
-                    if getattr(block, "type", "") == "text":
-                        answer_parts.append(block.text)
-                    elif getattr(block, "type", "") == "tool_use":
+                    btype = getattr(block, "type", "")
+                    if btype == "thinking":
+                        preview = (getattr(block, "thinking", "") or "").strip()[:120]
+                        _emit({"type": "progress",
+                               "detail": f"думает: {preview}…" if preview else "думает…"})
+                    elif btype == "tool_use":
                         tools_used += 1
+                        inp = getattr(block, "input", None) or {}
+                        hint = inp.get("code") or inp.get("args") or inp.get("title") or ""
+                        _emit({"type": "progress",
+                               "detail": f"инструмент {getattr(block, 'name', '?')} {str(hint)[:80]}"})
+                    elif btype == "text":
+                        chunk = block.text
+                        answer_parts.append(chunk)
+                        _emit({"type": "delta", "text": chunk})
             elif kind == "ResultMessage":
                 # GLM через z.ai может отдавать AssistantMessage с пустым
                 # контентом — итоговый текст живёт в ResultMessage.result

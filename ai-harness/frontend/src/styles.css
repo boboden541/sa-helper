@@ -1239,3 +1239,8 @@ button.conn.off:hover{color:var(--accent-text)}
 .flow-table .tasks td{vertical-align:top; padding:10px 14px}
 .flow-table .tasks .key{font-size:10.5px}
 .flow-table .tasks tr.sel-row td{background:var(--surface3)}
+/* Eve: живой процесс формирования ответа */
+.live-bub{min-width:200px}
+.live-status{display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text3)}
+.live-text{margin-top:6px; font-size:12.5px; line-height:1.55; color:var(--text2);
+  white-space:pre-wrap; max-height:260px; overflow:auto}

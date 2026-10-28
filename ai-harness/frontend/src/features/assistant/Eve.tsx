@@ -16,6 +16,9 @@ export function EveChat({ open, setOpen, navigate, onOpenCreate }: {
     { role: 'eve', text: 'Я Eve. Спросите или дайте задание: «переведи AH-3 на ревью», «почему AH-8 встала?», «создай задачу «Название»».' },
   ])
   const [input, setInput] = useState('')
+  // живой процесс формирования ответа (решение владельца 28.10.2026):
+  // что делает агент прямо сейчас + накапливающийся текст ответа
+  const [stream, setStream] = useState<{ status: string; text: string } | null>(null)
   const boxRef = useRef<HTMLDivElement>(null)
   const screenTask = window.location.hash.match(/([A-Za-z]{2,10}-\d+)/)?.[1]?.toUpperCase()
 
@@ -31,17 +34,54 @@ export function EveChat({ open, setOpen, navigate, onOpenCreate }: {
     if (!text.trim()) return
     setMessages((m) => [...m, { role: 'user', text }])
     setInput('')
-    const res = await api.eve(text, screenTask)
-    if (res.action === 'confirm' && res.intent) {
-      setMessages((m) => [...m, { role: 'eve', text: res.reply ?? 'Подтвердите: «да»', intent: res.intent }])
-      return
+    setStream({ status: 'формирую ответ…', text: '' })
+    const finalize = (final: { reply?: string; action?: string; intent?: { kind: string; task: string; to: string } }) => {
+      setStream(null)
+      if (final.action === 'confirm' && final.intent) {
+        setMessages((m) => [...m, { role: 'eve', text: final.reply ?? 'Подтвердите: «да»', intent: final.intent }])
+        return
+      }
+      if (final.action === 'open_create_dialog') {
+        setMessages((m) => [...m, { role: 'eve', text: 'Открываю диалог создания — название подставлено.' }])
+        onOpenCreate()
+        return
+      }
+      setMessages((m) => [...m, { role: 'eve', text: final.reply ?? 'Готово.' }])
     }
-    if (res.action === 'open_create_dialog') {
-      setMessages((m) => [...m, { role: 'eve', text: 'Открываю диалог создания — название подставлено.' }])
-      onOpenCreate()
-      return
+    try {
+      const res = await fetch('/api/v1/assistant/messages/stream', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ text, screenTaskCode: screenTask }),
+      })
+      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
+      const reader = res.body.getReader()
+      const dec = new TextDecoder()
+      let buf = ''
+      let final: Parameters<typeof finalize>[0] | null = null
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += dec.decode(value, { stream: true })
+        const parts = buf.split('\n\n')
+        buf = parts.pop() ?? ''
+        for (const part of parts) {
+          const line = part.trim()
+          if (!line.startsWith('data:')) continue
+          const ev = JSON.parse(line.slice(5)) as {
+            type: string; detail?: string; text?: string
+            reply?: string; action?: string; intent?: { kind: string; task: string; to: string }
+          }
+          if (ev.type === 'progress') setStream((s) => ({ status: ev.detail ?? '', text: s?.text ?? '' }))
+          else if (ev.type === 'delta') setStream((s) => ({ status: s?.status ?? '', text: (s?.text ?? '') + (ev.text ?? '') }))
+          else if (ev.type === 'done') final = ev
+        }
+      }
+      finalize(final ?? { reply: 'Поток оборвался без ответа.' })
+    } catch (err) {
+      setStream(null)
+      setMessages((m) => [...m, { role: 'eve', text: `Связь с Eve оборвалась: ${String(err).slice(0, 120)}` }])
     }
-    setMessages((m) => [...m, { role: 'eve', text: res.reply ?? 'Готово.' }])
   }
 
   const confirmIntent = async (intent: { kind: string; task: string; to: string } | undefined, yes: boolean) => {
@@ -85,6 +125,16 @@ export function EveChat({ open, setOpen, navigate, onOpenCreate }: {
                   </div>}
             </div>
           ))}
+          {stream && (
+            <div className="msg eve">
+              <div className="bub live-bub">
+                <div className="live-status">
+                  <span className="dot pulse" style={{ background: '#25935b' }} /> {stream.status || 'формирую ответ…'}
+                </div>
+                {stream.text && <div className="live-text">{renderText(stream.text)}</div>}
+              </div>
+            </div>
+          )}
         </div>
         <div className="eve-chips">
           <button onClick={() => void send('Почему задача встала?')}>Почему встала?</button>

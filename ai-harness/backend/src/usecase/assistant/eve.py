@@ -45,8 +45,10 @@ async def _find_task(session: AsyncSession, text: str) -> Task | None:
 
 
 async def handle_message(session: AsyncSession, user: User, text: str,
-                         screen_task_code: str | None = None) -> dict:
-    """Обрабатывает фразу; возвращает ответ Eve. Аудит — chat_message всегда."""
+                         screen_task_code: str | None = None,
+                         emit=None) -> dict:
+    """Обрабатывает фразу; возвращает ответ Eve. Аудит — chat_message всегда.
+    emit(dict) — колбэк живого процесса (стриминг агента, решение 28.10.2026)."""
     session.add(ChatMessage(user_id=user.id, role="user", body=text,
                             task_code=screen_task_code))
 
@@ -83,10 +85,12 @@ async def handle_message(session: AsyncSession, user: User, text: str,
             result = await eve_agent.agent_reply(
                 session, user, text, _register,
                 screen_task_code=task.code if task else None,
-                edits_confirmed=edits_confirmed)
-        except Exception:  # noqa: BLE001 — агент не поднялся, отвечает прежний режим
-            from usecase.assistant.eve_agent import sdk_available
+                edits_confirmed=edits_confirmed, emit=emit)
+        except Exception as err:  # noqa: BLE001 — агент не поднялся, отвечает прежний режим
+            import logging
 
+            logging.getLogger("eve_agent").warning(
+                "eve_agent: исключение в вызове агента: %s", err, exc_info=True)
             result = None
         if result is not None:
             session.add(ChatMessage(user_id=user.id, role="assistant",

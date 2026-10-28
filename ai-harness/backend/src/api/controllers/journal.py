@@ -138,6 +138,47 @@ async def assistant_message(payload: MessageIn,
                                        payload.screenTaskCode)
 
 
+@router.post("/assistant/messages/stream")
+async def assistant_message_stream(payload: MessageIn,
+                                   session: AsyncSession = Depends(get_session),
+                                   actor: User = Depends(get_actor)):
+    """SSE-поток формирования ответа Eve (решение владельца 28.10.2026):
+    события progress (что делает агент), delta (куски ответа), done (итог
+    с action/intent для интерфейса). Детерминированные ветки отвечают
+    одним done без прогресса."""
+    import asyncio
+
+    from fastapi.responses import StreamingResponse
+
+    queue: asyncio.Queue = asyncio.Queue()
+
+    def emit(event: dict) -> None:
+        queue.put_nowait(event)
+
+    async def run():
+        try:
+            result = await eve_uc.handle_message(session, actor, payload.text,
+                                                 payload.screenTaskCode, emit=emit)
+        except Exception as err:  # noqa: BLE001 — ошибка уходит в чат
+            result = {"reply": f"Внутренняя ошибка: {err}"}
+        queue.put_nowait({"type": "done", **result})
+
+    async def gen():
+        task = asyncio.create_task(run())
+        while True:
+            event = await queue.get()
+            kind = event.pop("type", "done")
+            body = json.dumps({"type": kind, **event}, ensure_ascii=False)
+            yield f"data: {body}\n\n"
+            if kind == "done":
+                break
+        await task
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"X-Accel-Buffering": "no",
+                                      "Cache-Control": "no-cache"})
+
+
 @router.post("/assistant/force")
 @_400
 async def assistant_force(code: str, to: str, reason: str,
