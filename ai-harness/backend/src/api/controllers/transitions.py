@@ -86,6 +86,7 @@ async def force_view(code: str, payload: ForceIn,
 class GateOut(BaseModel):
     allowed: list[str]
     denied: list[dict]
+    labels: dict[str, str] = {}
 
 
 class TaskCardOut(BaseModel):
@@ -159,12 +160,20 @@ async def card_view(code: str,
             TaskRun.input_tokens + TaskRun.output_tokens + TaskRun.cache_tokens), 0))
         .where(TaskRun.task_id == task.id))).scalar_one()
 
+    # подписи всех статусов flow-версии задачи — для кнопок перехода и форса
+    from repository.models import FlowStatus
+
+    status_labels = {s.status_key: s.label for s in (await session.execute(
+        sa.select(FlowStatus).where(
+            FlowStatus.flow_version_id == task.flow_version_id))).scalars()}
+
     return TaskCardOut(
         code=task.code, title=task.title, priority=task.priority, type=type_key,
         statusKey=task.status_key, tags=list(tags), descriptionMd=task.description_md,
         storyCode=story_code, psiPath=task.psi_path, tokensUsed=tokens_used,
         gate=GateOut(
             allowed=[to for to, d in decisions.items() if d.allowed],
+            labels=status_labels,
             denied=[{"to": to, "reason": d.reason}
                     for to, d in decisions.items() if not d.allowed],
         ),

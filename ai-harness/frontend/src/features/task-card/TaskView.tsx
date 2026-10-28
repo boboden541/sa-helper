@@ -96,6 +96,11 @@ function TaskBody({ code }: { code: string }) {
   const [liveRun, setLiveRun] = useState<{ agent: string; minutes: number; total: number; stale: boolean } | null>(null)
   const [lastLog, setLastLog] = useState('')
 
+  // подпись статуса: точная — из flow-версии задачи (gate.labels),
+  // фолбэк — канонический словарь; кастомные статусы владельца не показываются ключами
+  const L = (key: string): string =>
+    (card as { gate?: { labels?: Record<string, string> } } | null)?.gate?.labels?.[key]
+      ?? S_LABEL[key] ?? key
   const reload = () => {
     void api.task(code).then((c) => { setCard(c); setDescDraft(c.descriptionMd ?? ''); setTitleDraft(c.title) })
       .catch(() => toast(`Задача ${code} не найдена`, 'bad'))
@@ -261,20 +266,20 @@ function TaskBody({ code }: { code: string }) {
 
       <div className="blk">
         <div className="trans">
-          <span className="cur">Сейчас: {S_LABEL[card.statusKey] ?? card.statusKey} →</span>
+          <span className="cur">Сейчас: {L(card.statusKey)} →</span>
           {card.gate?.allowed.map((to) => (
             <button key={to} className="btn" onClick={async () => {
               const r = await api.transition(code, to)
-              if (!r.applied) toast(r.reason ?? 'отказ', 'bad'); else toast(`<b>${code}</b> → ${S_LABEL[to] ?? to}`, 'ok')
+              if (!r.applied) toast(r.reason ?? 'отказ', 'bad'); else toast(`<b>${code}</b> → ${L(to)}`, 'ok')
               reload()
-            }}>{S_LABEL[to] ?? to}</button>
+            }}>{L(to)}</button>
           ))}
         </div>
         {card.gate && card.gate.denied.length > 0 && (
           <div className="trans-reasons">
             {card.gate.denied.map((d) => (
               <div key={d.to}><span dangerouslySetInnerHTML={{ __html: xIcon }} />
-                {S_LABEL[d.to] ?? d.to} — {d.reason}</div>
+                {L(d.to)} — {d.reason}</div>
             ))}
           </div>
         )}
@@ -286,12 +291,12 @@ function TaskBody({ code }: { code: string }) {
             <div className="fr">
               <select value={forceTo} onChange={(e) => setForceTo(e.target.value)}>
                 <option value="">Куда…</option>
-                {Object.keys(S_LABEL).map((s) => <option key={s} value={s}>{S_LABEL[s]}</option>)}
+                {Object.entries({ ...S_LABEL, ...(card.gate?.labels ?? {}) }).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
               </select>
               <button className="btn danger" disabled={!forceReason.trim() || !forceTo}
                 onClick={async () => {
                   await api.force(code, forceTo, forceReason)
-                  toast(`<b>${code}</b>: форс → ${S_LABEL[forceTo] ?? forceTo}`, 'auto')
+                  toast(`<b>${code}</b>: форс → ${L(forceTo)}`, 'auto')
                   setForceReason(''); setForceTo(''); reload()
                 }}>Форс-переход</button>
               <span className="note">Пишется в хроники как «форс · ручное вмешательство»</span>

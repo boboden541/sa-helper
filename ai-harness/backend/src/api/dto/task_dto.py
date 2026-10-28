@@ -33,6 +33,9 @@ class TaskPatchIn(BaseModel):
 class GateOut(BaseModel):
     allowed: list[str] = []
     denied: list[dict] = []
+    # подписи целей перехода по flow-версии задачи: кастомные статусы
+    # («Завершено») показываются на карточке людьми, а не ключами
+    labels: dict[str, str] = {}
 
 
 class TaskCardOut(BaseModel):
