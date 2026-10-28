@@ -72,9 +72,23 @@ class Daemon:
     async def tick(self) -> dict:
         async with self._maker() as session:
             cfg = await load_daemon_settings(session)
-            summary = {"launched": 0, "blocked_no_agent": 0, "mirrored": 0, "heartbeat_lost": 0}
+            summary = {"launched": 0, "blocked_no_agent": 0, "mirrored": 0,
+                       "heartbeat_lost": 0, "paused": False}
             await self._touch_active(session)
             summary["heartbeat_lost"] = await self._sweep_dead_runs(session, cfg)
+            # пауза конвейера (решение владельца 28.10.2026 «подержать задачу
+            # в конкретном статусе»): замораживается ВСЯ автоматика статусов —
+            # зеркала историй и автоблокировка не исполняются, статусы
+            # фиксируются до возобновления. Heartbeat/очистка живут.
+            paused = (await session.execute(sa.text(
+                "SELECT value FROM app_setting WHERE key = 'daemon.paused'"
+            ))).scalar_one_or_none() == "true"
+            summary["paused"] = paused
+            if paused:
+                summary["launched"] = await self._launch_ready(session, cfg)
+                summary["interrupted"] = await self._check_interrupts(session)
+                await self._retention_tick(session)
+                return summary
             summary["blocked_no_agent"] = await self._block_unassigned(session)
             summary["mirrored"] = await self._tick_mirroring(session)
             summary["launched"] = await self._launch_ready(session, cfg)
@@ -86,11 +100,14 @@ class Daemon:
 
     async def _block_unassigned(self, session: AsyncSession) -> int:
         """Задача на «рабочем» статусе без назначенного агента → blocked (ФТ-ah-63)."""
+        # истории не автоблокируются: их статус выводится зеркалом M1–M6
+        # (решение владельца 28.10.2026 — правило только для задач-исполнителей)
         rows = (await session.execute(
             sa.select(Task, TaskType.key.label("type_key"))
             .join(TaskType, TaskType.id == Task.task_type_id)
             .where(Task.status_key.notin_(("pending", "backlog", "todo", "blocked",
-                                           "done", "canceled")))
+                                           "done", "canceled")),
+                   TaskType.key != "story")
         )).all()
         blocked = 0
         for task, type_key in rows:

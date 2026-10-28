@@ -403,7 +403,7 @@ async def _confirm_intent(session: AsyncSession, user: User, intent: dict) -> di
                                           "мимо рёбер flow (через Eve)"))
             await session.commit()
             reply = {"reply": f"Сделано: {intent['task']} → «{intent['to']}» "
-                              f"(прямой перевод мимо рёбер flow, записан в хронику).",
+                              f"(прямой перевод мимо рёбер flow: {denied}; записан в хронику).",
                      "task": intent["task"]}
             session.add(ChatMessage(user_id=user.id, role="assistant",
                                     body=reply["reply"], task_code=intent["task"]))

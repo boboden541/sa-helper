@@ -165,19 +165,53 @@ async def test_eve_intent_then_confirm(session, actor_id):
     assert task_row.status_key == "in_testing"
 
 
-async def test_eve_gate_denial_explains(session, actor_id):
-    """Гейт непройден — Eve объясняет причину, не действует."""
+async def test_eve_direct_move_when_no_edge(session, actor_id):
+    """Ребра нет + подтверждение «да» → прямой перевод (решение владельца
+    28.10.2026: произвольные статусы через Eve, как руками через базу)."""
+    from usecase.assistant.eve import handle_message
+
     actor = await session.get(User, actor_id)
     task = await _task(session, actor_id)  # pending: у задачи нет ребра на ревью
-    from usecase.assistant.eve import handle_message
 
     reply = await handle_message(session, actor, f"переведи {task.code} на ревью")
     assert reply["action"] == "confirm"
     confirmed = await handle_message(session, actor, "да")
+    assert "прямой перевод" in confirmed["reply"]
+    row = (await session.execute(sa.text(
+        "SELECT status_key FROM task WHERE code = :c"), {"c": task.code})).scalar_one()
+    assert row == "in_review"
+
+
+async def test_eve_gate_denial_explains(session, actor_id):
+    """Настоящий отказ гейта (ребро есть, чеклист не закрыт) — Eve объясняет
+    причину и не действует."""
+    from usecase.assistant.eve import handle_message
+
+    actor = await session.get(User, actor_id)
+    task = await _task(session, actor_id)
+    # детерминированность: сброс canonical-пресета (рёбра и гейты известны)
+    from usecase.settings.flow import reset_builtin
+
+    await reset_builtin(session, "common_task", actor)
+    # настоящий гейт-отказ: ребро in_progress → review_ready есть, но чеклист
+    # разработчика не создан; статус ставим напрямую, минуя рёбра
+    code = task.code  # до expire_all: доступ к атрибуту ORM после — ленивая загрузка
+    await session.execute(sa.text(
+        "UPDATE task SET status_key = 'in_progress', flow_version_id = "
+        "(SELECT fv.id FROM flow_version fv JOIN task_type tt ON tt.id = fv.task_type_id "
+        "WHERE tt.key = 'common_task' AND fv.is_current AND fv.is_published) "
+        "WHERE code = :c"), {"c": code})
+    await session.commit()
+    session.expire(task)  # SQL-обновление мимо ORM — сбросить кеш объекта
+
+    reply = await handle_message(session, actor,
+                                 f'переведи {code} в статус "Готово к ревью"')
+    assert reply["action"] == "confirm"
+    confirmed = await handle_message(session, actor, "да")
     assert "Не получилось" in confirmed["reply"]
-    task_row = (await session.execute(
-        sa.select(Task).where(Task.code == task.code))).scalar_one()
-    assert task_row.status_key == "pending"  # Eve не действует сквозь отказ
+    row = (await session.execute(sa.text(
+        "SELECT status_key FROM task WHERE code = :c"), {"c": code})).scalar_one()
+    assert row == "in_progress"  # Eve не действует сквозь отказ
 
 
 async def test_eve_free_question_goes_to_llm(session, actor_id):
