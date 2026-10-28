@@ -1244,3 +1244,24 @@ button.conn.off:hover{color:var(--accent-text)}
 .live-status{display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text3)}
 .live-text{margin-top:6px; font-size:12.5px; line-height:1.55; color:var(--text2);
   white-space:pre-wrap; max-height:260px; overflow:auto}
+/* Eve: перетаскивание/масштабирование панели, markdown-ответы */
+.eve-head{cursor:grab; touch-action:none}
+.eve-head:active{cursor:grabbing}
+.eve-head button{cursor:pointer}
+.eve-resize{
+  position:absolute; right:0; bottom:0; width:18px; height:18px;
+  cursor:nwse-resize; touch-action:none;
+}
+.eve-resize::after{
+  content:''; position:absolute; right:3px; bottom:3px; width:8px; height:8px;
+  border-right:2px solid var(--border2); border-bottom:2px solid var(--border2);
+  border-radius:2px;
+}
+.eve-resize:hover::after{border-color:var(--accent)}
+.eve-panel .md{font-size:12.5px; max-width:none}
+.eve-panel .md p{margin:0 0 6px}
+.eve-panel .md table{font-size:11.5px}
+.bub .code{cursor:pointer}
+/* нативный resize:both глушим — масштабирование делает JS-хэндлером
+   (с сохранением геометрии в localStorage) */
+.eve-panel{resize:none}
