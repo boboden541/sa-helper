@@ -8,7 +8,7 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from domain.model.enums import PRIORITY_RANK
-from repository.models import Project, Task, TaskRun, TaskType, User
+from repository.models import FlowStatus, Project, Task, TaskRun, TaskType, User
 
 
 @dataclass
@@ -29,9 +29,15 @@ class TaskCard:
 
 def build_query(projects: list[str] | None = None,
                 types: list[str] | None = None,
-                q: str | None = None):
-    """SELECT задач с сортировкой очереди: приоритет → баги выше задач → старые выше (ФТ-ah-4)."""
+                q: str | None = None,
+                exclude_terminal: bool = False):
+    """SELECT задач с сортировкой очереди: приоритет → баги выше задач → старые выше (ФТ-ah-4).
+
+    exclude_terminal (решение владельца 28.10.2026): доска запрашивает без
+    терминальных статусов, список — целиком; терминальность — по flow-версии
+    самой задачи."""
     type_t = TaskType.__table__
+    flow_status_t = FlowStatus.__table__
 
     proj_t = Project.__table__
     # суммарный расход токенов по всем прогонам задачи (решение владельца 27.10.2026)
@@ -59,6 +65,13 @@ def build_query(projects: list[str] | None = None,
         )
     )
 
+    if exclude_terminal:
+        query = query.outerjoin(
+            flow_status_t,
+            sa.and_(flow_status_t.c.flow_version_id == Task.flow_version_id,
+                    flow_status_t.c.status_key == Task.status_key),
+        ).where(sa.or_(flow_status_t.c.is_terminal.is_(None),
+                       flow_status_t.c.is_terminal.is_(False)))
     if projects:
         query = query.where(proj_t.c.mnemonic.in_([p.upper() for p in projects]))
     if types:
@@ -79,9 +92,11 @@ async def list_tasks(
     q: str | None = None,
     limit: int = 50,
     offset: int = 0,
+    exclude_terminal: bool = False,
 ) -> tuple[int, list[TaskCard]]:
     """Возвращает (total, карточки) по фильтрам и правилам очереди (ФТ-ah-4)."""
-    base = build_query(projects=projects, types=types, q=q)
+    base = build_query(projects=projects, types=types, q=q,
+                       exclude_terminal=exclude_terminal)
     total = (await session.execute(
         sa.select(sa.func.count()).select_from(base.subquery())
     )).scalar_one()

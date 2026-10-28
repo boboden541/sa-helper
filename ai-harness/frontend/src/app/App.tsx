@@ -70,6 +70,10 @@ export function App() {
   }
   const project = useApp((s) => s.project)
   const setProject = useApp((s) => s.setProject)
+  // фильтр «Скрыть завершённые» (решение владельца 28.10.2026): на доске
+  // включён по умолчанию, в списке — нет; в будущем фильтров будет больше
+  const [hideTerminal, setHideTerminal] = useState(view === 'board')
+  useEffect(() => { setHideTerminal(view === 'board') }, [view])
   const reload = () => {
     // лимит 200: доска/список не должны терять открытые задачи из-за
     // усечения выборки очередью (приоритет → баги → старые выше)
@@ -78,10 +82,11 @@ export function App() {
       type: typeFilter || undefined,
       project: project ?? undefined,
       limit: '200',
+      excludeTerminal: hideTerminal ? 'true' : undefined,
     }).then((r) => setTasks(r.items)).catch(on401)
     void api.notifications().then((r) => setNotifications(r.items)).catch(on401)
   }
-  useEffect(reload, [query, typeFilter, view, project])
+  useEffect(reload, [query, typeFilter, view, project, hideTerminal])
   const [projCounts, setProjCounts] = useState<Record<string, number>>({})
   useEffect(() => {
     void api.projects().then((list) => {
@@ -129,6 +134,9 @@ export function App() {
         <button key={key} className={`chip-f ${typeFilter === key ? 'active' : ''}`}
           onClick={() => setTypeFilter(key)}>{label}</button>
       ))}
+      <button className={`chip-f ${hideTerminal ? 'active' : ''}`}
+        title="Терминальные статусы («Завершено», «Отменено») не показываются"
+        onClick={() => setHideTerminal(!hideTerminal)}>скрыть завершённые</button>
       <span className="cnt">{tasks.length} задач</span>
       {view === 'board' && (
         <button className={`btn small ${boardEdit ? 'primary' : ''}`}

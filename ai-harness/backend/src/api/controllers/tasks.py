@@ -31,11 +31,13 @@ async def list_tasks_view(
     q: str | None = None,
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    exclude_terminal: bool = Query(default=False, alias="excludeTerminal"),
     session: AsyncSession = Depends(get_session),
     actor: User = Depends(get_actor),
 ):
     total, cards = await list_tasks(session, projects=project, types=type, q=q,
-                                    limit=limit, offset=offset)
+                                    limit=limit, offset=offset,
+                                    exclude_terminal=exclude_terminal)
     return TaskListOut(total=total, items=[_card_out(c) for c in cards])
 
 
