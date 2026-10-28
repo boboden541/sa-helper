@@ -354,13 +354,30 @@ function FlowEditor({ reload }: { reload: () => void }) {
                 {data.transitions.map((t, i) => {
                   const a = cardCenter(t.from), b = cardCenter(t.to)
                   if (!a.x && !b.x) return null
-                  const mx = (a.x + b.x) / 2
-                  const d = `M ${a.x} ${a.y} C ${mx} ${a.y}, ${mx} ${b.y}, ${b.x} ${b.y}`
+                  // двунаправленная пара: дуги разводятся по разные стороны
+                  // линии между статусами (решение владельца 28.10.2026)
+                  const reverse = data.transitions.some((o) => o.from === t.to && o.to === t.from)
+                  let ax = a.x, ay = a.y, bx = b.x, by = b.y, mx = (a.x + b.x) / 2
+                  if (reverse) {
+                    const dx = b.x - a.x, dy = b.y - a.y
+                    const len = Math.hypot(dx, dy) || 1
+                    const sgn = t.from < t.to ? 1 : -1
+                    const ox = (-dy / len) * 20 * sgn, oy = (dx / len) * 20 * sgn
+                    ax += ox; ay += oy; bx += ox; by += oy; mx += ox
+                  }
+                  const color = t.runner === 'auto' ? '#c9821f'
+                    : t.runner === 'agent' ? '#9a74e0' : '#93a0b4'
+                  const dirx = Math.sign(bx - mx) || 1
+                  const ex = bx - dirx * 8   // линия не наезжает на наконечник
+                  const d = `M ${ax} ${ay} C ${mx} ${ay}, ${mx} ${by}, ${ex} ${by}`
                   return (
                     <g key={i}>
-                      <path className={`line ${t.runner === 'auto' ? 'edge-auto' : t.runner === 'agent' ? 'edge-agent' : 'edge-human'}`} d={d}
+                      <path className="line" style={{ stroke: color }} d={d}
                         onClick={() => setSel({ kind: 'edge', id: `${t.from}→${t.to}` })} />
                       <path className="hit" d={d} onClick={() => setSel({ kind: 'edge', id: `${t.from}→${t.to}` })} />
+                      <polygon points="-7,-4.5 3,0 -7,4.5"
+                        transform={`translate(${bx} ${by})${dirx < 0 ? ' rotate(180)' : ''}`}
+                        fill={color} />
                     </g>
                   )
                 })}
