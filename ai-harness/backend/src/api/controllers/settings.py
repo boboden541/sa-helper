@@ -791,10 +791,18 @@ async def projects_list(session: AsyncSession = Depends(get_session),
     from repository.models import Task
 
     rows = (await session.execute(sa.select(Project).order_by(Project.mnemonic))).scalars().all()
+    # открытые задачи: все типы, статусы не терминальные по flow-версии самой
+    # задачи (решение владельца 28.10.2026 — жёсткий список done/canceled
+    # ломал счётчик при кастомных статусных моделях)
+    from repository.models import FlowStatus
+
+    fs = FlowStatus.__table__
     counts = dict((await session.execute(
         sa.select(Project.mnemonic, sa.func.count(Task.id))
         .join(Task, Task.project_id == Project.id)
-        .where(Task.status_key.notin_(("done", "canceled")))
+        .outerjoin(fs, sa.and_(fs.c.flow_version_id == Task.flow_version_id,
+                               fs.c.status_key == Task.status_key))
+        .where(sa.or_(fs.c.is_terminal.is_(None), fs.c.is_terminal.is_(False)))
         .group_by(Project.mnemonic))).all())
     return [{"id": str(p.id), "name": p.name, "mnemonic": p.mnemonic, "path": p.path,
              "baseBranch": p.base_branch, "isArchived": p.is_archived,
