@@ -49,6 +49,16 @@ async def _load_task(session: AsyncSession, code: str) -> Task:
     return task
 
 
+async def task_flow_version_id(session: AsyncSession, task) -> uuid.UUID:
+    """Актуальная (current) версия flow типа задачи. Решение владельца
+    28.10.2026: задачи всегда живут по текущей версионной модели — колонка
+    task.flow_version_id хранится, но чтения правил идут по current."""
+    row = (await session.execute(sa.text(
+        "SELECT id FROM flow_version WHERE task_type_id = :t "
+        "AND is_current AND is_published"), {"t": str(task.task_type_id)})).scalar_one_or_none()
+    return row or task.flow_version_id
+
+
 async def apply_transition(session: AsyncSession, actor: User | None, code: str,
                            to: str, *, subject_kind: str | None = None,
                            rule_code: str | None = None,
@@ -57,7 +67,7 @@ async def apply_transition(session: AsyncSession, actor: User | None, code: str,
     отказ по правам агента → 403 + событие «запрет» (ФТ-ah-27); недопустимое ребро → 400."""
     task = await _load_task(session, code)
     subject = await _subject_for(session, actor, task, subject_kind)
-    graph = await load_graph(session, task.flow_version_id)
+    graph = await load_graph(session, await task_flow_version_id(session, task))
 
     if graph.edge(task.status_key, to) is None:
         raise DomainError(
@@ -160,7 +170,7 @@ async def apply_force(session: AsyncSession, actor: User, code: str, to: str,
     """Форс-переход: только человек, причина обязательна, любой статус (ФТ-ah-28)."""
     task = await _load_task(session, code)
     subject = await _subject_for(session, actor, task)
-    graph = await load_graph(session, task.flow_version_id)
+    graph = await load_graph(session, await task_flow_version_id(session, task))
 
     decision = check_force(graph, task.status_key, to, subject, reason)
     if not decision.allowed:

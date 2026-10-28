@@ -153,7 +153,9 @@ def _build_tools(register_intent):
         projs = await _all(
             "SELECT p.mnemonic, count(t.id) FILTER (WHERE fs.is_terminal IS NOT TRUE) AS open_n "
             "FROM project p LEFT JOIN task t ON t.project_id = p.id "
-            "LEFT JOIN flow_status fs ON fs.flow_version_id = t.flow_version_id "
+            "LEFT JOIN flow_version fv ON fv.task_type_id = t.task_type_id "
+            "AND fv.is_current AND fv.is_published "
+            "LEFT JOIN flow_status fs ON fs.flow_version_id = fv.id "
             "AND fs.status_key = t.status_key GROUP BY p.mnemonic ORDER BY p.mnemonic")
         return {"content": [{"type": "text", "text": _cap(json.dumps({
             "pipeline_paused": (paused or {}).get("value") == "true",
@@ -200,6 +202,30 @@ def _build_tools(register_intent):
                 "Намерение записано. Скажите пользователю, что подтвердить нужно словом «да»: "
                 + json.dumps(intent, ensure_ascii=False)}]}
 
+    @tool("sql", "Прямой SQL к базе данных harness (PostgreSQL, схема ai_harness). "
+          "SELECT — чтение любых данных; UPDATE/INSERT/DELETE — изменения с коммитом. "
+          "Одна инструкция за вызов. После смены статуса задачи добавь запись в chronicle "
+          "этим же инструментом (INSERT INTO chronicle ...). Таблицы: task, project, "
+          "task_type, flow_version, flow_status, flow_transition, chronicle, task_run, "
+          "task_comment, checklist, checklist_item, task_artifact, task_branch, "
+          "task_relation, chat_message, app_setting, assignment, agent_profile.",
+          {"query": str})
+    async def sql_tool(args, ctx=None):
+        q = str(args.get("query", "")).strip().rstrip(";")
+        if not q:
+            return {"content": [{"type": "text", "text": "Пустой запрос"}]}
+        from database import get_sessionmaker
+
+        async with get_sessionmaker()() as s:
+            result = await s.execute(sa.text(q))
+            if q.lstrip().lower().startswith("select"):
+                rows = [dict(r) for r in result.mappings().all()[:50]]
+                return {"content": [{"type": "text",
+                        "text": _cap(json.dumps(rows, ensure_ascii=False, default=str, indent=1))}]}
+            await s.commit()
+            return {"content": [{"type": "text",
+                    "text": f"Выполнено. Затронуто строк: {result.rowcount}"}]}
+
     @tool("docker", "Полный доступ к docker CLI (ps, logs, inspect, exec …). args — аргументы команды",
           {"args": str})
     async def docker_tool(args, ctx=None):
@@ -216,9 +242,10 @@ def _build_tools(register_intent):
     from claude_agent_sdk import create_sdk_mcp_server
 
     server = create_sdk_mcp_server("harness", tools=[
-        task_card, tasks_search, story_tree, projects_status, propose_action, docker_tool])
+        task_card, tasks_search, story_tree, projects_status, propose_action,
+        sql_tool, docker_tool])
     names = ["task_card", "tasks_search", "story_tree", "projects_status",
-             "propose_action", "docker"]
+             "propose_action", "sql", "docker"]
     return server, [f"mcp__harness__{n}" for n in names]
 
 
@@ -253,10 +280,12 @@ SYSTEM_PROMPT = """Ты — Eve, встроенный ИИ-агент AI-Harness
 - интернет — WebFetch/Bash curl.
 
 Правила:
-1. Изменяющие действия над трекером (перевод статуса, создание задачи, прерывание
-   агента, пауза конвейера, форс) — ТОЛЬКО инструментом mcp__harness__propose_action;
-   оно записывает намерение, пользователь подтвердит словом «да». Не пытайся менять
-   статусы напрямую в базе.
+1. У тебя есть ПРЯМОЙ SQL-доступ к базе harness — инструмент mcp__harness__sql
+   (чтение и изменения). Если пользователь просит перевести задачу в статус,
+   который не связан ребром в flow (например, назад или в терминальный мимо
+   цепочки), — меняй статус напрямую через SQL (UPDATE task SET status_key = …)
+   и добавляй запись в chronicle этим же инструментом. Обычные переводы по рёбрам
+   flow оформляй через propose_action (намерение → «да»).
 2. Правки файлов (Edit/Write) — только если пользователь явно подтвердил применение
    в последнем сообщении. Иначе опиши предлагаемое изменение (файл, старое → новое)
    и попроси подтверждения фразой «примени правки».

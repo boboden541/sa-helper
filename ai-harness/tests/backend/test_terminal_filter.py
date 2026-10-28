@@ -43,9 +43,10 @@ async def test_exclude_terminal_split(client, _test_db):
     assert {code_open, code_done, code_canceled} <= codes, "без параметра видны все"
 
 
-async def test_terminal_by_task_flow_version(client, _test_db):
-    """Терминальность читается по flow-версии САМОЙ задачи: задача в done,
-    у которой в её версии done не терминален (дизайн владельца), — видна."""
+async def test_terminal_always_by_current_version(client, _test_db):
+    """Решение владельца 28.10.2026: терминальность — всегда по АКТУАЛЬНОЙ
+    версии flow типа задачи, даже если задача приколота к старой версии,
+    где её статус был нетерминальным."""
     import sqlalchemy as sa
 
     from database import get_sessionmaker
@@ -54,23 +55,19 @@ async def test_terminal_by_task_flow_version(client, _test_db):
     await _force_status(client, code, "done")
     maker = get_sessionmaker()
     async with maker() as s:
-        # flow-версия задачи: done не терминален (версии владельца с «Завершено»)
-        fv = (await s.execute(sa.text(
-            "SELECT fv.id FROM task t JOIN flow_version fv ON fv.id = t.flow_version_id "
-            "JOIN flow_status fs ON fs.flow_version_id = fv.id "
-            "AND fs.status_key = t.status_key WHERE t.code = :c AND fs.is_terminal"),
-            {"c": code})).scalar_one_or_none()
-        if fv is not None:  # в тестовом пресете done терминален — подменяем версию
-            await s.execute(sa.text(
-                "UPDATE task SET flow_version_id = (SELECT id FROM flow_version "
-                "WHERE task_type_id = (SELECT task_type_id FROM task WHERE code = :c) "
-                "AND version = 1) WHERE code = :c"), {"c": code})
-            await s.commit()
+        # прикалываем задачу к самой первой версии типа (done там мог быть
+        # нетерминальным) — фильтр всё равно читает АКТУАЛЬНУЮ версию
+        await s.execute(sa.text(
+            "UPDATE task SET flow_version_id = (SELECT fv.id FROM flow_version fv "
+            "JOIN task_type tt ON tt.id = fv.task_type_id "
+            "WHERE tt.key = 'common_task' ORDER BY fv.version LIMIT 1) "
+            "WHERE code = :c"), {"c": code})
+        await s.commit()
 
     r = await client.get("/api/v1/tasks", params={"excludeTerminal": "true", "q": code})
     codes = {i["code"] for i in r.json()["items"]}
-    assert code in codes or fv is not None, \
-        "задача со статусом done в нетерминальной версии не должна скрываться"
+    assert code not in codes, \
+        "done скрыт по актуальной версии flow независимо от версии задачи"
 
 
 async def test_list_returns_story_code(client, _test_db):

@@ -372,16 +372,39 @@ def _pop_intent(user_id, text: str) -> dict | None:
 
 async def _confirm_intent(session: AsyncSession, user: User, intent: dict) -> dict:
     if intent["kind"] == "transition":
+        denied = ""
         try:
             await apply_transition(session, user, intent["task"], intent["to"])
         except TransitionDenied as d:
-            reply = {"reply": f"Не получилось: {d.reason}", "task": intent["task"]}
+            denied = d.reason or ""
+        except DomainError as d:
+            denied = d.message or ""
+        if denied and "не предусмотрен" not in denied:
+            reply = {"reply": f"Не получилось: {denied}", "task": intent["task"]}
             session.add(ChatMessage(user_id=user.id, role="assistant",
                                     body=reply["reply"], task_code=intent["task"]))
             await session.commit()
             return reply
-        except DomainError as d:
-            reply = {"reply": f"Не получилось: {d.message}", "task": intent["task"]}
+        if denied:
+            # ребра нет, но владелец уже подтвердил «да» — прямой перевод
+            # с записью в хронику (решение владельца 28.10.2026)
+            await session.execute(sa.text(
+                "UPDATE task SET status_key = :to, updated_at = now() "
+                "WHERE code = :c"),
+                {"to": intent["to"], "c": intent["task"].upper()})
+            t = (await session.execute(sa.text(
+                "SELECT id FROM task WHERE code = :c"),
+                {"c": intent["task"].upper()})).scalar_one_or_none()
+            from repository.models import Chronicle
+
+            session.add(Chronicle(task_id=t, event_type="transition",
+                                  author_id=user.id, author_kind="human",
+                                  message=f"Прямой перевод в «{intent['to']}» "
+                                          "мимо рёбер flow (через Eve)"))
+            await session.commit()
+            reply = {"reply": f"Сделано: {intent['task']} → «{intent['to']}» "
+                              f"(прямой перевод мимо рёбер flow, записан в хронику).",
+                     "task": intent["task"]}
             session.add(ChatMessage(user_id=user.id, role="assistant",
                                     body=reply["reply"], task_code=intent["task"]))
             await session.commit()

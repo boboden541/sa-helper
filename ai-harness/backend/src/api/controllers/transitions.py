@@ -123,7 +123,9 @@ async def card_view(code: str,
         {"id": str(task.task_type_id)},
     )).scalar_one()
 
-    graph = await load_graph(session, task.flow_version_id)
+    from usecase.task.transition import task_flow_version_id
+
+    graph = await load_graph(session, await task_flow_version_id(session, task))
     gates = await load_gate_data(session, task)
     subject: Subject
     if actor.user_type == "agent" and not actor.is_chat_bot:
@@ -165,7 +167,7 @@ async def card_view(code: str,
 
     status_labels = {s.status_key: s.label for s in (await session.execute(
         sa.select(FlowStatus).where(
-            FlowStatus.flow_version_id == task.flow_version_id))).scalars()}
+            FlowStatus.flow_version_id == await task_flow_version_id(session, task)))).scalars()}
 
     return TaskCardOut(
         code=task.code, title=task.title, priority=task.priority, type=type_key,
