@@ -1,9 +1,16 @@
 # Backend + демон AI-Harness (общая библиотека домена, СТ §2.3)
 FROM python:3.11-slim
 
-# git нужен prepare_path (инициализация рабочих директорий проектов)
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl xz-utils git ca-certificates docker.io docker-cli \
  && rm -rf /var/lib/apt/lists/*
+
+# Node 20 под Claude Code CLI — Eve-агент (решение владельца 28.10.2026);
+# docker.io — CLI для управления контейнерами через смонтированный сокет
+RUN ARCH=$(uname -m | sed 's/x86_64/x64/; s/aarch64/arm64/') \
+ && curl -fsSL "https://nodejs.org/dist/v20.18.1/node-v20.18.1-linux-${ARCH}.tar.xz" \
+    | tar -xJ -C /usr/local --strip-components=1 \
+ && npm install -g @anthropic-ai/claude-code
 
 WORKDIR /app
 COPY pyproject.toml ./
@@ -14,7 +21,7 @@ COPY db ./db
 # db.seeds.flow_seed (пресеты flow) импортируется контуром «+ тип задачи»
 ENV PYTHONPATH="/app/backend/src:/app"
 
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir . && pip install --no-cache-dir 'claude-agent-sdk>=0.2.174,<0.3'
 
 # демон запускается той же библиотекой домена (python -m daemon.main)
 EXPOSE 8000

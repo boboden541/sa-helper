@@ -16,6 +16,8 @@ from domain.model.validators import DomainError
 from repository.models import AppSetting, ChatMessage, Task, User
 from usecase.task.transition import TransitionDenied, apply_force, apply_transition
 
+from usecase.assistant import eve_agent  # noqa: F401 — фолбэк-проверки внизу
+
 _CODE_RE = re.compile(r"\b[A-Za-zА-Яа-я]{2,10}-\d+\b")
 _INTENT_TTL = dt.timedelta(minutes=10)
 # процессы без общего состояния — намерения живут в памяти backend (TTL 10 мин);
@@ -67,11 +69,31 @@ async def handle_message(session: AsyncSession, user: User, text: str,
         reply = await _explain_blocked(session, task)
     elif REPORT_VERBS.search(text) and task is not None:
         reply = await _task_digest(session, task)
-    elif re.search(r"создай задачу", text, re.IGNORECASE):
-        title = re.search(r"«(.+?)»|\"(.+?)\"", text)
-        reply = {"action": "open_create_dialog",
-                 "prefillTitle": (title.group(1) or title.group(2)) if title else ""}
     else:
+        # свободный вопрос — Eve-агенту (SDK: трекер+репо+docker+интернет);
+        # недоступен — прежний режим (контекст-инъекция) (решение 28.10.2026)
+        edits_confirmed = bool(re.search(eve_agent.EDIT_CONFIRM_RE, text, re.IGNORECASE)) \
+            if hasattr(eve_agent, "EDIT_CONFIRM_RE") else False
+
+        def _register(intent: dict) -> None:
+            _INTENTS[str(user.id)] = (
+                intent, dt.datetime.now(dt.timezone.utc) + _INTENT_TTL)
+
+        try:
+            result = await eve_agent.agent_reply(
+                session, user, text, _register,
+                screen_task_code=task.code if task else None,
+                edits_confirmed=edits_confirmed)
+        except Exception:  # noqa: BLE001 — агент не поднялся, отвечает прежний режим
+            from usecase.assistant.eve_agent import sdk_available
+
+            result = None
+        if result is not None:
+            session.add(ChatMessage(user_id=user.id, role="assistant",
+                                    body=str(result.get("reply") or ""),
+                                    task_code=task.code if task else None))
+            await session.commit()
+            return result
         # свободный вопрос — в LLM активного провайдера (Eve — «Джарвис» владельца)
         return await free_chat_reply(session, user, text, task)
     session.add(ChatMessage(user_id=user.id, role="assistant",
@@ -362,6 +384,61 @@ async def _confirm_intent(session: AsyncSession, user: User, intent: dict) -> di
             return reply
         reply = {"reply": f"Сделано: {intent['task']} → «{intent['to']}».",
                  "task": intent["task"]}
+    elif intent["kind"] == "create_task":
+        from usecase.task.create_task import CreateTaskInput, create_task
+
+        try:
+            created = await create_task(session, user, CreateTaskInput(
+                project_mnemonic=intent["project"], type_key=intent.get("type") or "common_task",
+                title=intent["title"], priority="medium", author_tag="by_human",
+                description_md=intent.get("description") or ""))
+            fresh = await session.execute(sa.text(
+                "SELECT title FROM task WHERE code = :c"), {"c": created.code})
+            reply = {"reply": f"Задача создана: {created.code} "
+                              f"«{(fresh.scalar_one_or_none() or '')[:80]}».",
+                     "task": created.code}
+        except DomainError as d:
+            reply = {"reply": f"Не получилось: {d.message}"}
+    elif intent["kind"] == "interrupt":
+        import datetime as _dt
+
+        from daemon.runner.reservation import release_reservation
+        from repository.models import Chronicle, TaskRun
+
+        t = (await session.execute(
+            sa.select(Task).where(Task.code == intent["task"].upper()))).scalar_one_or_none()
+        run = (await session.execute(
+            sa.select(TaskRun).where(TaskRun.task_id == t.id, TaskRun.finished_at.is_(None))
+            .order_by(TaskRun.started_at.desc()).limit(1))).scalar_one_or_none() if t else None
+        if run is None:
+            reply = {"reply": f"У {intent['task']} нет активного прогона — прерывать нечего.",
+                     "task": intent.get("task")}
+        else:
+            now = _dt.datetime.now(_dt.timezone.utc)
+            run.finished_at = now
+            run.outcome = "interrupted"
+            run.detail = "прервано через Eve"
+            t.reserved_by = None
+            t.reserved_at = None
+            t.heartbeat_at = None
+            session.add(Chronicle(task_id=t.id, event_type="agent", author_id=user.id,
+                                  author_kind="human",
+                                  message="Прогон прерван владельцем через Eve"))
+            await release_reservation(session, t.id, "interrupted", "прервано через Eve")
+            reply = {"reply": f"Агент над {t.code} прерван, задача освобождена.",
+                     "task": t.code}
+    elif intent["kind"] == "pipeline_pause":
+        from repository.models import AppSetting
+
+        row = (await session.execute(
+            sa.select(AppSetting).where(AppSetting.key == "daemon.paused"))).scalar_one_or_none()
+        val = "true" if intent.get("paused", True) else "false"
+        if row:
+            row.value = val
+        else:
+            session.add(AppSetting(key="daemon.paused", value=val))
+        state = "остановлен (новые агенты не запускаются)" if val == "true" else "возобновлён"
+        reply = {"reply": f"Конвейер {state}."}
     else:  # force
         try:
             await apply_force(session, user, intent["task"], intent["to"],

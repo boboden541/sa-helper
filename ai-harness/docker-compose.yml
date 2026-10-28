@@ -36,6 +36,9 @@ services:
       # указывать любыми путями хоста (решение владельца 26.10.2026)
       - ${HOME}:/app/host-home
       - ./.harness:/app/host-harness
+      # docker-сокет: Eve-агент управляет контейнерами (полный доступ,
+      # решение владельца 28.10.2026)
+      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "8000:8000"
 
