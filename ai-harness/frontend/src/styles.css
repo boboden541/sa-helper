@@ -1266,3 +1266,12 @@ button.conn.off:hover{color:var(--accent-text)}
    (с сохранением геометрии в localStorage) */
 .eve-panel{resize:none}
 .eve-stop{margin-left:auto; flex-shrink:0}
+/* Рубильник конвейера: явная кнопка с подписью состояния */
+.pipeline-btn{
+  display:flex; align-items:center; gap:7px; height:34px; padding:0 12px;
+  border:1px solid var(--border); border-radius:var(--r-m); background:var(--surface);
+  color:var(--text2); font-size:12.5px; cursor:pointer; white-space:nowrap;
+}
+.pipeline-btn:hover{border-color:var(--border2); color:var(--text)}
+.pipeline-btn.paused{color:var(--danger); border-color:color-mix(in srgb, #cf4436 40%, transparent);
+  background:color-mix(in srgb, #cf4436 8%, var(--surface))}

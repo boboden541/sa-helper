@@ -110,10 +110,10 @@ export function App() {
 
   const togglePipeline = () => {
     const to = !pipelinePaused
-    const label = to ? 'Остановить конвейер?' : 'Возобновить конвейер?'
+    const label = to ? 'Поставить конвейер на паузу?' : 'Возобновить конвейер?'
     const detail = to
-      ? 'Агенты будут остановлены (разработка, ревью, тестирование…). Новые запуски не выполняются. Чат Eve продолжит работать.'
-      : 'Демон снова возьмёт задачи из очереди.'
+      ? 'Автоматика остановлена: агенты не запускаются, зеркала историй и автоблокировки не исполняются — статусы задач зафиксированы, можно «подержать задачу» в любом статусе. Чат Eve продолжит работать.'
+      : 'Демон возобновит автоматике: запуск агентов, зеркала историй, автоблокировки.'
     if (!window.confirm(`${label}\n\n${detail}`)) return
     void api.pipelinePause(to).then(() => setPipelinePaused(to))
       .catch((err: Error) => { toast(err.message, 'bad') })
@@ -183,7 +183,11 @@ export function App() {
           </button>
         ))}
         <div className="side-foot">
-          <div className="daemon"><span className="dot ok pulse" /> Демон · тик 30 с · агенты на своих статусах</div>
+          <div className="daemon">
+            {pipelinePaused
+              ? <><span className="dot" style={{ background: '#cf4436' }} /> Демон · ПАУЗА — статусы зафиксированы</>
+              : <><span className="dot ok pulse" /> Демон · тик 30 с · агенты на своих статусах</>}
+          </div>
           <button className={`ghost-btn ${view === 'settings' ? 'active' : ''}`} style={{ width: '100%' }}
             onClick={() => navigate('#settings/flow')}>⚙ Настройки</button>
         </div>
@@ -233,10 +237,10 @@ export function App() {
               )}
             </div>
           </details>
-          <button className={`icon-btn pipeline-btn ${pipelinePaused ? 'paused' : ''}`}
+          <button className={`pipeline-btn ${pipelinePaused ? 'paused' : ''}`}
             onClick={togglePipeline}
-            title={pipelinePaused ? 'Конвейер на паузе — возобновить работу агентов'
-              : 'Конвейер работает — остановить агентов (разработка, ревью, тестирование). Чат Eve продолжит работать.'}
+            title={pipelinePaused ? 'Конвейер на паузе — автоматика остановлена, статусы зафиксированы. Нажмите, чтобы возобновить.'
+              : 'Конвейер работает — нажмите, чтобы поставить на паузу (агенты не запускаются, зеркала и автоблокировки не исполняются).'}
             aria-label="Рубильник конвейера">
             {pipelinePaused ? (
               <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
@@ -249,6 +253,7 @@ export function App() {
               </svg>
             )}
             <span className="dot" style={{ background: pipelinePaused ? '#cf4436' : '#25935b' }} />
+            <span className="pl-label">{pipelinePaused ? 'пауза' : 'конвейер'}</span>
           </button>
           <button className="icon-btn" onClick={toggleTheme} aria-label="Переключить тему">
             {theme === 'dark' ? '☀' : '☾'}
