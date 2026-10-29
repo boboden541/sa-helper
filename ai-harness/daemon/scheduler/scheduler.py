@@ -681,6 +681,21 @@ class Daemon:
             task_id=task.id, event_type="agent", author_id=agent.id, author_kind="agent",
             message=f"Отчёт агента: {report.summary_md[:300]}",
         ))
+        # артефакт этапа (ФТ-ah-38): отчёт из JSON-отчёта агента получает новую
+        # версию; без записи гейт cond_artifact честно отклонял переход — агент
+        # делал работу, отчёт терялся (дефект 29.10.2026, нашли на AH-130)
+        if report.artifact_md and report.artifact_kind in ("dev_report", "review_report", "qa_report"):
+            from repository.models import TaskArtifact
+
+            ver = (await session.execute(sa.text(
+                "SELECT coalesce(max(version),0)+1 FROM task_artifact "
+                "WHERE task_id = :t AND kind = :k"),
+                {"t": str(task.id), "k": report.artifact_kind})).scalar_one()
+            session.add(TaskArtifact(task_id=task.id, kind=report.artifact_kind,
+                                     version=ver, body_md=report.artifact_md,
+                                     created_by=agent.id))
+            session.add(_chronicle(task.id, "agent",
+                                   f"Артефакт {report.artifact_kind} v{ver} записан агентом"))
         await self._apply_relations(session, task, report)
         await self._apply_checklist_updates(session, task, report)
 

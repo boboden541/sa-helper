@@ -232,3 +232,25 @@ async def test_launch_skips_hard_blocked_tasks(_test_db):
         for t in daemon2._active.values():
             t.cancel()
         await asyncio.gather(*daemon2._active.values(), return_exceptions=True)
+
+
+async def test_report_artifact_is_saved(_test_db):
+    """Дефект 29.10.2026: artifact_md из JSON-отчёта агента никогда не
+    сохранялся — гейт cond_artifact отклонял переходы («не заполнен артефакт
+    этапа»), хотя агент честно писал отчёт (AH-130, 3 попытки сгорели)."""
+    agent_id, code = await _ready_task(_test_db)
+    maker = _maker(_test_db)
+    daemon = Daemon(maker, runner=None)
+    async with maker() as s:
+        task = (await s.execute(sa.select(Task).where(Task.code == code))).scalar_one()
+        report = RunReport(status="success", summary_md="готово",
+                           artifact_md="# Отчёт о ревью\n- пункт 1: пройдено",
+                           artifact_kind="review_report")
+        await daemon._apply_report(s, task,
+                                   (await s.execute(sa.select(User).where(
+                                       User.name == "Разработчик"))).scalar_one(),
+                                   report, {})
+        rows = (await s.execute(sa.text(
+            "SELECT kind, version, left(body_md, 20) FROM task_artifact "
+            "WHERE task_id = :t"), {"t": str(task.id)})).all()
+        assert rows == [("review_report", 1, "# Отчёт о ревью\n- пу")]
