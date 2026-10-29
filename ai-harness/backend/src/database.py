@@ -15,7 +15,15 @@ _sessionmaker: async_sessionmaker[AsyncSession] | None = None
 
 def init_engine(database_url: str) -> AsyncEngine:
     global _engine, _sessionmaker
-    _engine = create_async_engine(database_url, pool_pre_ping=True)
+    connect_args = {}
+    if database_url.startswith("postgresql"):
+        # Страховка от утечки транзакций: idle-in-transaction дольше 5 минут
+        # рвётся сервером, а не стоит за блокировками и не замораживает тики
+        # демона (инцидент 29.10.2026: _run_task держал транзакцию на весь
+        # прогон агента — демон замер на 15 минут, пульс и свип встали).
+        connect_args["server_settings"] = {"idle_in_transaction_session_timeout": "300000"}
+    _engine = create_async_engine(database_url, pool_pre_ping=True,
+                                  connect_args=connect_args)
     _sessionmaker = async_sessionmaker(_engine, expire_on_commit=False)
     return _engine
 

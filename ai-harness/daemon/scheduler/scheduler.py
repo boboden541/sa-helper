@@ -287,11 +287,16 @@ class Daemon:
 
     async def _run_task(self, task_code: str, agent_id, status_key: str,
                         cfg: dict[str, str], run_id: str | None = None) -> None:
-        """Резерв получен: собрать контекст, запустить агента, применить результат."""
+        """Резерв получен: собрать контекст, запустить агента, применить результат.
+
+        Подготовка — в короткоживущей сессии; пока агент работает, открытых
+        транзакций не держим: долгая idle-in-transaction вставала в очередь
+        перед UPDATE пульса/резерва и замораживала тики демона (инцидент
+        29.10.2026: демон молчал 15 минут, пульс и свип встали за её блокировкой)."""
         from usecase.task.transition import TransitionDenied, apply_transition
 
-        async with self._maker() as session:
-            try:
+        try:
+            async with self._maker() as session:
                 task = (await session.execute(
                     sa.select(Task).where(Task.code == task_code))).scalar_one()
                 agent = await session.get(User, agent_id)
@@ -357,28 +362,41 @@ class Daemon:
                     req_kwargs["skills_md"] = tuple(
                         await self._registry_skills_md(session, skill_names))
                 req = RunRequest(**req_kwargs)
-                report = await self.runner.run(req)
-                from daemon.runner.circuit import record_failure, record_success
+        except Exception as err:  # noqa: BLE001 — демон не должен падать
+            log.exception("run failed: %s", task_code)
+            async with self._maker() as s2:
+                await release_reservation(s2, await task_id_by_code(s2, task_code),
+                                          "failed", str(err)[:500])
+            self._active.pop(task_code, None)
+            self._active_runs.pop(task_code, None)
+            return
 
+        # Прогон агента и применение отчёта — БЕЗ открытых транзакций, пока
+        # агент работает: долгая idle-in-transaction замораживала тики демона
+        try:
+            report = await self.runner.run(req)
+            from daemon.runner.circuit import record_failure, record_success
+
+            if run_id:
+                from repository.models import TaskRunLog
+
+                async with self._maker() as sf:
+                    sf.add(TaskRunLog(run_id=run_id, seq=10**6, kind="system",
+                                      text=f"прогон завершён: {report.status}"))
+                    await sf.commit()
+            # комментарии агента к задаче (решение владельца 26.10.2026)
+            if report.comments:
+                from repository.models import TaskComment
+
+                async with self._maker() as sc:
+                    for body in report.comments[:5]:
+                        sc.add(TaskComment(task_id=task.id, author_id=agent.id,
+                                           body=body.strip()[:4000]))
+                    await sc.commit()
+            async with self._maker() as session:
                 conn_id = (await session.execute(
                     sa.text("SELECT connection_id FROM agent_profile WHERE user_id = :u"),
                     {"u": str(agent_id)})).scalar_one_or_none()
-                if run_id:
-                    from repository.models import TaskRunLog
-
-                    async with self._maker() as sf:
-                        sf.add(TaskRunLog(run_id=run_id, seq=10**6, kind="system",
-                                          text=f"прогон завершён: {report.status}"))
-                        await sf.commit()
-                # комментарии агента к задаче (решение владельца 26.10.2026)
-                if report.comments:
-                    from repository.models import TaskComment
-
-                    async with self._maker() as sc:
-                        for body in report.comments[:5]:
-                            sc.add(TaskComment(task_id=task.id, author_id=agent.id,
-                                               body=body.strip()[:4000]))
-                        await sc.commit()
                 if report.status == "success":
                     record_success(str(conn_id) if conn_id else None)
                 elif report.status == "failed":
@@ -387,14 +405,14 @@ class Daemon:
 
                     await maybe_trip(session, str(conn_id) if conn_id else None)
                 await self._apply_report(session, task, agent, report, cfg)
-            except Exception as err:  # noqa: BLE001 — демон не должен падать
-                log.exception("run failed: %s", task_code)
-                async with self._maker() as s2:
-                    await release_reservation(s2, await task_id_by_code(s2, task_code),
-                                              "failed", str(err)[:500])
-            finally:
-                self._active.pop(task_code, None)
-                self._active_runs.pop(task_code, None)
+        except Exception as err:  # noqa: BLE001 — демон не должен падать
+            log.exception("run failed: %s", task_code)
+            async with self._maker() as s2:
+                await release_reservation(s2, await task_id_by_code(s2, task_code),
+                                          "failed", str(err)[:500])
+        finally:
+            self._active.pop(task_code, None)
+            self._active_runs.pop(task_code, None)
 
     async def _ensure_worktree(self, session, task):
         from repository.models import Project
