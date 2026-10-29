@@ -61,7 +61,18 @@ async def ensure_task_worktree(project_path: str, task_code: str,
     await _git(["config", "core.longpaths", "true"], cwd=root)
     exists = await _git(["branch", "--list", branch], cwd=root)
     if not exists.strip():
-        await _git(["branch", branch, base_branch], cwd=root)
+        # базовая ветка проекта может отсутствовать в целевом репо
+        # (мультирепозиторий: tc-admin@develop при base_branch=main) —
+        # детерминированный фолбэк: HEAD-ветка репозитория (его дефолт)
+        base = base_branch
+        try:
+            head = await _git(["rev-parse", "--verify", "--quiet",
+                               f"refs/heads/{base_branch}"], cwd=root)
+        except GitError:
+            head = ""  # ветки нет в целевом репо — фолбэк на дефолт репо
+        if not head.strip():
+            base = await _git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=root)
+        await _git(["branch", branch, base], cwd=root)
     await _git(["worktree", "add", str(wt), branch], cwd=root)
     await _git(["config", "core.autocrlf", "false"], cwd=wt)
     return wt
