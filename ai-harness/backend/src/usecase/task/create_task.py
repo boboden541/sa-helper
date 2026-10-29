@@ -25,6 +25,7 @@ class CreateTaskInput:
     description_md: str = ""
     story_code: str | None = None
     psi_path: str | None = None  # путь сохранения psi.md (только истории; null — дефолт .harness/psi/<код>/)
+    repo_path: str | None = None  # целевой репозиторий в мультирепозитории проекта (относительный путь)
     # Модерация состоялась в чате Eve (ФТ-ah-19, третье исключение); проставляет только контур Eve
     eve_confirmed: bool = False
 
@@ -121,6 +122,7 @@ async def create_task(session: AsyncSession, actor: User, data: CreateTaskInput)
         priority=data.priority,
         story_id=story.id if story else None,
         psi_path=(data.psi_path or None) if data.type_key == "story" else None,
+        repo_path=await _validate_repo_path(project, data.repo_path),
         author_id=actor.id,
     )
     session.add(task)
@@ -161,3 +163,27 @@ async def create_task(session: AsyncSession, actor: User, data: CreateTaskInput)
 
     await session.commit()
     return CreatedTask(code=task.code, status=start_status, id=task.id)
+
+
+async def _validate_repo_path(project, repo_path: str | None) -> str | None:
+    """Целевой репозиторий задачи в мультирепозитории проекта (решение владельца
+    29.10.2026): относительный путь, обязан быть git-репозиторием внутри папки
+    проекта и не выходить за её пределы."""
+    if not repo_path:
+        return None
+    from pathlib import Path
+
+    from domain.model.validators import DomainError
+    from infrastructure.paths import expand_host
+
+    clean = repo_path.strip().strip("/")
+    root = Path(expand_host(project.path)).resolve()
+    candidate = (root / clean).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError as err:
+        raise DomainError("Репозиторий задачи должен лежать внутри папки проекта") from err
+    if not (candidate / ".git").exists():
+        raise DomainError(f"«{clean}» — не git-репозиторий внутри проекта (нет .git); "
+                          "укажите подпапку с репозиторием")
+    return clean

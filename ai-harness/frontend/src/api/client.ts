@@ -9,6 +9,7 @@ export interface TaskCard {
   project?: string
   storyCode?: string | null
   psiPath?: string | null
+  repoPath?: string | null
   tags?: string[]
   agent?: { name: string } | null
   tokensUsed?: number
@@ -67,6 +68,8 @@ export const api = {
     return request<{ total: number; items: TaskCard[] }>(`/api/v1/tasks?${q}`)
   },
   task: (code: string) => request<TaskCard>(`/api/v1/tasks/${code}`),
+  projectRepos: (key: string) =>
+    request<{ repos: { label: string; repoPath: string | null }[] }>(`/api/v1/projects/${key}/repos`),
   createTask: (payload: unknown) =>
     request<TaskCard>('/api/v1/tasks', { method: 'POST', body: JSON.stringify(payload) }),
   patchTask: (code: string, payload: unknown) =>

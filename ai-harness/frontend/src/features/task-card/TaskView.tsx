@@ -84,6 +84,11 @@ function TaskBody({ code }: { code: string }) {
   const [chronicle, setChronicle] = useState<ChronicleItem[]>([])
   const [chronTab, setChronTab] = useState('all')
   const [storyEdit, setStoryEdit] = useState(false)
+  const [repoOptions, setRepoOptions] = useState<{ label: string; repoPath: string | null }[]>([])
+  useEffect(() => {
+    if (!card?.project) return
+    void api.projectRepos(card.project).then((r) => setRepoOptions(r.repos)).catch(() => setRepoOptions([]))
+  }, [card?.project])
   const [editingDesc, setEditingDesc] = useState(false)
   const [descMode, setDescMode] = useState<'visual' | 'md'>('visual')
   const [descDraft, setDescDraft] = useState('')
@@ -220,6 +225,20 @@ function TaskBody({ code }: { code: string }) {
           </span>
           {storyEdit && <StoryPicker code={code} current={card.storyCode ?? null}
             onDone={() => { setStoryEdit(false); reload() }} />}
+          {['common_task', 'story', 'bug'].includes(card.type) && (
+            <span className="meta-item"><span className="lbl">Репозиторий</span>
+              <select value={card.repoPath ?? ''} style={{ maxWidth: 200 }}
+                onChange={(e) => {
+                  const v = e.target.value || undefined
+                  void api.patchTask(code, { repoPath: v })
+                    .then(() => { toast(v ? `Репозиторий → ${v}` : 'Репозиторий снят', 'ok'); reload() })
+                    .catch((err: Error) => toast(err.message, 'bad'))
+                }}>
+                <option value="">— не указан —</option>
+                {(card.project ? repoOptions : []).map((r) =>
+                  <option key={r.repoPath ?? ''} value={r.repoPath ?? ''}>{r.label}</option>)}
+              </select></span>
+          )}
           <span className="meta-item"><span className="lbl">Создана</span> <time>{card.createdAt?.slice(0, 16).replace('T', ' ')}</time></span>
           <span className="meta-item"><span className="lbl">Обновлена</span> <time>{card.updatedAt?.slice(0, 16).replace('T', ' ')}</time></span>
           <span className="meta-item" dangerouslySetInnerHTML={{ __html: typeChip(card.type) }} />

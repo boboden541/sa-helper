@@ -9,7 +9,7 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from domain.model.validators import DomainError, validate_description, validate_title
-from repository.models import Chronicle, Task, User
+from repository.models import Chronicle, Project, Task, User
 
 
 @dataclass
@@ -61,6 +61,15 @@ async def patch_task(
         if new_psi != task.psi_path:
             task.psi_path = new_psi
             events.append("изменён путь сохранения ПСИ")
+
+    if "repoPath" in fields:
+        from usecase.task.create_task import _validate_repo_path
+
+        project = await session.get(Project, task.project_id)
+        new_repo = await _validate_repo_path(project, fields["repoPath"])
+        if new_repo != task.repo_path:
+            task.repo_path = new_repo
+            events.append("изменён целевой репозиторий задачи")
 
     if "tags" in fields and fields["tags"] is not None:
         from domain.model.enums import AUTHOR_TAGS

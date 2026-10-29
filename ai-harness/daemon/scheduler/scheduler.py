@@ -569,7 +569,8 @@ class Daemon:
 
         from infrastructure.git.worktree import ensure_task_worktree
 
-        return await ensure_task_worktree(project.path, task.code, project.base_branch)
+        return await ensure_task_worktree(project.path, task.code, project.base_branch,
+                                          repo_path=task.repo_path)
 
     async def _provider_for(self, session, agent_id) -> dict | None:
         """Расшифрованное подключение агента (ANTHROPIC_* для раннера).
@@ -833,7 +834,7 @@ class Daemon:
         try:
             # путь проекта в БД хранится как на хосте; git-операции идут в контейнере
             await merge_task_branch(host_to_container(project.path), task.code,
-                                    project.base_branch)
+                                    project.base_branch, repo_path=task.repo_path)
         except GitError as err:
             raise TransitionDenied(
                 f"Конфликт слияния: распутайте вручную, автомат повторит ({err.stderr[:200]})",
@@ -842,7 +843,8 @@ class Daemon:
         try:
             from infrastructure.git.worktree import cleanup_task_worktree
 
-            await cleanup_task_worktree(host_to_container(project.path), task.code)
+            await cleanup_task_worktree(host_to_container(project.path), task.code,
+                                        repo_path=task.repo_path)
         except Exception:  # noqa: BLE001 - неуспешная уборка не роняет переход
             log.info("worktree cleanup skipped for %s", task.code, exc_info=True)
 

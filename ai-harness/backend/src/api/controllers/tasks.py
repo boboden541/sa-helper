@@ -20,7 +20,7 @@ def _card_out(c) -> TaskCardOut:
     return TaskCardOut(
         code=c.code, title=c.title, priority=c.priority, type=c.type,
         statusKey=c.status_key, storyCode=c.story_code, tags=c.tags, agent=c.agent,
-        project=c.project, psiPath=c.psi_path, tokensUsed=c.tokens_used,
+        project=c.project, psiPath=c.psi_path, repoPath=c.repo_path, tokensUsed=c.tokens_used,
     )
 
 
@@ -55,6 +55,7 @@ async def create_task_view(payload: TaskCreateIn,
         description_md=payload.description_md,
         story_code=payload.story_code,
         psi_path=payload.psi_path,
+        repo_path=payload.repo_path,
     ))
     task = await _get_task_by_code(session, created.code)
     return _card_out(_to_card(task))
@@ -76,7 +77,8 @@ async def _get_task_by_code(session, code):
 def _to_card(task) -> TaskCard:
     from usecase.task.list_tasks import TaskCard
     return TaskCard(code=task.code, title=task.title, priority=task.priority,
-                    type="", status_key=task.status_key, psi_path=task.psi_path)
+                    type="", status_key=task.status_key, psi_path=task.psi_path,
+                       repo_path=task.repo_path)
 
 
 @router.patch("/{code}", response_model=TaskCardOut)

@@ -34,6 +34,8 @@ class Task(Base):
     reserved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     psi_path: Mapped[str | None] = mapped_column(String(500))  # путь сохранения psi.md истории (null — дефолт)
+    # целевой репозиторий в мультирепозитории проекта (относительный путь)
+    repo_path: Mapped[str | None] = mapped_column(String(200))
     retry_count: Mapped[int] = mapped_column(SmallInteger, default=0)
     rework_count: Mapped[int] = mapped_column(SmallInteger, default=0)
     m4_count: Mapped[int] = mapped_column(SmallInteger, default=0)

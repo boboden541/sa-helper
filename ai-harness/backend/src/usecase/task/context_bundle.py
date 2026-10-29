@@ -21,6 +21,8 @@ async def build_context_md(session: AsyncSession, task: Task) -> str:
     parts = [
         f"Задача {task.code} [{type_key}] — {task.title}",
         f"Статус: {task.status_key}; приоритет: {task.priority}; теги: {', '.join(tags)}",
+        *( [f"Репозиторий доработки: {task.repo_path} (worktree и ветка task/<код> — в нём)"]
+           if task.repo_path else [] ),
         f"\n## Постановка\n{task.description_md or '(описание пусто)'}",
     ]
 

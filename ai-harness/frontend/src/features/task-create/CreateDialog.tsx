@@ -16,6 +16,7 @@ interface CreateState {
   descriptionMd: string
   descMode: 'visual' | 'md'
   psiPath: string
+  repoPath: string
 }
 
 const STORE = (CreateDialog as unknown as { last?: CreateState })
@@ -29,6 +30,7 @@ export function CreateDialog({ onClose, prefillTitle, prefill }: {
     ...(STORE.last ?? {
       projectId: 'AH', type: 'common_task', title: '', priority: '',
       authorTag: 'by_human', tags: '', descriptionMd: '', descMode: 'visual', psiPath: '',
+      repoPath: '',
     }),
     ...(prefillTitle ? { title: prefillTitle } : {}),
     ...(prefill ? { title: prefill.title ?? '', descriptionMd: prefill.descriptionMd ?? '' } : {}),
@@ -44,6 +46,11 @@ export function CreateDialog({ onClose, prefillTitle, prefill }: {
   }, [])
   const set = (patch: Partial<CreateState>) => setState((s) => ({ ...s, ...patch }))
   useEffect(() => { STORE.last = state }, [state])
+  const [repos, setRepos] = useState<{ label: string; repoPath: string | null }[]>([])
+  useEffect(() => {
+    if (!['common_task', 'story', 'bug'].includes(state.type) || !state.projectId) return
+    void api.projectRepos(state.projectId).then((r) => setRepos(r.repos)).catch(() => setRepos([]))
+  }, [state.projectId, state.type])
 
   const submit = async (psiPath?: string) => {
     try {
@@ -53,8 +60,9 @@ export function CreateDialog({ onClose, prefillTitle, prefill }: {
         tags: state.tags.split(/[\s,]+/).filter(Boolean),
         descriptionMd: state.descriptionMd,
         psiPath: psiPath ?? (state.psiPath.trim() || undefined),
+        repoPath: state.repoPath.trim() || undefined,
       })
-      setState((s) => ({ ...s, title: '', priority: '', tags: '', descriptionMd: '', psiPath: '' }))
+      setState((s) => ({ ...s, title: '', priority: '', tags: '', descriptionMd: '', psiPath: '', repoPath: '' }))
       onClose()
     } catch (err) {
       setError((err as Error).message)
@@ -126,6 +134,13 @@ export function CreateDialog({ onClose, prefillTitle, prefill }: {
             <select value={state.type} onChange={(e) => set({ type: e.target.value })}>
               {['common_task', 'story', 'qa_task', 'bug', 'analyse_task'].map((t) => <option key={t}>{t}</option>)}
             </select></div>
+          {['common_task', 'story', 'bug'].includes(state.type) && repos.length > 1 && (
+            <div className="f-field"><label>Репозиторий доработки</label>
+              <select value={state.repoPath} onChange={(e) => set({ repoPath: e.target.value })}>
+                <option value="">— не указан —</option>
+                {repos.map((r) => <option key={r.repoPath ?? ''} value={r.repoPath ?? ''}>{r.label}</option>)}
+              </select></div>
+          )}
           {state.type === 'story' && (
             <div className="f-field" style={{ gridColumn: '1 / -1' }}>
               <label>Путь сохранения документа ПСИ (необязательно)</label>

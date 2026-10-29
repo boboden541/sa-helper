@@ -174,6 +174,45 @@ async def presets_create(payload: PresetIn, session: AsyncSession = Depends(get_
     return {"id": str(p.id), "name": p.name}
 
 
+@router.get("/projects/{key}/repos")
+async def project_repos(key: str, session: AsyncSession = Depends(get_session),
+                        actor: User = Depends(get_actor)):
+    """Git-репозитории внутри папки проекта (мультирепозиторий, решение
+    владельца 29.10.2026). Корень-репозиторий (если проект — одиночный репо)
+    возвращается первым с repoPath=null."""
+    import os
+    import uuid as uuid_mod
+    from pathlib import Path
+
+    import sqlalchemy as sa
+
+    proj = None
+    if key.upper() == key and len(key) <= 10:  # мнемоника
+        proj = (await session.execute(
+            sa.select(Project).where(Project.mnemonic == key.upper()))).scalar_one_or_none()
+    if proj is None:
+        try:
+            proj = await session.get(Project, uuid_mod.UUID(key))
+        except ValueError:
+            proj = None
+    if proj is None:
+        raise ApiError(404, f"Проект {key!r} не найден")
+
+    from infrastructure.paths import host_to_container
+
+    root = Path(host_to_container(proj.path))
+    repos: list[dict] = []
+    if (root / ".git").exists():
+        repos.append({"label": f"{proj.name} (корень)", "repoPath": None})
+    try:
+        for child in sorted(root.iterdir()):
+            if child.is_dir() and (child / ".git").exists():
+                repos.append({"label": child.name, "repoPath": child.name})
+    except OSError:
+        pass
+    return {"repos": repos}
+
+
 @router.post("/flows/{type_key}/reset")
 async def flow_reset(type_key: str, session: AsyncSession = Depends(get_session),
                      actor: User = Depends(get_actor),

@@ -43,12 +43,15 @@ def worktree_path_for(project_path: str, task_code: str) -> Path:
 
 
 async def ensure_task_worktree(project_path: str, task_code: str,
-                               base_branch: str = "main") -> Path:
+                               base_branch: str = "main",
+                               repo_path: str | None = None) -> Path:
     """Создаёт ветку task/<code> от базовой при первом входе в работу;
-    повторный вход продолжает ту же ветку (ФТ-ah-37)."""
+    повторный вход продолжает ту же ветку (ФТ-ah-37). repo_path — целевой
+    репозиторий в мультирепозитории проекта (решение владельца 29.10.2026)."""
     from infrastructure.paths import host_to_container
 
-    root = Path(host_to_container(project_path))
+    root = Path(host_to_container(str(Path(project_path) / repo_path if repo_path
+                                  else project_path)))
     branch = f"task/{task_code}"
     wt = worktree_path_for(str(root), worktree_code(task_code))
     wt.parent.mkdir(parents=True, exist_ok=True)
@@ -80,9 +83,10 @@ async def commit_all(worktree: Path, message: str, author: str) -> str | None:
 
 
 async def merge_task_branch(project_path: str, task_code: str,
-                            base_branch: str = "main") -> None:
+                            base_branch: str = "main",
+                            repo_path: str | None = None) -> None:
     """Слияние task/<code> в базовую перед done; конфликт → GitError (→ blocked)."""
-    root = Path(project_path)
+    root = Path(project_path) / repo_path if repo_path else Path(project_path)
     branch = f"task/{task_code}"
     # слияние через временный checkout базовой ветки в основном репозитории
     current = await _git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=root)
@@ -129,12 +133,14 @@ async def worktree_is_clean(wt: Path) -> bool:
     return not status.strip()
 
 
-async def cleanup_task_worktree(project_path: str, task_code: str) -> None:
+async def cleanup_task_worktree(project_path: str, task_code: str,
+                                repo_path: str | None = None) -> None:
     """Убирает worktree задачи, если в нём нет незакоммиченных изменений.
 
     Ветка task/<code> сохраняется (артефактный контракт: одна задача - одна ветка).
     """
-    wt = worktree_path_for(project_path, worktree_code(task_code))
+    root = Path(project_path) / repo_path if repo_path else Path(project_path)
+    wt = worktree_path_for(str(root), worktree_code(task_code))
     if wt.exists() and not await worktree_is_clean(wt):
         return  # грязный worktree не трогаем - разберётся человек
-    await remove_task_worktree(project_path, task_code)
+    await remove_task_worktree(str(root), task_code)
