@@ -491,6 +491,13 @@ class Daemon:
         except Exception as err:  # noqa: BLE001 — демон не должен падать
             log.exception("run failed: %s", task_code)
             async with self._maker() as s2:
+                # сбой инфраструктуры (worktree/git/провайдер) тоже считается
+                # попыткой: иначе задача ретраится вечно, сжигая токены
+                # (VITRINA-32…35: git-ошибка worktree, ретрай каждый тик)
+                await s2.execute(sa.text(
+                    "UPDATE task SET retry_count = retry_count + 1 WHERE code = :c"),
+                    {"c": task_code})
+                await s2.commit()
                 await release_reservation(s2, await task_id_by_code(s2, task_code),
                                           "failed", str(err)[:500])
             self._active.pop(task_code, None)
@@ -534,6 +541,13 @@ class Daemon:
         except Exception as err:  # noqa: BLE001 — демон не должен падать
             log.exception("run failed: %s", task_code)
             async with self._maker() as s2:
+                # сбой инфраструктуры (worktree/git/провайдер) тоже считается
+                # попыткой: иначе задача ретраится вечно, сжигая токены
+                # (VITRINA-32…35: git-ошибка worktree, ретрай каждый тик)
+                await s2.execute(sa.text(
+                    "UPDATE task SET retry_count = retry_count + 1 WHERE code = :c"),
+                    {"c": task_code})
+                await s2.commit()
                 await release_reservation(s2, await task_id_by_code(s2, task_code),
                                           "failed", str(err)[:500])
         finally:
