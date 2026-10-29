@@ -548,6 +548,7 @@ class Daemon:
             task_id=task.id, event_type="agent", author_id=agent.id, author_kind="agent",
             message=f"Отчёт агента: {report.summary_md[:300]}",
         ))
+        await self._apply_relations(session, task, report)
         await self._apply_checklist_updates(session, task, report)
 
         if report.status == "success" and not report.proposed_transition:
@@ -599,31 +600,78 @@ class Daemon:
         await session.commit()
 
     async def _apply_checklist_updates(self, session, task, report) -> None:
+        """Upsert-семантика (дефект 29.10.2026: пункт с item_position при пустом
+        чеклисте тихо не применялся — UPDATE не попадал ни в одну строку, и
+        декомпозиция Планировщика пропадала, гейт отклонял переход, сжигая
+        попытки по ~100К токенов). Пункта нет или чеклиста нет — создаём."""
+        applied = 0
         for upd in report.checklist_updates:
             kind = upd.get("checklist_kind")
             new_status = upd.get("new_status")
             if not kind or not new_status:
                 continue
-            if "item_position" in upd:
-                await session.execute(sa.text(
-                    "UPDATE checklist_item ci SET status = :s FROM checklist c "
-                    "WHERE c.id = ci.checklist_id AND c.task_id = :t "
-                    "AND c.kind = :k AND ci.position = :p"), {
-                        "s": new_status, "t": str(task.id), "k": kind,
-                        "p": upd["item_position"]})
-            elif upd.get("text"):
+            chk = (await session.execute(sa.text(
+                "SELECT id FROM checklist WHERE task_id = :t AND kind = :k"),
+                {"t": str(task.id), "k": kind})).first()
+            if chk is None:
                 chk = (await session.execute(sa.text(
-                    "SELECT id FROM checklist WHERE task_id = :t AND kind = :k"),
+                    "INSERT INTO checklist (id, task_id, kind) "
+                    "VALUES (gen_random_uuid(), :t, :k) RETURNING id"),
                     {"t": str(task.id), "k": kind})).first()
-                if chk:
-                    pos = (await session.execute(sa.text(
-                        "SELECT coalesce(max(position),0)+1 FROM checklist_item "
+            position = upd.get("item_position")
+            if position is not None:
+                updated = (await session.execute(sa.text(
+                    "UPDATE checklist_item ci SET status = :s, text = coalesce(:x, text) "
+                    "FROM checklist c WHERE c.id = ci.checklist_id AND c.task_id = :t "
+                    "AND c.kind = :k AND ci.position = :p RETURNING ci.id"), {
+                        "s": new_status, "t": str(task.id), "k": kind,
+                        "p": position, "x": upd.get("text")})).first()
+                if updated is not None:
+                    applied += 1
+                    continue
+            if not upd.get("text"):
+                continue
+            pos = position if position is not None else (await session.execute(
+                sa.text("SELECT coalesce(max(position),0)+1 FROM checklist_item "
                         "WHERE checklist_id = :c"), {"c": str(chk[0])})).scalar_one()
-                    await session.execute(sa.text(
-                        "INSERT INTO checklist_item (id, checklist_id, position, kind, text, status) "
-                        "VALUES (gen_random_uuid(), :c, :p, 'item', :x, 'todo')"),
-                        {"c": str(chk[0]), "p": pos, "x": upd["text"]})
+            await session.execute(sa.text(
+                "INSERT INTO checklist_item (id, checklist_id, position, kind, text, status) "
+                "VALUES (gen_random_uuid(), :c, :p, 'item', :x, :s) "
+                "ON CONFLICT DO NOTHING"), {
+                    "c": str(chk[0]), "p": pos, "x": upd["text"], "s": new_status})
+            applied += 1
         await session.commit()
+        if applied:
+            session.add(_chronicle(task.id, "agent",
+                                   f"Чеклист обновлён агентом ({applied} пункт(ов))"))
+
+    async def _apply_relations(self, session, task, report) -> int:
+        """Связи из отчёта агента (relations_updates): blocked_by / do_after.
+        Охраны как в API: существование задачи, не самозащёлка, без дублей."""
+        from repository.models import TaskRelation
+
+        applied = 0
+        for rel in report.relations_updates:
+            kind, other_code = rel.get("kind"), str(rel.get("task_code") or "").upper()
+            if kind not in ("do_after", "blocked_by") or not other_code:
+                continue
+            other = (await session.execute(
+                sa.select(Task).where(Task.code == other_code))).scalar_one_or_none()
+            if other is None or other.id == task.id:
+                continue
+            dup = (await session.execute(
+                sa.select(sa.func.count()).select_from(TaskRelation)
+                .where(TaskRelation.from_task == task.id, TaskRelation.to_task == other.id,
+                       TaskRelation.kind == kind))).scalar_one()
+            if dup:
+                continue
+            session.add(TaskRelation(from_task=task.id, to_task=other.id, kind=kind))
+            applied += 1
+        if applied:
+            await session.commit()
+            session.add(_chronicle(task.id, "agent",
+                                   f"Связи обновлены агентом ({applied} шт.)"))
+        return applied
 
     async def _merge_before_done(self, session, task) -> None:
         """Слияние перед done (ФТ-ah-37); конфликт -> TransitionDenied (далее ретрай-лестница)."""

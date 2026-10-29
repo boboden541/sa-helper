@@ -6,7 +6,8 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from repository.models import (
-    Checklist, ChecklistItem, Chronicle, Tag, Task, TaskRelation, TaskTag, TaskType,
+    Checklist, ChecklistItem, Chronicle, Project, Tag, Task, TaskRelation, TaskTag,
+    TaskType,
 )
 
 
@@ -30,6 +31,18 @@ async def build_context_md(session: AsyncSession, task: Task) -> str:
     if relations:
         lines = [f"- {kind} {code} «{title}»" for kind, code, title in relations]
         parts.append("\n## Связи\n" + "\n".join(lines))
+
+    # индекс задач проекта: коды соседей для declarations связей (relations_updates)
+    siblings = (await session.execute(
+        sa.select(Task.code, Task.title, Task.status_key)
+        .join(Project, Project.id == Task.project_id)
+        .where(Task.project_id == task.project_id,
+               Task.status_key.notin_(("done", "canceled")), Task.id != task.id)
+        .order_by(Task.code).limit(40))).all()
+    if siblings:
+        lines = [f"- {code} «{title}» — {status}" for code, title, status in siblings]
+        parts.append("\n## Задачи проекта (для связей: что сначала, что потом, кто кого блокирует)\n"
+                     + "\n".join(lines))
 
     # Допустимые переходы из текущего статуса: агент предлагает только их,
     # не догадывается о ключах статусов (инцидент AH-130: агент выдумал

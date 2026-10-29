@@ -62,6 +62,7 @@ class RunReport:
     artifact_md: str | None = None
     artifact_kind: str | None = None
     proposed_transition: dict | None = None  # {"to": "...", "reason": "..."}
+    relations_updates: list[dict] = field(default_factory=list)
     questions: list[str] = field(default_factory=list)
     comments: list[str] = field(default_factory=list)  # комментарии агента к задаче
     raw: str = ""
@@ -74,7 +75,9 @@ REPORT_CONTRACT = """
  "summary_md": "что сделано и как проверялось",
  "checklist_updates": [{"checklist_kind": "developer|reviewer|tester",
                         "item_position": 1, "new_status": "todo|in_progress|closed|done|failed",
-                        "text": "новый пункт (если добавляешь)"}],
+                        "text": "текст пункта: для нового пункта обязателен, для существующего — обнови статус"}],
+ "relations_updates": [{"task_code": "MNEMONIC-N", "kind": "do_after|blocked_by",
+                        "note": "почему (кратко)"}],
  "artifact_md": "отчёт этапа (если требует скилл)",
  "artifact_kind": "dev_report|review_report|qa_report",
  "proposed_transition": {"to": "ключ статуса", "reason": "почему"},
@@ -89,6 +92,9 @@ REPORT_CONTRACT = """
 предложи переход снова. Причину, которую ты устранить не можешь, не обходи:
 верни {"status": "blocked", ...} с объяснением, решение за человеком.
 Комментарии видны человеку в карточке задачи — пишите по делу, 1–3 предложения.
+Связи (relations_updates) — для явных зависимостей между задачами: «blocked_by» —
+не брать в работу, пока указанная задача не закрыта; «do_after» — порядок без
+жёсткой блокировки. Указывай только реальные зависимости по постановке.
 """
 
 
@@ -120,10 +126,14 @@ def _report_from(raw: dict, text: str) -> RunReport:
     if not isinstance(transition, dict) or not isinstance(transition.get("to"), str):
         transition = None
     upd = [u for u in raw.get("checklist_updates", []) if isinstance(u, dict)]
+    rel = [r for r in raw.get("relations_updates", []) if isinstance(r, dict)
+           and isinstance(r.get("task_code"), str)
+           and r.get("kind") in ("do_after", "blocked_by")]
     return RunReport(
         status=raw["status"],
         summary_md=str(raw.get("summary_md", "")),
         checklist_updates=upd,
+        relations_updates=rel,
         artifact_md=raw.get("artifact_md"),
         artifact_kind=raw.get("artifact_kind"),
         proposed_transition=transition,

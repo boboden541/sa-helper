@@ -106,3 +106,78 @@ async def test_interrupt_and_same_status_success_pause(_test_db):
         await release_reservation(s, task.id, "failed")
         nxt3 = await _next_retry_at(s, task.id, "in_progress", cfg)
         assert nxt3 is not None and nxt3 < now + dt.timedelta(minutes=pauses[0] + 1)
+
+
+async def test_report_creates_missing_checklist_and_relations(_test_db):
+    """Дефект 29.10.2026: чеклист с item_position на задаче без чеклиста тихо
+    не применялся (UPDATE не попадал ни в одну строку) — декомпозиция Планировщика
+    пропадала, гейт отклонял переход, сжигая попытки по ~100К токенов.
+    Связи (relations_updates) вообще не было в контракте — «что сначала, что
+    потом» агент выразить не мог."""
+    agent_id, code = await _ready_task(_test_db)
+    maker = _maker(_test_db)
+    daemon = Daemon(maker, runner=None)
+    async with maker() as s:
+        task = (await s.execute(sa.select(Task).where(Task.code == code))).scalar_one()
+        # сосед для связи
+        await s.execute(sa.text(
+            "INSERT INTO task (id, project_id, code, task_type_id, title, description_md, "
+            "status_key, flow_version_id, priority, author_id) "
+            "SELECT gen_random_uuid(), p.id, 'AH-999', t.id, 'Сосед', '', 'todo', fv.id, "
+            "'medium', u.id FROM project p, task_type t, flow_version fv, \"user\" u "
+            "WHERE p.mnemonic='AH' AND t.key='common_task' AND fv.task_type_id=t.id "
+            "AND fv.is_current AND u.name='Алексей'"))
+        await s.commit()
+
+        report = RunReport(status="success", summary_md="план готов",
+                           checklist_updates=[
+                               {"checklist_kind": "developer", "item_position": 1,
+                                "new_status": "todo", "text": "пункт один"},
+                               {"checklist_kind": "developer", "item_position": 2,
+                                "new_status": "todo", "text": "пункт два"},
+                           ],
+                           relations_updates=[
+                               {"task_code": "AH-999", "kind": "blocked_by",
+                                "note": "сначала сосед"},
+                           ])
+        await daemon._apply_checklist_updates(s, task, report)
+        await daemon._apply_relations(s, task, report)
+
+        items = (await s.execute(sa.text(
+            "SELECT ci.position, ci.text FROM checklist_item ci "
+            "JOIN checklist c ON c.id = ci.checklist_id "
+            "WHERE c.task_id = :t AND c.kind='developer' ORDER BY ci.position"),
+            {"t": str(task.id)})).all()
+        assert [(r[0], r[1]) for r in items] == [(1, "пункт один"), (2, "пункт два")]
+
+        rel = (await s.execute(sa.text(
+            "SELECT kind FROM task_relation WHERE from_task = :t"),
+            {"t": str(task.id)})).scalars().all()
+        assert rel == ["blocked_by"]
+
+
+async def test_report_updates_existing_item_by_position(_test_db):
+    """Существующий пункт по позиции обновляет статус, а не создаёт дубликат."""
+    agent_id, code = await _ready_task(_test_db)
+    maker = _maker(_test_db)
+    daemon = Daemon(maker, runner=None)
+    async with maker() as s:
+        task = (await s.execute(sa.select(Task).where(Task.code == code))).scalar_one()
+        s.add(Checklist(task_id=task.id, kind="developer"))
+        s.add(ChecklistItem(checklist_id=(await s.execute(sa.text(
+            "SELECT id FROM checklist WHERE task_id = :t AND kind='developer'"),
+            {"t": str(task.id)})).scalar_one(),
+            position=1, kind="item", text="пункт один", status="todo"))
+        await s.commit()
+        report = RunReport(status="success", summary_md="",
+                           checklist_updates=[{"checklist_kind": "developer",
+                                               "item_position": 1,
+                                               "new_status": "done",
+                                               "text": "пункт один"}])
+        await daemon._apply_checklist_updates(s, task, report)
+        rows = (await s.execute(sa.text(
+            "SELECT ci.status, ci.text FROM checklist_item ci "
+            "JOIN checklist c ON c.id = ci.checklist_id "
+            "WHERE c.task_id = :t AND c.kind='developer'"),
+            {"t": str(task.id)})).all()
+        assert rows == [("done", "пункт один")]
