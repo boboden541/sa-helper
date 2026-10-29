@@ -258,6 +258,9 @@ class ClaudeCodeRunner:
     """
 
     def __init__(self, sdk_module=None) -> None:
+        if sdk_module is not None:
+            self._sdk = sdk_module  # подменный SDK для тестов
+            return
         try:
             import claude_agent_sdk as sdk  # noqa: F401
 
@@ -321,7 +324,7 @@ class ClaudeCodeRunner:
         collected: list[str] = []
         usage: dict = {"input": 0, "output": 0, "cache": 0, "total": 0}
         try:
-            await _iterate_sdk(self, req, prompt, options, collected, usage)
+            await self._iterate_sdk(req, prompt, options, collected, usage)
         except RunnerTimeout as err:
             await req.emit("system", text=f"timeout: {err.args[0]}")
             phase = "старт" if err.args and err.args[0] == "start" else "работа"
