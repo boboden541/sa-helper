@@ -75,7 +75,10 @@ def check_edge(graph: FlowGraph, current: str, target: str, subject: Subject,
 
     # --- права субъекта (матрица прав, постановка «Права субъектов») ---
     if subject.kind == "auto":
-        if edge.runner != "auto":
+        # auto_or_agent — «Автоматом или ручное вмешательство»: автомат вправе
+        # исполнять такие рёбра детерминированными правилами (возврат из
+        # blocked после снятия блокера и т.п.); иначе подпись flow врала
+        if edge.runner not in ("auto", "auto_or_agent"):
             return Decision(False, f"Ребро не помечено как автоматическое ({edge.runner})")
     elif subject.kind == "agent":
         if current not in subject.assigned_statuses:

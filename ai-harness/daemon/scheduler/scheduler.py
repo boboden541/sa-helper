@@ -26,15 +26,19 @@ async def active_run_id(session, task_id) -> str | None:
         .order_by(TaskRun.started_at.desc()).limit(1))).scalar_one_or_none()
 
 from domain.model.enums import GIT_TASK_TYPES
-from repository.models import Assignment, Project, Task, TaskType, User
+from repository.models import Assignment, Project, Task, TaskRelation, TaskType, User
 
 log = logging.getLogger("daemon")
 
 
+PRIORITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+
+
 def _queue_sort(rows: list) -> list:
     """Правила очереди: приоритет → баги выше → старые выше (ФТ-ah-4).
-    rows — кортежи (Task, type_key, user_id, mode, position)."""
-    rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    rows — кортежи (Task, type_key, user_id, mode, position).
+    Для зависимости-осознанного порядка _launch_ready сортирует сам (см. _dep_key)."""
+    rank = PRIORITY_RANK
 
     def key(item):
         task, type_key = item[0], item[1]
@@ -103,6 +107,7 @@ class Daemon:
                 return summary
             summary["blocked_no_agent"] = await self._block_unassigned(session)
             summary["mirrored"] = await self._tick_mirroring(session)
+            summary["unblocked"] = await self._tick_unblock(session)
             summary["launched"] = await self._launch_ready(session, cfg)
             summary["interrupted"] = await self._check_interrupts(session)
             await self._retention_tick(session)
@@ -166,6 +171,75 @@ class Daemon:
             if await recompute_story_mirroring(session, story):
                 changed += 1
         return changed
+
+    async def _tick_unblock(self, session: AsyncSession) -> int:
+        """Правило AUTO_UNBLOCK: задача в blocked из-за жёстких связей возвращается
+        в работу автоматически, когда последний блокер закрыт (решение владельца
+        29.10.2026 — «перевод должен работать по правилам flow», подпись ребра
+        «Автоматом или ручное вмешательство»). Природа блокера определяется
+        наличием связей blocked_by; задачи без связей (провалы агентов, конфликт
+        слияния) остаются человеку — по СТ. Истории не трогаем: их ведут зеркала
+        M1/M5. Один переход за вызов, событие с rule_code в хронику."""
+        from domain.transition.engine import STAGE_ORDER, Subject, check_edge
+        from domain.transition.graph import load_graph
+        from repository.models import FlowTransition, FlowVersion
+
+        from usecase.task.gates import load_gate_data
+        from usecase.task.transition import TransitionDenied, apply_transition, \
+            task_flow_version_id
+
+        rows = (await session.execute(
+            sa.select(Task, TaskType.key.label("type_key"))
+            .join(TaskType, TaskType.id == Task.task_type_id)
+            .where(Task.status_key == "blocked", TaskType.key != "story",
+                   Task.reserved_by.is_(None)))).all()
+        returned = 0
+        for task, type_key in rows:
+            blockers = (await session.execute(
+                sa.select(Task.code)
+                .join(TaskRelation, TaskRelation.to_task == Task.id)
+                .where(TaskRelation.from_task == task.id,
+                       TaskRelation.kind == "blocked_by",
+                       Task.status_key.notin_(("done", "canceled"))))).scalars().all()
+            if not blockers:
+                continue  # природа блокера не зависимости — человеку (СТ)
+            still_open = (await session.execute(
+                sa.select(sa.func.count()).select_from(TaskRelation)
+                .join(Task, Task.id == TaskRelation.to_task)
+                .where(TaskRelation.from_task == task.id,
+                       TaskRelation.kind == "blocked_by",
+                       Task.status_key.notin_(("done", "canceled")))).scalar_one())
+            if still_open:
+                continue
+            graph = await load_graph(session, await task_flow_version_id(session, task))
+            subject = Subject(kind="auto")
+            gates = await load_gate_data(session, task)
+            edges = (await session.execute(
+                sa.select(FlowTransition.to_status)
+                .join(FlowVersion, FlowVersion.id == FlowTransition.flow_version_id)
+                .where(FlowVersion.task_type_id == task.task_type_id,
+                       FlowVersion.is_current.is_(True),
+                       FlowVersion.is_published.is_(True),
+                       FlowTransition.from_status == "blocked"))).scalars().all()
+            # детерминированный выбор: ближайший рабочий статус по порядку стадий
+            for target in sorted(set(edges), key=lambda s: STAGE_ORDER.get(s, 99)):
+                decision = check_edge(graph, "blocked", target, subject, gates)
+                if decision.allowed:
+                    try:
+                        await apply_transition(session, None, task.code, target,
+                                               subject_kind="auto",
+                                               rule_code="AUTO_UNBLOCK",
+                                               _allow_cascade=False)
+                        session.add(_chronicle(
+                            task.id, "auto",
+                            f"Блокеры сняты ({', '.join(sorted(set(blockers)))}) — "
+                            f"автовозврат из «Заблокировано» в «{target}»"))
+                        await session.commit()
+                        returned += 1
+                    except TransitionDenied:
+                        continue
+                    break
+        return returned
 
     async def _touch_active(self, session: AsyncSession) -> None:
         """Прогоны этого демона живы: обновляем heartbeat (смерть процесса ловит sweep)."""
@@ -255,9 +329,42 @@ class Daemon:
                 continue
             ready.append((*row, *agent_row))
 
+        # правило очереди по зависимостям (решение владельца 29.10.2026):
+        # приоритет → сперва задачи, которые сами разблокируют других
+        # (blocked_by на них от незакрытых задач) → баги → задачи с открытым
+        # do_after опускаются (СТ «Влияние связей») → старые выше
+        cand_ids = [t.id for t, _, _, _, _ in ready]
+        blocks_count: dict = {}
+        do_after_open: set = set()
+        if cand_ids:
+            blocks_rows = await session.execute(
+                sa.select(TaskRelation.to_task, sa.func.count()).select_from(TaskRelation)
+                .join(Task, Task.id == TaskRelation.from_task)
+                .where(TaskRelation.to_task.in_(cand_ids),
+                       TaskRelation.kind == "blocked_by",
+                       Task.status_key.notin_(("done", "canceled")))
+                .group_by(TaskRelation.to_task))
+            for to_task, cnt in blocks_rows.all():
+                blocks_count[to_task] = cnt
+            do_after_res = await session.execute(
+                sa.select(TaskRelation.from_task).select_from(TaskRelation)
+                .join(Task, Task.id == TaskRelation.to_task)
+                .where(TaskRelation.from_task.in_(cand_ids),
+                       TaskRelation.kind == "do_after",
+                       Task.status_key.notin_(("done", "canceled"))))
+            do_after_open = {r[0] for r in do_after_res.all()}
+
+        def _dep_key(item):
+            task, type_key = item[0], item[1]
+            return (PRIORITY_RANK.get(task.priority, 9),
+                    -blocks_count.get(task.id, 0),
+                    0 if type_key == "bug" else 1,
+                    1 if task.id in do_after_open else 0,
+                    task.created_at, task.code)
+
         max_attempts = int(cfg["daemon.max_attempts"])
         launched = 0
-        for task, type_key, agent_id, mode, position in _queue_sort(ready):
+        for task, type_key, agent_id, mode, position in sorted(ready, key=_dep_key):
             if task.code in self._active:
                 continue
             if task.retry_count >= max_attempts:
@@ -273,6 +380,18 @@ class Daemon:
                 continue
             if len(self._active) >= int(cfg.get("daemon.max_parallel", "4")):
                 break  # лимит параллелизма: не плодим сотни одновременных SDK-процессов
+            # жёсткая связь blocked_by: задачу не берём в работу, пока блокер не
+            # закрыт (СТ «Влияние связей»). Проверка ДО резерва: агент не
+            # сжигает попытки и токены на отказ гейта (VITRINA-36, 29.10.2026)
+            hard_blocked_res = await session.execute(
+                sa.select(sa.func.count()).select_from(TaskRelation)
+                .join(Task, Task.id == TaskRelation.to_task)
+                .where(TaskRelation.from_task == task.id,
+                       TaskRelation.kind == "blocked_by",
+                       Task.status_key.notin_(("done", "canceled"))))
+            hard_blocked = hard_blocked_res.scalar_one()
+            if hard_blocked:
+                continue
             run_id = await reserve_task(session, task.id, agent_id, task.status_key,
                                         attempt_no=task.retry_count + 1)
             if not run_id:

@@ -181,3 +181,54 @@ async def test_report_updates_existing_item_by_position(_test_db):
             "WHERE c.task_id = :t AND c.kind='developer'"),
             {"t": str(task.id)})).all()
         assert rows == [("done", "пункт один")]
+
+
+async def test_launch_skips_hard_blocked_tasks(_test_db):
+    """Жёсткая связь blocked_by на незакрытую задачу: демон НЕ берёт задачу в
+    работу (без резерва и прогона) — иначе агент сжигает попытки на отказе
+    гейта, ожидая блокер (VITRINA-36, 29.10.2026)."""
+    agent_id, code = await _ready_task(_test_db)
+    maker = _maker(_test_db)
+    daemon = Daemon(maker, runner=None)
+    async with maker() as s:
+        task = (await s.execute(sa.select(Task).where(Task.code == code))).scalar_one()
+        # сосед-блокер в todo (не done)
+        await s.execute(sa.text(
+            "INSERT INTO task (id, project_id, code, task_type_id, title, description_md, "
+            "status_key, flow_version_id, priority, author_id) "
+            "SELECT gen_random_uuid(), p.id, 'AH-998', t.id, 'Блокер', '', 'todo', fv.id, "
+            "'medium', u.id FROM project p, task_type t, flow_version fv, \"user\" u "
+            "WHERE p.mnemonic='AH' AND t.key='common_task' AND fv.task_type_id=t.id "
+            "AND fv.is_current AND u.name='Алексей'"))
+        other = (await s.execute(sa.text(
+            "SELECT id FROM task WHERE code='AH-998'"))).scalar_one()
+        await s.execute(sa.text(
+            "INSERT INTO task_relation (id, from_task, to_task, kind) "
+            "VALUES (gen_random_uuid(), :a, :b, 'blocked_by')"),
+            {"a": str(task.id), "b": str(other)})
+        await s.commit()
+
+    class _NoRunner:
+        async def run(self, req):  # не должен вызваться
+            raise AssertionError("агент запущен на hard-blocked задаче")
+
+        def __init__(self):  # noqa: D401
+            self.requests = []
+
+    daemon2 = Daemon(maker, runner=_NoRunner())
+    async with maker() as s:
+        cfg = {"daemon.max_attempts": "3", "daemon.max_parallel": "4",
+               "daemon.timeout_start_seconds": "300", "daemon.timeout_work_seconds": "1800",
+               "daemon.retry_pauses_minutes": "1,5,15", "agents.tools_dir": ""}
+        launched = await daemon2._launch_ready(s, cfg)
+        # заблокированная связью задача пропущена; сам блокер (без связей) запущен
+        assert launched == 1
+        assert (await s.execute(sa.text(
+            "SELECT reserved_by FROM task WHERE code = :c"),
+            {"c": code})).scalar_one() is None
+        # гасим запущенную демоном asyncio-задачу, чтобы соединения закрылись
+        import asyncio
+
+        for t in daemon2._active.values():
+            t.cancel()
+        await asyncio.gather(*daemon2._active.values(), return_exceptions=True)
