@@ -570,8 +570,9 @@ async def run_log(run_id: str, after: int = 0, session: AsyncSession = Depends(g
 
 
 @router.get("/tasks/{code}/run-log/stream")
-async def run_log_stream(code: str, session: AsyncSession = Depends(get_session),
-                         actor: User = Depends(get_actor)):
+async def run_log_stream(code: str, actor: User = Depends(get_actor)):
+    # session-зависимости здесь НЕТ сознательно: она прожила бы весь стрим
+    # (idle-in-transaction до 30 минут); генератор открывает свежие сессии сам
     """SSE-поток живого лога активного прогона: строки появляются по мере работы агента.
     Отдаёт заголовок X-Accel-Buffering: no — nginx не буферизует этот ответ."""
     import asyncio
