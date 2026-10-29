@@ -37,7 +37,9 @@ async def main() -> None:
                            "требуется участие человека"))
 
     daemon = Daemon(get_sessionmaker(), runner)
-    tick_seconds = 30
+    # стартовый интервал — из окружения; дальше источник истины —
+    # app_setting daemon.tick_seconds, перечитывается перед каждым сном
+    tick_seconds = max(1, int(os.getenv("DAEMON_TICK_SECONDS", "30")))
     logging.info("демон запущен (тик %s с)", tick_seconds)
     while True:
         try:
@@ -46,6 +48,7 @@ async def main() -> None:
                 logging.info("тик: %s", summary)
         except Exception:  # noqa: BLE001
             logging.exception("ошибка тика")
+        tick_seconds = await daemon.tick_seconds(tick_seconds)
         await asyncio.sleep(tick_seconds)
 
 

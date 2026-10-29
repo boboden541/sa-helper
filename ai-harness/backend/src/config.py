@@ -25,7 +25,8 @@ class Settings(BaseSettings):
     # провайдеров не используется (этап 4)
     ai_harness_token_key: str = ""
     session_ttl_hours: int = 12
-    daemon_tick_seconds: int = 30
+    # интервал тика демона живёт в app_setting daemon.tick_seconds
+    # (daemon/config.py), а не здесь — иначе два источника истины
 
     @property
     def token_key_bytes(self) -> bytes:

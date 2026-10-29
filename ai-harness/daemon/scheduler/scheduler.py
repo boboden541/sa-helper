@@ -108,6 +108,17 @@ class Daemon:
             await self._retention_tick(session)
             return summary
 
+    async def tick_seconds(self, fallback: int) -> int:
+        """Интервал сна цикла из app_setting daemon.tick_seconds (перечитывается
+        каждый цикл — правка настройки применяется без перезапуска демона).
+        При сбое чтения/нечисловом значении — прошлый интервал."""
+        try:
+            async with self._maker() as session:
+                cfg = await load_daemon_settings(session)
+            return max(1, int(cfg["daemon.tick_seconds"]))
+        except Exception:  # noqa: BLE001 — конфиг не должен ронять цикл демона
+            return fallback
+
     # --- блокировки и автоматика -------------------------------------------
 
     async def _block_unassigned(self, session: AsyncSession) -> int:

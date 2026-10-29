@@ -14,6 +14,9 @@ _DEFAULTS = {
     "daemon.max_attempts": "3",
     "daemon.retry_pauses_minutes": "1,5,15",
     "daemon.max_parallel": "4",
+    # глобальная папка инструментов (одна на все проекты) — приоритет ниже,
+    # чем свой agent_dir агента; ключ пишет backend (usecase/settings/tools.py)
+    "agents.tools_dir": "",
 }
 
 

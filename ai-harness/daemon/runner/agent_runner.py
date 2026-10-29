@@ -2,7 +2,8 @@
 
 Вход: скилл + контекст задачи + worktree. Выход: RunReport (статус, summary,
 обновления чеклистов, артефакт, предложенный переход). Heartbeat и прерывание —
-зона ответственности daemon/runner/heartbeat.py.
+зона ответственности scheduler (_touch_active/_sweep_dead_runs) и
+reservation.release_reservation.
 
 Живой лог (решение владельца 26.10.2026): раннер отдаёт каждое событие SDK
 через req.on_event(kind, text=None, data=None) — промт, размышления,
