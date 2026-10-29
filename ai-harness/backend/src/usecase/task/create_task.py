@@ -174,10 +174,12 @@ async def _validate_repo_path(project, repo_path: str | None) -> str | None:
     from pathlib import Path
 
     from domain.model.validators import DomainError
-    from infrastructure.paths import expand_host
+    from infrastructure.paths import host_to_container
 
     clean = repo_path.strip().strip("/")
-    root = Path(expand_host(project.path)).resolve()
+    # FS-проверка в координатах контейнера (мост путей); в БД остаётся
+    # пользовательский относительный путь
+    root = Path(host_to_container(project.path)).resolve()
     candidate = (root / clean).resolve()
     try:
         candidate.relative_to(root)
