@@ -5,10 +5,6 @@ statuses:
     alias: pending
     entry: true
     stage_desc: "Ожидает ручной модерации"
-  - key: backlog
-    label: В бэклоге
-    alias: backlog
-    stage_desc: "Ждёт планового взятия в работу"
   - key: todo
     label: К работе
     alias: todo
@@ -52,12 +48,9 @@ statuses:
     blocking: true
     stage_desc: "Блокер; возврат после устранения"
 transitions:
-  - {from: pending, to: backlog, runner: human, display: "Ручное вмешательство"}
+  - {from: pending, to: todo, runner: human, display: "Ручное вмешательство"}
   - {from: pending, to: canceled, runner: human, display: "Ручное вмешательство"}
-  - {from: backlog, to: todo, runner: human, display: "Ручное вмешательство"}
-  - {from: backlog, to: canceled, runner: human, display: "Ручное вмешательство"}
   - {from: todo, to: in_progress, runner: agent, display: "автомат (демон запускает агента)"}
-  - {from: todo, to: backlog, runner: human, display: "Ручное вмешательство"}
   - {from: todo, to: canceled, runner: human, display: "Ручное вмешательство"}
   - {from: todo, to: blocked, runner: human, display: "Ручное вмешательство"}
   - {from: in_progress, to: review_ready, runner: agent, display: "автомат"}
@@ -66,15 +59,15 @@ transitions:
   - {from: review_ready, to: in_review, runner: agent, display: "автомат"}
   - {from: review_ready, to: blocked, runner: auto_or_agent, display: "Автоматом или ручное вмешательство"}
   - {from: review_ready, to: canceled, runner: human, display: "Ручное вмешательство"}
-  - {from: in_review, to: in_progress, runner: agent, display: "автомат (возврат на доработку)"}
-  - {from: in_review, to: qa_ready, runner: agent, display: "автомат"}
+  - {from: in_review, to: in_progress, runner: agent, display: "автомат (возврат на доработку)", cond_artifact: true}
+  - {from: in_review, to: qa_ready, runner: agent, display: "автомат", cond_artifact: true}
   - {from: in_review, to: blocked, runner: auto_or_agent, display: "Автоматом или ручное вмешательство"}
   - {from: in_review, to: canceled, runner: human, display: "Ручное вмешательство"}
   - {from: qa_ready, to: in_testing, runner: agent, display: "автомат"}
   - {from: qa_ready, to: blocked, runner: auto_or_agent, display: "Автоматом или ручное вмешательство"}
   - {from: qa_ready, to: canceled, runner: human, display: "Ручное вмешательство"}
-  - {from: in_testing, to: done, runner: agent, display: "автомат (этап пройден)"}
-  - {from: in_testing, to: in_progress, runner: agent, display: "автомат (возврат на доработку)"}
+  - {from: in_testing, to: done, runner: agent, display: "автомат (этап пройден)", cond_artifact: true}
+  - {from: in_testing, to: in_progress, runner: agent, display: "автомат (возврат на доработку)", cond_artifact: true}
   - {from: in_testing, to: blocked, runner: auto_or_agent, display: "Автоматом или ручное вмешательство"}
   - {from: in_testing, to: canceled, runner: human, display: "Ручное вмешательство"}
   - {from: blocked, to: in_progress, runner: auto_or_agent, display: "Автоматом или ручное вмешательство"}

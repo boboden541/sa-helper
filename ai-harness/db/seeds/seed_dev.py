@@ -54,25 +54,90 @@ async def seed() -> None:
         PRESET_AGENTS = [
             ("Планировщик", "декомпозирует истории и задачи, готовит смарт-чеклист разработчика и контекст"),
             ("Разработчик", "ведёт TDD-разработку в ветке задачи task/<код>, ведёт чеклист, пишет отчёт"),
+            ("Ревьюер-подготовщик", "готовит smart-чеклист ревьюера на статусе «Готово к ревью»"),
             ("Ревьюер", "составляет чеклист ревьюера, проверяет диф и отчёт, пишет отчёт о ревью"),
             ("Ревьюер-критик", "второе независимое ревью: строгость к краевым случаям и расхождениям"),
+            ("Тестировщик-подготовщик", "готовит smart-чеклист тестирования на статусе «Готово к тестированию»"),
             ("Тестировщик", "составляет чеклист тестирования, проводит тестирование, пишет отчёт (для qa_task — в формате ПСИ)"),
             ("Аналитик", "собирает требования, проектирует концепты решения, пишет спецификацию"),
             ("ПСИ-составитель", "составляет документ ПСИ по истории: элементарное действие + ожидаемый результат"),
         ]
+        # скилл на агента (решение владельца 29.10.2026 «под каждый статус — свой
+        # скилл и свой пользователь»): подготовка ревью/тестирования вынесена в
+        # отдельные скиллы и отдельных агентов
+        AGENT_SKILLS = {
+            "Планировщик": ["decomposer-methodology"],
+            "Разработчик": ["developer-methodology"],
+            "Ревьюер-подготовщик": ["review-preparation"],
+            "Ревьюер": ["reviewer-methodology"],
+            "Ревьюер-критик": ["reviewer-methodology"],
+            "Тестировщик-подготовщик": ["qa-preparation"],
+            "Тестировщик": ["qa-methodology"],
+            "Аналитик": ["analyst-methodology"],
+            "ПСИ-составитель": ["psi-methodology"],
+        }
         # методологии агентов — скиллы реестра (developer/reviewer/qa/decomposer/psi/analyst-
-        # methodology), персона — имя + роль; свободного текста у агента больше нет
-        # (решение владельца 27.10.2026)
+        # methodology и preparation-скиллы), персона — имя + роль; свободного текста у агента
+        # больше нет (решение владельца 27.10.2026)
         for name, role in PRESET_AGENTS:
             agent = await _one(session, User, name=name)
             if agent is None:
                 agent = (await session.execute(
                     sa.insert(User).values(name=name, user_type="agent").returning(User))).scalar_one()
                 await session.flush()
-            if await _one(session, AgentProfile, user_id=agent.id) is None:
-                session.add(AgentProfile(user_id=agent.id, role=role,
-                                         is_preset=True,
-                                         preset_source={"role": role}))
+            profile = await _one(session, AgentProfile, user_id=agent.id)
+            if profile is None:
+                session.add(AgentProfile(
+                    user_id=agent.id, role=role, is_preset=True,
+                    preset_source={"role": role, "skills": AGENT_SKILLS.get(name, [])},
+                    skills=AGENT_SKILLS.get(name) or None))
+            elif not profile.skills:
+                profile.skills = AGENT_SKILLS.get(name) or None
+        await session.commit()
+
+        # Матрица назначений по умолчанию (ФТ-ah-31; заполнение «из коробки»):
+        # типы без назначений получают пресет-раскладку по постановке. Ручные
+        # настройки владельца не трогаем — только пустые типы.
+        from repository.models import Assignment, TaskType
+
+        DEFAULT_MATRIX = {
+            "story": [("todo", "Планировщик", "replacement"),
+                      ("in_testing", "ПСИ-составитель", "parallel"),
+                      ("in_testing", "Тестировщик", "parallel")],
+            "common_task": [("todo", "Планировщик", "replacement"),
+                            ("in_progress", "Разработчик", "replacement"),
+                            ("review_ready", "Ревьюер-подготовщик", "replacement"),
+                            ("in_review", "Ревьюер", "parallel"),
+                            ("in_review", "Ревьюер-критик", "parallel"),
+                            ("qa_ready", "Тестировщик-подготовщик", "replacement"),
+                            ("in_testing", "Тестировщик", "replacement")],
+            "qa_task": [("todo", "Тестировщик-подготовщик", "replacement"),
+                        ("in_testing", "Тестировщик", "replacement")],
+            "bug": [("todo", "Планировщик", "replacement"),
+                    ("in_progress", "Разработчик", "replacement"),
+                    ("qa_ready", "Тестировщик-подготовщик", "replacement"),
+                    ("in_testing", "Тестировщик", "replacement")],
+            "analyse_task": [("todo", "Аналитик", "replacement"),
+                             ("in_progress", "Аналитик", "replacement"),
+                             ("review_ready", "Ревьюер-подготовщик", "replacement"),
+                             ("in_review", "Ревьюер", "replacement")],
+        }
+        for type_key, rows in DEFAULT_MATRIX.items():
+            ttype = (await session.execute(
+                sa.select(TaskType).where(TaskType.key == type_key))).scalar_one_or_none()
+            if ttype is None:
+                continue
+            has_any = (await session.execute(
+                sa.select(sa.func.count()).select_from(Assignment)
+                .where(Assignment.task_type_id == ttype.id))).scalar_one()
+            if has_any:
+                continue
+            for position, (status_key, agent_name, mode) in enumerate(rows):
+                agent = await _one(session, User, name=agent_name)
+                if agent is None:
+                    continue
+                session.add(Assignment(task_type_id=ttype.id, status_key=status_key,
+                                       user_id=agent.id, mode=mode, position=position))
         await session.commit()
 
         # Пользователи (этап 1: dev-вход без пароля, Argon2id — этап 4)

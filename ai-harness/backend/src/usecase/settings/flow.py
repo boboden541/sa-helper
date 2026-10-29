@@ -155,14 +155,15 @@ async def publish(session: AsyncSession, type_key: str, who: User,
     new_keys = {s.status_key for s in statuses}
     removed = prev_status_keys - new_keys
 
-    # проверка приёмников ДО мутаций: отказ не оставляет сессию грязной
+    # проверка приёмников ДО мутаций: отказ не оставляет сессию грязной.
+    # Задачи живут по CURRENT-версии (решение владельца 28.10.2026), поэтому
+    # «занятость» статуса считаем по типу задачи, а не по хранящейся версии
+    occupied = set((await session.execute(
+        sa.select(Task.status_key)
+        .where(Task.task_type_id == draft.task_type_id,
+               Task.status_key.in_(removed)))).scalars())
     migrations = dict(migrations or {})
     if removed:
-        # приёмники нужны только для статусов, где есть задачи «в полёте»
-        occupied = set((await session.execute(
-            sa.select(Task.status_key)
-            .where(Task.flow_version_id == current.id,
-                   Task.status_key.in_(removed)))).scalars())
         missing = [s for s in occupied if s not in migrations]
         if missing:
             raise DomainError(
@@ -179,11 +180,12 @@ async def publish(session: AsyncSession, type_key: str, who: User,
     await session.flush()
     invalidate_cache()
 
-    # миграция задач «в полёте» (ФТ-ah-56, раздел 14)
+    # миграция задач «в полёте» (ФТ-ah-56, раздел 14): по ТИПУ задачи, не по
+    # хранящейся версии — задачи всегда живут по current (решение 28.10.2026)
     migrated = 0
     if removed:
         in_flight = (await session.execute(
-            sa.select(Task).where(Task.flow_version_id == current.id,
+            sa.select(Task).where(Task.task_type_id == draft.task_type_id,
                                   Task.status_key.in_(removed)))).scalars().all()
         for task in in_flight:
             old_status = task.status_key
@@ -230,8 +232,11 @@ async def import_preset(session: AsyncSession, name: str, definition_yaml: str,
     return preset
 
 
-async def reset_builtin(session: AsyncSession, type_key: str, who: User) -> FlowVersion:
-    """Сброс к встроенному пресету — через новую версию, история не переписывается."""
+async def reset_builtin(session: AsyncSession, type_key: str, who: User,
+                        migrations: dict[str, str] | None = None) -> FlowVersion:
+    """Сброс к встроенному пресету — через новую версию, история не переписывается.
+    migrations: статус-приёмники для задач «в полёте» на удаляемых статусах (ФТ-ah-56);
+    без них публикация откажется, если такие задачи есть."""
     from db.seeds.flow_seed import PRESETS_DIR
 
     path = PRESETS_DIR / f"{type_key}.yaml"
@@ -245,4 +250,4 @@ async def reset_builtin(session: AsyncSession, type_key: str, who: User) -> Flow
             FlowVersion.task_type_id == ttype.id,
             FlowVersion.is_published.is_(False)))).scalar_one()
     await save_draft(session, type_key, definition)
-    return await publish(session, type_key, who)
+    return await publish(session, type_key, who, migrations=migrations)

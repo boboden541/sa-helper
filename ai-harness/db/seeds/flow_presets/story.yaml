@@ -5,10 +5,6 @@ statuses:
     alias: pending
     entry: true
     stage_desc: "Ожидает ручной модерации предложения"
-  - key: backlog
-    label: В бэклоге
-    alias: backlog
-    stage_desc: "Промодерирована, ждёт планового взятия в работу"
   - key: todo
     label: Готово к декомпозиции
     alias: todo
@@ -41,12 +37,9 @@ statuses:
     blocking: true
     stage_desc: "Блокер; автоматика следует за дочерними"
 transitions:
-  - {from: pending, to: backlog, runner: human, display: "Ручное вмешательство"}
+  - {from: pending, to: todo, runner: human, display: "Ручное вмешательство"}
   - {from: pending, to: canceled, runner: human, display: "Ручное вмешательство"}
-  - {from: backlog, to: todo, runner: human, display: "Ручное вмешательство"}
-  - {from: backlog, to: canceled, runner: human, display: "Ручное вмешательство"}
   - {from: todo, to: in_progress, runner: auto, display: "Автоматически", rule: M1}
-  - {from: todo, to: backlog, runner: human, display: "Ручное вмешательство"}
   - {from: todo, to: canceled, runner: human, display: "Ручное вмешательство"}
   - {from: todo, to: blocked, runner: human, display: "Ручное вмешательство"}
   - {from: in_progress, to: qa_ready, runner: auto, display: "Автоматически", rule: M2}

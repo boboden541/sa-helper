@@ -57,7 +57,7 @@ async def test_card_contains_gate_decisions(client, session):
     r = await client.get(f"/api/v1/tasks/{code}")
     assert r.status_code == 200
     gate = r.json()["gate"]
-    assert "backlog" in gate["allowed"]
+    assert "todo" in gate["allowed"]  # пресет без бэклога: pending → todo (решение владельца 29.10.2026)
     assert any(d["to"] == "canceled" for d in gate["denied"]) is False
     # pending → canceled разрешён человеку
     assert any("canceled" in a for a in gate["allowed"])

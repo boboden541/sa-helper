@@ -21,7 +21,6 @@ PRESETS_DIR = Path(__file__).resolve().parent / "flow_presets"
 ALIAS_COLUMNS = [
     # (ключ в YAML, label, color, position)
     ("pending", "На рассмотрении", "#9aa0a6", 1),
-    ("backlog", "Бэклог", "#8a8f98", 2),
     ("todo", "К работе", "#4c8dff", 3),
     ("progress", "В работе", "#1a73e8", 4),
     ("review", "На ревью", "#a142f4", 5),
@@ -98,6 +97,9 @@ async def publish_preset(
             flow_version_id=fv.id,
             from_status=tr["from"], to_status=tr["to"],
             runner=tr["runner"], display=tr["display"],
+            cond_checklist=tr.get("cond_checklist", True),
+            cond_links=tr.get("cond_links", True),
+            cond_artifact=tr.get("cond_artifact", False),
             rule_code=tr.get("rule"),
         ))
     await session.flush()

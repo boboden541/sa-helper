@@ -176,9 +176,13 @@ async def presets_create(payload: PresetIn, session: AsyncSession = Depends(get_
 
 @router.post("/flows/{type_key}/reset")
 async def flow_reset(type_key: str, session: AsyncSession = Depends(get_session),
-                     actor: User = Depends(get_actor)):
+                     actor: User = Depends(get_actor),
+                     payload: dict | None = None):
+    """Сброс к встроенному пресету. Тело (опционально): {"migrations":
+    {"удалённый_статус": "приёмник"}} — приёмники для задач «в полёте»."""
     try:
-        fv = await flow_uc.reset_builtin(session, type_key, actor)
+        migrations = (payload or {}).get("migrations") or None
+        fv = await flow_uc.reset_builtin(session, type_key, actor, migrations=migrations)
     except DomainError as err:
         raise ApiError(400, err.message)
     return {"version": fv.version}

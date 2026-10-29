@@ -75,7 +75,7 @@ async def _draft_definition(session, type_key="common_task", drop=("qa_ready",),
     for s in statuses:
         if s["key"] in drop:
             continue
-        entry = bool(s["is_entry"]) or double_entry and s["key"] == "backlog"
+        entry = bool(s["is_entry"]) or double_entry and s["key"] == "todo"
         out_statuses.append({"key": s["key"], "label": s["label"],
                              "stage_desc": "", "gate": s["checklist_gate"],
                              "entry": entry, "terminal": s["is_terminal"],

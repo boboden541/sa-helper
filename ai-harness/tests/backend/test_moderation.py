@@ -40,7 +40,7 @@ async def test_agent_subtask_of_story_skips_pending(session, actor_id):
 
     human = await session.get(User, actor_id)
     story = await create_task(session, human, _inp(type_key="story", title="История про оплаты"))
-    # апрув истории → backlog → to do (упрощённо ставим to do напрямую)
+    # апрув истории → to do напрямую (пресет без бэклога, решение владельца 29.10.2026)
     await session.execute(sa.update(Task).where(Task.code == story.code)
                           .values(status_key="todo"))
     await session.commit()
