@@ -162,8 +162,12 @@ async def set_assignments(session: AsyncSession, task_type_id: uuid.UUID,
 
     Семантика постановки: люди назначаются на любой статус; ИИ-агент — только
     на статус, где у него есть работа (исходящее ребро runner
-    agent/auto_or_agent). На чисто человеческие статусы (pending → backlog)
-    агенты не назначаются — людям там работать можно (ФТ-ah-63)."""
+    agent/auto_or_agent/auto). Авто-рёбра считаются работой: агент выполняет
+    этап, а задачу двигает правило автомата — например, ПСИ-составитель и
+    Тестировщик на «На тестировании» истории (СТ «Скилл ПСИ-составитель»,
+    режим «параллельно») или Планировщик на todo истории (M1). На чисто
+    человеческие статусы (pending) агенты не назначаются — людям там
+    работать можно (ФТ-ah-63)."""
     for e in entries:
         user_id = e.get("user_id") or e.get("userId")
         ut = await session.execute(sa.text(
@@ -184,13 +188,15 @@ async def set_assignments(session: AsyncSession, task_type_id: uuid.UUID,
 
 async def _reject_no_agent_work(session: AsyncSession, task_type_id: uuid.UUID,
                                 status_key: str) -> None:
-    """Агенту нечего делать на статусе без агентных рёбер (например, pending)."""
+    """Агенту нечего делать на статусе без агентных/авто рёбер (например, pending).
+    Авто-рёбра — работа есть: агент исполняет этап, задачу двигает правило
+    автомата (ПСИ-составитель и Тестировщик на in_testing истории, СТ)."""
     rows = (await session.execute(sa.text(
         "SELECT ft.runner FROM flow_transition ft "
         "JOIN flow_version fv ON fv.id = ft.flow_version_id "
         "WHERE fv.task_type_id = :t AND fv.is_current AND fv.is_published "
         "AND ft.from_status = :s"), {"t": str(task_type_id), "s": status_key})).all()
-    if rows and not any(r[0] in ("agent", "auto_or_agent") for r in rows):
+    if rows and not any(r[0] in ("agent", "auto_or_agent", "auto") for r in rows):
         raise DomainError(
             f"Статус «{status_key}» без агентной работы (только ручные переходы): "
             "назначение агентов отклонено — назначьте здесь человека")
