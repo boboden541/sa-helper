@@ -31,6 +31,26 @@ async def build_context_md(session: AsyncSession, task: Task) -> str:
         lines = [f"- {kind} {code} «{title}»" for kind, code, title in relations]
         parts.append("\n## Связи\n" + "\n".join(lines))
 
+    # Допустимые переходы из текущего статуса: агент предлагает только их,
+    # не догадывается о ключах статусов (инцидент AH-130: агент выдумал
+    # «testing» вместо qa_ready — движок честно отказал, попытка сгорела)
+    from repository.models import FlowStatus, FlowTransition, FlowVersion
+
+    edges = (await session.execute(
+        sa.select(FlowTransition.to_status, FlowTransition.runner, FlowTransition.display,
+                  FlowStatus.label)
+        .join(FlowVersion, FlowVersion.id == FlowTransition.flow_version_id)
+        .join(FlowStatus, (FlowStatus.flow_version_id == FlowTransition.flow_version_id)
+              & (FlowStatus.status_key == FlowTransition.to_status))
+        .where(FlowVersion.task_type_id == task.task_type_id,
+               FlowVersion.is_current.is_(True), FlowVersion.is_published.is_(True),
+               FlowTransition.from_status == task.status_key))).all()
+    if edges:
+        lines = [f"- → {to} «{label}» — исполнитель: {runner}"
+                 + (f" ({display})" if display else "") for to, runner, display, label in edges]
+        parts.append("\n## Куда можно предлагать переход (только эти ключи статусов)\n"
+                     + "\n".join(lines))
+
     checks = (await session.execute(
         sa.select(Checklist.kind, ChecklistItem.position, ChecklistItem.text,
                   ChecklistItem.status)
