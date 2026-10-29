@@ -58,10 +58,10 @@ async def test_stale_heartbeat_released_and_counted(_test_db):
         assert await reserve_task(s, task.id, agent_id, "in_progress")
         # агент умер: heartbeat протух на 3+ интервала
         await s.execute(sa.text(
-            "UPDATE task_run SET heartbeat_at = now() - interval '95 seconds' "
+            "UPDATE task_run SET heartbeat_at = now() - interval '310 seconds' "
             "WHERE finished_at IS NULL"))
         await s.execute(sa.text(
-            "UPDATE task SET heartbeat_at = now() - interval '95 seconds' "
+            "UPDATE task SET heartbeat_at = now() - interval '310 seconds' "
             "WHERE reserved_by IS NOT NULL"))
         await s.commit()
 

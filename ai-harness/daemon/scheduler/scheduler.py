@@ -262,7 +262,11 @@ class Daemon:
         """Потеря heartbeat ≥ 3 тиков → резерв снят, попытка неудачна (AC-4.3.1.2)."""
         from repository.models import TaskRun
 
-        threshold = dt.timedelta(seconds=max(90, int(cfg.get("daemon.tick_seconds", "30")) * 3))
+        # порог = таймауту старта прогона: пульс — детектор смерти ДЕМОНА,
+        # а не отзывчивости SDK (медленный тик под нагрузкой node/стриминга
+        # не должен убивать живой прогон; отзывчивость агента ловят таймауты
+        # старта/работы). 90 с на практике убивали живые прогоны (VITRINA).
+        threshold = dt.timedelta(seconds=max(300, int(cfg.get("daemon.tick_seconds", "30")) * 3))
         now = dt.datetime.now(dt.timezone.utc)
         dead = (await session.execute(
             sa.select(TaskRun, Task)

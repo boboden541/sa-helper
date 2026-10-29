@@ -42,9 +42,15 @@ async def main() -> None:
     tick_seconds = max(1, int(os.getenv("DAEMON_TICK_SECONDS", "30")))
     logging.info("демон запущен (тик %s с)", tick_seconds)
     while True:
+        import time as _time
+
+        started = _time.monotonic()
         try:
             summary = await daemon.tick()
-            if any(v for k, v in summary.items() if k != "launched") or summary["launched"]:
+            duration = _time.monotonic() - started
+            if duration > 10:
+                logging.warning("медленный тик: %.1f с — %s", duration, summary)
+            elif any(v for k, v in summary.items() if k != "launched") or summary["launched"]:
                 logging.info("тик: %s", summary)
         except Exception:  # noqa: BLE001
             logging.exception("ошибка тика")
