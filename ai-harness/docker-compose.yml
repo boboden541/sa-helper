@@ -31,6 +31,11 @@ services:
       SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-12}
       HARNESS_HOST_HOME: ${HOME}
       HARNESS_CONTAINER_HOME: /app/host-home
+    # DNS контейнера: в корпоративных сетях Docker-резолвер (8.8.8.8) часто
+    # заблокирован — задайте CONTAINER_DNS в .env (DNS своей сети); Eve и
+    # агенты ходят наружу через этот канал
+    dns:
+      - ${CONTAINER_DNS:-8.8.8.8}
     volumes:
       # домашняя директория компьютера видна контейнеру: проекты можно
       # указывать любыми путями хоста (решение владельца 26.10.2026)
@@ -69,6 +74,9 @@ services:
       AI_HARNESS_TOKEN_KEY: ${AI_HARNESS_TOKEN_KEY:-}
       HARNESS_HOST_HOME: ${HOME}
       HARNESS_CONTAINER_HOME: /app/host-home
+    # см. комментарий у backend: агенту нужен живой DNS до провайдера
+    dns:
+      - ${CONTAINER_DNS:-8.8.8.8}
     command: ["python", "-m", "daemon.main"]
 
   adminer:
