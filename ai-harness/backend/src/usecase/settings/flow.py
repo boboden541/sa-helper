@@ -17,7 +17,6 @@ from repository.models import (
 )
 from usecase.journal.settings_journal import record_and_commit
 
-PRESETS_DIR = uuid.UUID(int=0)  # placeholder, реальный путь импортируется лениво
 
 
 async def _type_by_key(session: AsyncSession, type_key: str) -> TaskType:

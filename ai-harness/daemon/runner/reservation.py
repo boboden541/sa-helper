@@ -16,8 +16,11 @@ from repository.models import Task, TaskRun
 
 
 async def reserve_task(session: AsyncSession, task_id: uuid.UUID, agent_id: uuid.UUID,
-                       status_key: str, attempt_no: int = 1) -> bool:
-    """True — резерв получен; False — занята другим демоном/агентом."""
+                       status_key: str, attempt_no: int = 1) -> str | None:
+    """Id созданного прогона — резерв получен; None — занята другим демоном/агентом.
+
+    Возврат id сразу (а не поиском позже) закрывает гонку перехвата: демон
+    сопоставляет команду «стоп» с конкретным прогоном, а не с задачей."""
     result = await session.execute(
         sa.update(Task)
         .where(Task.id == task_id, Task.reserved_by.is_(None),
@@ -27,12 +30,12 @@ async def reserve_task(session: AsyncSession, task_id: uuid.UUID, agent_id: uuid
     )
     if result.rowcount != 1:
         await session.rollback()
-        return False
+        return None
     run = TaskRun(task_id=task_id, agent_id=agent_id, status_key=status_key,
                   attempt_no=attempt_no)
     session.add(run)
     await session.commit()
-    return True
+    return str(run.id)
 
 
 async def release_reservation(session: AsyncSession, task_id: uuid.UUID,

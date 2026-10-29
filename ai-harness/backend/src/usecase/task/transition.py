@@ -41,8 +41,9 @@ async def _subject_for(session: AsyncSession, actor: User | None, task: Task,
 
 
 async def _load_task(session: AsyncSession, code: str) -> Task:
+    # FOR UPDATE: два параллельных перевода не проходят проверку одного статуса
     task = (await session.execute(
-        sa.select(Task).where(Task.code == code.upper())
+        sa.select(Task).where(Task.code == code.upper()).with_for_update()
     )).scalar_one_or_none()
     if task is None:
         raise DomainError(f"Задача {code} не найдена", tech="task not found")

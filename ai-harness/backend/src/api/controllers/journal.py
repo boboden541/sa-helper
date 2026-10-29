@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
+import logging
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_actor, get_session
+
+log = logging.getLogger("api")
 from api.middleware.errors import ApiError
 from domain.model.validators import DomainError
 from repository.models import User
@@ -167,20 +171,27 @@ async def assistant_message_stream(payload: MessageIn,
                                                  payload.screenTaskCode, emit=emit,
                                                  turn_id=turn)
         except Exception as err:  # noqa: BLE001 — ошибка уходит в чат
-            result = {"reply": f"Внутренняя ошибка: {err}"}
+            log.warning("Eve stream failed", exc_info=True)
+            result = {"reply": "Внутренняя ошибка — попробуйте ещё раз"}
         queue.put_nowait({"type": "done", **result})
 
     async def gen():
         yield f"data: {json.dumps({'type': 'start', 'turn': turn}, ensure_ascii=False)}\n\n"
         task = asyncio.create_task(run())
-        while True:
-            event = await queue.get()
-            kind = event.pop("type", "done")
-            body = json.dumps({"type": kind, **event}, ensure_ascii=False)
-            yield f"data: {body}\n\n"
-            if kind == "done":
-                break
-        await task
+        try:
+            while True:
+                event = await queue.get()
+                kind = event.pop("type", "done")
+                body = json.dumps({"type": kind, **event}, ensure_ascii=False)
+                yield f"data: {body}\n\n"
+                if kind == "done":
+                    break
+        finally:
+            # клиент отключился — фоновая задача не должна остаться навсегда
+            if not task.done():
+                task.cancel()
+            with contextlib.suppress(Exception):
+                await task
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"X-Accel-Buffering": "no",

@@ -69,7 +69,8 @@ async def patch_task(
 
         labels = validate_tags("by_human", fields["tags"])  # авторский гарантируется
         if "by_ai" in fields["tags"]:
-            labels = [l for l in labels if l != "by_human"] + ["by_ai"]
+            # агент-автор: by_human из запроса игнорируется, авторский тег восстанавливается
+            labels = sorted({l for l in labels if l != "by_human"} | {"by_ai"})
         current = (await session.execute(
             sa.select(Tag.label).join(TaskTag, TaskTag.tag_id == Tag.id)
             .where(TaskTag.task_id == task.id))).scalars().all()

@@ -7,8 +7,10 @@ worktree внутри пути проекта (тот же диск — треб
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+import logging
 from pathlib import Path
+
+log = logging.getLogger("daemon.git")
 
 
 class GitError(Exception):
@@ -17,12 +19,20 @@ class GitError(Exception):
         self.stderr = stderr
 
 
+_GIT_TIMEOUT = 300  # зависший git не держит прогон вечность
+
+
 async def _git(args: list[str], cwd: Path | None = None) -> str:
     proc = await asyncio.create_subprocess_exec(
         "git", *args, cwd=str(cwd) if cwd else None,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
     )
-    out, err = await proc.communicate()
+    try:
+        out, err = await asyncio.wait_for(proc.communicate(), timeout=_GIT_TIMEOUT)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        raise GitError(f"git {' '.join(args)} timed out after {_GIT_TIMEOUT}s") from None
     if proc.returncode != 0:
         raise GitError(f"git {' '.join(args)} failed", err.decode(errors="replace"))
     return out.decode(errors="replace").strip()
@@ -82,7 +92,11 @@ async def merge_task_branch(project_path: str, task_code: str,
     try:
         await _git(["merge", "--no-ff", "-m", f"Merge {branch}", branch], cwd=root)
     except GitError:
-        await _git(["merge", "--abort"], cwd=root)
+        try:
+            await _git(["merge", "--abort"], cwd=root)
+        except GitError:
+            log.warning("merge --abort не удался; репозиторий может требовать ручной очистки",
+                        exc_info=True)
         raise
     finally:
         if current != base_branch:
@@ -103,4 +117,24 @@ async def remove_task_worktree(project_path: str, task_code: str) -> None:
     root = Path(project_path)
     if wt.exists():
         await _git(["worktree", "remove", "--force", str(wt)], cwd=root)
-    # ветку сохраняем: артефактный контракт — одна задача, одна ветка (ФТ-ah-37)
+    # ветку сохраняем: артефактный контракт - одна задача, одна ветка (ФТ-ah-37)
+
+
+async def worktree_is_clean(wt: Path) -> bool:
+    """True - в worktree нет незакоммиченных изменений."""
+    try:
+        status = await _git(["status", "--porcelain"], cwd=wt)
+    except GitError:
+        return False
+    return not status.strip()
+
+
+async def cleanup_task_worktree(project_path: str, task_code: str) -> None:
+    """Убирает worktree задачи, если в нём нет незакоммиченных изменений.
+
+    Ветка task/<code> сохраняется (артефактный контракт: одна задача - одна ветка).
+    """
+    wt = worktree_path_for(project_path, worktree_code(task_code))
+    if wt.exists() and not await worktree_is_clean(wt):
+        return  # грязный worktree не трогаем - разберётся человек
+    await remove_task_worktree(project_path, task_code)

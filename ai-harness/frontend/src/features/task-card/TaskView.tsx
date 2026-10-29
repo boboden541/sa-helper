@@ -105,6 +105,7 @@ function TaskBody({ code }: { code: string }) {
     void api.task(code).then((c) => { setCard(c); setDescDraft(c.descriptionMd ?? ''); setTitleDraft(c.title) })
       .catch(() => toast(`Задача ${code} не найдена`, 'bad'))
     void api.chronicle(code).then((r) => setChronicle(r.items))
+      .catch(() => { /* хроника не критична: тихий фолбэк */ })
   }
   useEffect(reload, [code])
 
@@ -397,10 +398,13 @@ export function ChecklistBlock({ code, kind, title }: { code: string; kind: stri
 
   const save = async (next: ChecklistLine[]) => {
     setLines(next)
-    await fetch(`/api/v1/tasks/${code}/checklists/${kind}`, {
+    const r = await fetch(`/api/v1/tasks/${code}/checklists/${kind}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ lines: serializeChecklist(next) }),
     })
+    if (!r.ok) {
+      toast('Не удалось сохранить чеклист', 'bad')
+    }
   }
 
   const items = lines.filter((l) => l.kind === 'item')
@@ -472,7 +476,7 @@ function PsiBlock({ code, reload, psiPath }: { code: string; reload: () => void;
   const [doc, setDoc] = useState<{ items: { position: number; kind: string; text: string; expected?: string; actual?: string; status: string; bugTaskId?: string }[]; runs: { id: string; passed: number; failed: number }[] } | null>(null)
   const [runMode, setRunMode] = useState(false)
   const [results, setResults] = useState<Record<number, { passed: boolean; actual: string }>>({})
-  const reloadPsi = () => { void api.psi(code).then(setDoc) }
+  const reloadPsi = () => { void api.psi(code).then(setDoc).catch(() => { /* ПСИ ещё нет — норма */ }) }
   useEffect(reloadPsi, [code])
 
   const savePath = psiPath?.trim() || `.harness/psi/${code}/psi.md`
@@ -607,7 +611,10 @@ function CommentsBlock({ code }: { code: string }) {
   const [items, setItems] = useState<{ id: string; author: string; body: string; at: string }[]>([])
   const [draft, setDraft] = useState('')
   const [mode, setMode] = useState<'visual' | 'text'>('visual')
-  const reload = () => { void api.comments(code).then((d: unknown) => setItems(Array.isArray(d) ? (d as typeof items) : [])) }
+  const reload = () => {
+    void api.comments(code).then((d: unknown) => setItems(Array.isArray(d) ? (d as typeof items) : []))
+      .catch(() => { /* комментарии не критичны */ })
+  }
   useEffect(reload, [code])
   const send = () => {
     if (!draft.trim()) return

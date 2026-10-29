@@ -230,7 +230,10 @@ async def get_document(session: AsyncSession, story_code: str) -> dict:
         .order_by(PsiDocument.version))).scalars().all()
     _, items = await _current_doc_and_items(session, story.id)
     runs = (await session.execute(
-        sa.select(PsiRun).order_by(PsiRun.ran_at))).scalars().all()
+        sa.select(PsiRun, PsiDocument.version)
+        .join(PsiDocument, PsiDocument.id == PsiRun.psi_doc_id)
+        .where(PsiDocument.story_id == story.id)
+        .order_by(PsiRun.ran_at))).all()
     return {
         "versions": [{"version": d.version, "authorId": str(d.author_id),
                       "at": d.created_at.isoformat()} for d in docs],
@@ -238,6 +241,6 @@ async def get_document(session: AsyncSession, story_code: str) -> dict:
                    "expected": i.psi_expected, "actual": i.psi_actual,
                    "status": i.status, "bugTaskId": str(i.bug_task_id or "")}
                   for i in items],
-        "runs": [{"id": str(r.id), "version": None, "passed": r.passed,
-                  "failed": r.failed, "at": r.ran_at.isoformat()} for r in runs],
+        "runs": [{"id": str(r.id), "version": d, "passed": r.passed,
+                  "failed": r.failed, "at": r.ran_at.isoformat()} for r, d in runs]
     }

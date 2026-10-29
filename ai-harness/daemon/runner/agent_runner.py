@@ -84,25 +84,44 @@ REPORT_CONTRACT = """
 
 
 def parse_report(text: str) -> RunReport:
-    """Достаёт последний JSON-объект отчёта из текста агента; при неудаче — failed."""
-    import contextlib
+    """JSON report extraction; fallback = failed report.
 
-    for candidate in reversed(re.findall(r"\{.*\}", text, re.DOTALL)):
-        with contextlib.suppress(json.JSONDecodeError):
-            raw = json.loads(candidate)
-            return RunReport(
-                status=raw.get("status", "failed"),
-                summary_md=raw.get("summary_md", ""),
-                checklist_updates=raw.get("checklist_updates", []),
-                artifact_md=raw.get("artifact_md"),
-                artifact_kind=raw.get("artifact_kind"),
-                proposed_transition=raw.get("proposed_transition"),
-                questions=raw.get("questions", []),
-                comments=[c for c in raw.get("comments", []) if isinstance(c, str) and c.strip()],
-                raw=text[-4000:],
-            )
+    Scan candidates last-to-first via json.JSONDecoder.raw_decode from each
+    '{' position: the old greedy regex broke on any stray braces in agent text.
+    Status is validated against the contract.
+    """
+    dec = json.JSONDecoder()
+    for m in reversed(list(re.finditer(r"\{", text))):
+        try:
+            raw, _end = dec.raw_decode(text, m.start())
+        except ValueError:
+            continue
+        if not isinstance(raw, dict):
+            continue
+        if raw.get("status") not in ("success", "failed", "blocked"):
+            continue
+        return _report_from(raw, text)
     return RunReport(status="failed", summary_md="агент не вернул отчёт по контракту",
                      raw=text[-4000:])
+
+
+def _report_from(raw: dict, text: str) -> RunReport:
+    """Builds RunReport from parsed dict with field type guards."""
+    transition = raw.get("proposed_transition")
+    if not isinstance(transition, dict) or not isinstance(transition.get("to"), str):
+        transition = None
+    upd = [u for u in raw.get("checklist_updates", []) if isinstance(u, dict)]
+    return RunReport(
+        status=raw["status"],
+        summary_md=str(raw.get("summary_md", "")),
+        checklist_updates=upd,
+        artifact_md=raw.get("artifact_md"),
+        artifact_kind=raw.get("artifact_kind"),
+        proposed_transition=transition,
+        questions=[q for q in raw.get("questions", []) if isinstance(q, str)],
+        comments=[c for c in raw.get("comments", []) if isinstance(c, str) and c.strip()],
+        raw=text[-4000:],
+    )
 
 
 def _tail(s: str, n: int = 600) -> str:
@@ -225,6 +244,10 @@ def _sdk_env(provider: dict | None) -> dict[str, str]:
     return env
 
 
+class RunnerTimeout(Exception):
+    """SDK/process did not produce messages within configured timeouts."""
+
+
 class ClaudeCodeRunner:
     """Реальный раннер: headless Claude Agent SDK в worktree задачи.
 
@@ -243,6 +266,38 @@ class ClaudeCodeRunner:
                 "claude-agent-sdk не установлен: pip install 'ai-harness[daemon]'"
             " (и CLI Claude Code: npm i -g @anthropic-ai/claude-code)") from err
 
+    async def _iterate_sdk(self, req, prompt, options, collected, usage):
+        """Iterates SDK messages with per-message timeout and process cleanup.
+
+        The old code iterated without timeouts: a hung SDK = an eternal asyncio
+        task, an unkilled process, and a task stuck forever in _active.
+        """
+        import asyncio
+        loop = asyncio.get_running_loop()
+        t = req.timeouts or {}
+        start_to = float(t.get("start", 300))
+        work_to = float(t.get("work", 1800))
+        deadline = loop.time() + work_to
+        gen = self._sdk.query(prompt=prompt, options=options)
+        started = False
+        try:
+            while True:
+                remaining = start_to if not started else max(0.0, deadline - loop.time())
+                try:
+                    message = await asyncio.wait_for(gen.__anext__(), timeout=remaining)
+                except StopAsyncIteration:
+                    break
+                except asyncio.TimeoutError:
+                    raise RunnerTimeout("start" if not started else "work") from None
+                started = True
+                await self._emit_message(req, message, collected, usage)
+        finally:
+            try:
+                await gen.aclose()
+            except Exception:
+                pass
+
+
     async def run(self, req: RunRequest) -> RunReport:
         prompt = _build_prompt(req)
         await req.emit("prompt", text=prompt)
@@ -254,23 +309,37 @@ class ClaudeCodeRunner:
                                          f"{req.agent_dir} → .claude")
         options = opts_cls(**_options_kwargs(req, fields))
         env = _sdk_env(req.provider)
+        saved_env = None
         if env:
-            try:
+            if "env" in fields:
                 options.env = env
-            except Exception:  # noqa: BLE001 — старые версии SDK без поля env
+            else:
                 import os
-
+                saved_env = {k: os.environ.get(k) for k in env}
                 os.environ.update(env)
-
         collected: list[str] = []
         usage: dict = {"input": 0, "output": 0, "cache": 0, "total": 0}
-        async for message in self._sdk.query(prompt=prompt, options=options):
-            await self._emit_message(req, message, collected, usage)
+        try:
+            await _iterate_sdk(self, req, prompt, options, collected, usage)
+        except RunnerTimeout as err:
+            await req.emit("system", text=f"timeout: {err.args[0]}")
+            phase = "старт" if err.args and err.args[0] == "start" else "работа"
+            return RunReport(status="failed",
+                             summary_md=f"Таймаут прогона ({phase}) — процесс агента остановлен демоном")
+        finally:
+            if saved_env is not None:
+                import os
+                for k, v in saved_env.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
         report = parse_report("\n".join(collected))
         await req.emit("report", text=report.summary_md,
                        data={"status": report.status,
                              "proposed_transition": report.proposed_transition})
         return report
+
 
     async def _emit_message(self, req: RunRequest, message,
                             collected: list[str], usage: dict) -> None:

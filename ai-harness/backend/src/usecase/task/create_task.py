@@ -6,6 +6,7 @@ import uuid
 from dataclasses import dataclass, field
 
 import sqlalchemy as sa
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from domain.model.enums import AUTHOR_TAGS
@@ -128,9 +129,16 @@ async def create_task(session: AsyncSession, actor: User, data: CreateTaskInput)
     for label in tags:
         tag = await _one_or_none(session, Tag, label=label)
         if tag is None:
-            tag = Tag(label=label, is_author=label in AUTHOR_TAGS)
-            session.add(tag)
-            await session.flush()
+            try:
+                # гонка «две задачи с новым тегом»: проигравшая сторона берёт существующий
+                async with session.begin_nested():
+                    tag = Tag(label=label, is_author=label in AUTHOR_TAGS)
+                    session.add(tag)
+                    await session.flush()
+            except IntegrityError:
+                tag = await _one_or_none(session, Tag, label=label)
+                if tag is None:
+                    raise
         session.add(TaskTag(task_id=task.id, tag_id=tag.id))
 
     session.add(

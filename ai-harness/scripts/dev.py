@@ -75,6 +75,12 @@ def cmd_seed(args) -> int:
 
 def cmd_test(args) -> int:
     rest = args.rest or []
+    try:
+        import asyncpg  # noqa: F401 — маркер зависимостей тестовой среды
+    except ImportError:
+        print("Зависимости тестов не установлены в текущем интерпретаторе.", file=sys.stderr)
+        print(f"  source {ROOT / '.venv' / 'bin' / 'activate'}  # и повторите команду", file=sys.stderr)
+        return 1
     return run([sys.executable, "-m", "pytest", *rest])
 
 

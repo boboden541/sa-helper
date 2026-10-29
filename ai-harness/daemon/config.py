@@ -13,6 +13,7 @@ _DEFAULTS = {
     "daemon.timeout_work_seconds": "1800",
     "daemon.max_attempts": "3",
     "daemon.retry_pauses_minutes": "1,5,15",
+    "daemon.max_parallel": "4",
 }
 
 

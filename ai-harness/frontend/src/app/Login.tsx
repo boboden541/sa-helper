@@ -22,7 +22,6 @@ export function Login({ onDone }: { onDone: () => void }) {
       <form className="login-card" onSubmit={(e) => { e.preventDefault(); void submit() }}>
         <h2><span className="logo-mark">A</span> AI-Harness — вход</h2>
         {error && <div className="login-err">{error}</div>}
-        {error && <div className="login-err">{error}</div>}
         <div className="f-field"><label>Имя</label>
           <input value={name} onChange={(e) => setName(e.target.value)} autoFocus /></div>
         <div className="f-field"><label>Пароль</label>

@@ -34,9 +34,16 @@ export function EveChat({ open, setOpen, navigate, onOpenCreate }: {
   navigate: (hash: string) => void
   onOpenCreate: () => void
 }) {
-  const [messages, setMessages] = useState<Msg[]>([
-    { role: 'eve', text: 'Я Eve. Спросите или дайте задание: «переведи AH-3 на ревью», «почему AH-8 встала?», «создай задачу «Название»».' },
-  ])
+  const [messages, setMessages] = useState<Msg[]>(() => {
+    // переписка переживает закрытие панели и перезагрузку страницы (localStorage)
+    try {
+      const saved = JSON.parse(localStorage.getItem('eve.messages') ?? '[]') as Msg[]
+      if (Array.isArray(saved) && saved.length > 0) return saved
+    } catch { /* битый кэш — начнём заново */ }
+    return [
+      { role: 'eve', text: 'Я Eve. Спросите или дайте задание: «переведи AH-3 на ревью», «почему AH-8 встала?», «создай задачу «Название»».' },
+    ]
+  })
   const [input, setInput] = useState('')
   // живой процесс формирования ответа (решение владельца 28.10.2026)
   const [stream, setStream] = useState<{ status: string; text: string } | null>(null)
@@ -47,6 +54,10 @@ export function EveChat({ open, setOpen, navigate, onOpenCreate }: {
   const screenTask = window.location.hash.match(/([A-Za-z]{2,10}-\d+)/)?.[1]?.toUpperCase()
 
   useEffect(() => { boxRef.current?.scrollTo(0, boxRef.current.scrollHeight) }, [messages, stream])
+  // каждое обновление переписки — в localStorage (переживает закрытие/перезагрузку)
+  useEffect(() => {
+    try { localStorage.setItem('eve.messages', JSON.stringify(messages.slice(-100))) } catch { /* приватный режим */ }
+  }, [messages])
 
   const persist = (g: PanelGeom) => {
     setGeom(g)

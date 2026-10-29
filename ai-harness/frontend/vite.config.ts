@@ -1,7 +1,13 @@
 import { defineConfig } from 'vite'
 
 // штамп сборки: видно в подсказке логотипа — защита от устаревшего контейнера
-const APP_BUILD = 'a54ce8b'
+import { execSync } from 'node:child_process'
+
+// штамп сборки: реальный хэш HEAD (захардкоженный хэш устаревал)
+let APP_BUILD = 'dev'
+try {
+  APP_BUILD = execSync('git rev-parse --short HEAD').toString().trim()
+} catch { /* вне git — dev */ }
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({

@@ -32,7 +32,9 @@ async def main() -> None:
 
             runner = FakeRunner(script=lambda req: __import__(
                 "daemon.runner.agent_runner", fromlist=["RunReport"]).RunReport(
-                status="failed", summary_md="раннер агентов не настроен"))
+                status="blocked",
+                summary_md="раннер агентов не настроен (claude-agent-sdk не установлен) — "
+                           "требуется участие человека"))
 
     daemon = Daemon(get_sessionmaker(), runner)
     tick_seconds = 30

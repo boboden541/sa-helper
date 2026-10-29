@@ -43,7 +43,7 @@ print_banner() {
     echo -e "      ___) / ___ \   |  _  | |___| |___|  __/| |___|  _ < "
     echo -e "     |____/_/   \_\  |_| |_|_____|_____|_|   |_____|_| \_\\"
     echo -e "${NC}"
-    echo -e "       ${CYAN}${BOLD}System Analyst Helper Framework v3.0${NC} ${DIM}[Neo4j & Tree-sitter Engine]${NC}"
+    echo -e "       ${CYAN}${BOLD}System Analyst Helper Framework v3.0${NC} ${DIM}[Реверс-инжиниринг · FNR Pipeline · AI-Harness]${NC}"
     echo -e " ${DIM}----------------------------------------------------------------------${NC}"
     echo ""
 }
@@ -366,6 +366,7 @@ echo -e "    ${BRIGHT_BLUE}/discovery${NC}                — Discovery: кон�
 echo -e "    ${BRIGHT_BLUE}/discovery-answer${NC}         — Фиксация ответа руководства по развилке"
 echo -e "    ${BRIGHT_BLUE}/discovery-brief${NC}          — Пересборка брифинга из Decision Backlog"
 echo -e "    ${BRIGHT_BLUE}/fnr-new-task${NC}             — Постановка задачи и root-cause анализ"
+echo -e "    ${BRIGHT_BLUE}/fnr-domain-audit${NC}         — Глубокий аудит кода перед проектированием"
 echo -e "    ${BRIGHT_BLUE}/fnr-concept${NC}              — Генерация спектра архитектурных решений"
 echo -e "    ${BRIGHT_BLUE}/fnr-debate${NC}               — Дебаты: Архитектор vs Адвокат Дьявола"
 echo -e "    ${BRIGHT_BLUE}/fnr-system-requirements${NC}  — Формирование BR/FR/NFR + Jira"
@@ -373,5 +374,6 @@ echo ""
 echo -e "${YELLOW}⚠️  Важно: Перезагрузите окно вашей IDE (Reload Window) для активации.${NC}"
 echo -e "${BLUE}----------------------------------------------------------------------${NC}"
 
-# Очистка возможных stale temp-файлов
+# Очистка: временная копия самого скрипта (mktemp) и возможные stale-файлы
+[ -n "${TEMP_SCRIPT:-}" ] && [ -f "${TEMP_SCRIPT:-}" ] && rm -f "$TEMP_SCRIPT"
 rm -f /tmp/sa-helper-install.*.sh 2>/dev/null

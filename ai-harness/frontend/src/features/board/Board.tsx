@@ -217,6 +217,7 @@ export function Board({ tasks, reload, boardEdit }: { tasks: TaskCard[]; reload:
           <button className="colh-map" title="Assign statuses"
             onClick={() => setColMapFor(col.label)}>статусы</button>
           <button className="colh-x" title="Удалить колонку" onClick={() => {
+            if (!window.confirm(`Удалить колонку «${col.label}»? Назначения статусов снимутся.`)) return
             void api.deleteColumn(col.id)
               .then(() => { reloadColumns(); reload() })
               .catch((err: Error) => toast(err.message, 'bad'))

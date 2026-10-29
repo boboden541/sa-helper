@@ -133,8 +133,8 @@ def _check_gates(graph: FlowGraph, edge, current: str, target: str,
     """
     src = graph.status(current)
     dst = graph.status(target)
-    if dst.key in ESCAPE_STATUSES or dst.is_terminal and src.key not in ESCAPE_STATUSES and dst.key == "canceled":
-        return None
+    # canceled/blocked — всегда разрешены как вход (escape-статусы), условия
+    # «canceled как терминальный» были дублем этого правила
     if dst.key in ESCAPE_STATUSES:
         return None
 

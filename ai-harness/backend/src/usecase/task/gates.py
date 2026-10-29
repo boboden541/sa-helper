@@ -6,7 +6,8 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from domain.transition.engine import ChecklistState, GateData
-from repository.models import Checklist, ChecklistItem, Task, TaskRelation
+from repository.models import (Checklist, ChecklistItem, Task, TaskArtifact,
+                               TaskRelation)
 
 
 async def load_gate_data(session: AsyncSession, task: Task) -> GateData:
@@ -38,7 +39,22 @@ async def load_gate_data(session: AsyncSession, task: Task) -> GateData:
                Task.status_key.notin_(("done", "canceled")))
     )).all()
 
+    # артефакты этапов: какие kind уже записаны (гейт cond_artifact, engine.py)
+    artifact_kinds = (await session.execute(
+        sa.select(TaskArtifact.kind).where(TaskArtifact.task_id == task.id)
+    )).scalars()
+
+    # непройденные пункты ПСИ истории (гейт входа в done)
+    psi_failed = (await session.execute(
+        sa.select(sa.func.count()).select_from(ChecklistItem)
+        .join(Checklist, Checklist.id == ChecklistItem.checklist_id)
+        .where(Checklist.task_id == task.id, Checklist.kind == "psi",
+               ChecklistItem.status == "failed")
+    )).scalar_one()
+
     return GateData(
         checklists=checklists,
         open_blockers=tuple((code, title) for code, title in blockers),
+        artifacts={k: True for k in artifact_kinds},
+        psi_failed=psi_failed,
     )

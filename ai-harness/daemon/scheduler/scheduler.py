@@ -18,12 +18,12 @@ from daemon.runner.reservation import release_reservation, reserve_task
 from repository.models import TaskRun
 
 
-async def active_run_id(session, task_id) -> str:
-    """Id активного прогона задачи (для лога прогона)."""
+async def active_run_id(session, task_id) -> str | None:
+    """Id активного прогона задачи (для лога прогона); None — активного нет."""
     return (await session.execute(
         sa.select(TaskRun.id)
         .where(TaskRun.task_id == task_id, TaskRun.finished_at.is_(None))
-        .order_by(TaskRun.started_at.desc()).limit(1))).scalar_one()
+        .order_by(TaskRun.started_at.desc()).limit(1))).scalar_one_or_none()
 
 from domain.model.enums import GIT_TASK_TYPES
 from repository.models import Assignment, Project, Task, TaskType, User
@@ -45,19 +45,30 @@ def _queue_sort(rows: list) -> list:
     return sorted(rows, key=key)
 
 
-async def _next_retry_at(session: AsyncSession, task_id) -> dt.datetime | None:
-    """Пауза растущей серии после последней неудачи: 1 → 5 → 15 мин (ФТ-ah-33)."""
+async def _next_retry_at(session: AsyncSession, task_id, status_key: str,
+                         cfg: dict[str, str]) -> dt.datetime | None:
+    """Пауза перед повторным запуском (ФТ-ah-33): растущая серия 1 → 5 → 15 мин.
+
+    Особые исходы (без выжигания попыток):
+    - перехват человеком (interrupted) — максимальная пауза: у человека тихое окно,
+      чтобы забрать задачу себе, а демон не перезапускал агента у него из рук;
+    - успех без перехода (тот же статус) — максимальная пауза: агент отчитался,
+      но ничего не изменил; повтор сразу же означал бы вечный цикл."""
     from repository.models import TaskRun
 
     row = (await session.execute(
-        sa.select(TaskRun.finished_at, TaskRun.attempt_no)
-        .where(TaskRun.task_id == task_id, TaskRun.outcome == "failed")
+        sa.select(TaskRun.finished_at, TaskRun.attempt_no,
+                  TaskRun.outcome, TaskRun.status_key)
+        .where(TaskRun.task_id == task_id,
+               TaskRun.outcome.in_(("failed", "interrupted", "success")))
         .order_by(TaskRun.finished_at.desc()).limit(1)
     )).first()
     if row is None:
         return None
-    cfg = await load_daemon_settings(session)
     pauses = retry_pauses_minutes(cfg)
+    if row.outcome in ("interrupted", "success") and (
+            row.outcome == "interrupted" or row.status_key == status_key):
+        return row.finished_at + dt.timedelta(minutes=pauses[-1])
     attempt = min(row.attempt_no, len(pauses)) - 1
     return row.finished_at + dt.timedelta(minutes=pauses[max(attempt, 0)])
 
@@ -67,6 +78,7 @@ class Daemon:
         self._maker = sessionmaker
         self.runner = runner
         self._active: dict[str, asyncio.Task] = {}  # task_code -> asyncio.Task
+        self._active_runs: dict[str, str] = {}  # task_code -> run_id текущего прогона
         self._paused_until: dict[str, dt.datetime] = {}  # connection_id -> until
 
     async def tick(self) -> dict:
@@ -85,7 +97,7 @@ class Daemon:
             ))).scalar_one_or_none() == "true"
             summary["paused"] = paused
             if paused:
-                summary["launched"] = await self._launch_ready(session, cfg)
+                summary["launched"] = 0  # рубильник: новых агентов не запускаем
                 summary["interrupted"] = await self._check_interrupts(session)
                 await self._retention_tick(session)
                 return summary
@@ -120,8 +132,9 @@ class Daemon:
             )).scalar_one()
             if has_agent:
                 continue
+            former = task.status_key  # статус до блокировки — попадёт в сообщение
             task.status_key = "blocked"
-            task.blocked_reason = f"Нет назначенного агента на статус «{task.status_key}»"
+            task.blocked_reason = f"Нет назначенного агента на статус «{former}»"
             session.add(_chronicle(task.id, "assignment", "Нет назначенного агента — задача заблокирована"))
             blocked += 1
         await session.commit()
@@ -161,10 +174,10 @@ class Daemon:
         await session.commit()
 
     async def _sweep_dead_runs(self, session: AsyncSession, cfg: dict[str, str]) -> int:
-        """Потеря heartbeat ≥ 3 интервалов → резерв снят, попытка неудачна (AC-4.3.1.2)."""
+        """Потеря heartbeat ≥ 3 тиков → резерв снят, попытка неудачна (AC-4.3.1.2)."""
         from repository.models import TaskRun
 
-        threshold = dt.timedelta(seconds=30 * 3)
+        threshold = dt.timedelta(seconds=max(90, int(cfg.get("daemon.tick_seconds", "30")) * 3))
         now = dt.datetime.now(dt.timezone.utc)
         dead = (await session.execute(
             sa.select(TaskRun, Task)
@@ -203,6 +216,9 @@ class Daemon:
         )).all()
 
         # только статусы с назначенным живым агентом (матрица)
+        from daemon.runner.circuit import paused_connections
+
+        paused_conns = await paused_connections(session)
         ready = []
         for row in rows:
             task = row.Task
@@ -216,18 +232,15 @@ class Daemon:
             )).first()
             if agent_row is None:
                 continue
-            retry_at = await _next_retry_at(session, task.id)
+            retry_at = await _next_retry_at(session, task.id, task.status_key, cfg)
             if retry_at and retry_at > now:
                 continue  # ждёт растущей паузы ретрая
             # массовый отказ провайдера: задачи ждут, не блокируются (ФТ-ah-35)
-            from daemon.runner.circuit import paused_connections
-
             agent_conn = (await session.execute(
                 sa.text("SELECT connection_id FROM agent_profile WHERE user_id = :u"),
                 {"u": str(agent_row[0])})).scalar_one_or_none()
-            paused = await paused_connections(session)
             conn_key = str(agent_conn) if agent_conn else "default"
-            if agent_conn is not None and conn_key in paused:
+            if agent_conn is not None and conn_key in paused_conns:
                 continue
             ready.append((*row, *agent_row))
 
@@ -238,25 +251,31 @@ class Daemon:
                 continue
             if task.retry_count >= max_attempts:
                 # исчерпание попыток → blocked «требуется участие человека» (ФТ-ah-34)
+                former = task.status_key
                 task.status_key = "blocked"
                 task.blocked_reason = (
                     "Требуется участие человека: исчерпаны попытки "
-                    f"({task.retry_count} из {max_attempts}) на статусе «{task.status_key}»")
+                    f"({task.retry_count} из {max_attempts}) на статусе «{former}»")
                 session.add(_chronicle(task.id, "exhausted",
                                        f"Автоблокировка: {task.blocked_reason}"))
                 await session.commit()
                 continue
-            if not await reserve_task(session, task.id, agent_id, task.status_key,
-                                      attempt_no=task.retry_count + 1):
+            if len(self._active) >= int(cfg.get("daemon.max_parallel", "4")):
+                break  # лимит параллелизма: не плодим сотни одновременных SDK-процессов
+            run_id = await reserve_task(session, task.id, agent_id, task.status_key,
+                                        attempt_no=task.retry_count + 1)
+            if not run_id:
                 continue  # занято другой копией демона
-            async def _go(task=task, agent_id=agent_id, status_key=task.status_key):
-                await self._run_task(task.code, agent_id, status_key, cfg)
+            self._active_runs[task.code] = run_id
+            async def _go(task=task, agent_id=agent_id, status_key=task.status_key,
+                          run_id=run_id):
+                await self._run_task(task.code, agent_id, status_key, cfg, run_id)
             self._active[task.code] = asyncio.create_task(_go())
             launched += 1
         return launched
 
     async def _run_task(self, task_code: str, agent_id, status_key: str,
-                        cfg: dict[str, str]) -> None:
+                        cfg: dict[str, str], run_id: str | None = None) -> None:
         """Резерв получен: собрать контекст, запустить агента, применить результат."""
         from usecase.task.transition import TransitionDenied, apply_transition
 
@@ -277,7 +296,7 @@ class Daemon:
 
                 from daemon.runner.agent_runner import RunRequest
 
-                run_id = await active_run_id(session, task.id)
+                run_id = run_id or await active_run_id(session, task.id)
                 seq = [0]
 
                 async def on_event(kind: str, text: str | None = None,
@@ -351,7 +370,7 @@ class Daemon:
                         await sc.commit()
                 if report.status == "success":
                     record_success(str(conn_id) if conn_id else None)
-                else:
+                elif report.status == "failed":
                     record_failure(str(conn_id) if conn_id else None)
                     from daemon.runner.circuit import maybe_trip
 
@@ -364,6 +383,7 @@ class Daemon:
                                               "failed", str(err)[:500])
             finally:
                 self._active.pop(task_code, None)
+                self._active_runs.pop(task_code, None)
 
     async def _ensure_worktree(self, session, task):
         from repository.models import Project
@@ -402,23 +422,25 @@ class Daemon:
                 "token": await get_decrypted_token(session, conn)}
 
     async def _check_interrupts(self, session) -> int:
-        """Перехват человеком: прогон помечен outcome='interrupted' → убить процесс (ФТ-ah-32).
-        asyncio.cancel сворачивает итерацию SDK; незавершённый отчёт не применяется."""
+        """Перехват человеком: прогон помечен outcome='interrupted' -> убить процесс (ФТ-ah-32).
+        Матч по run_id текущего прогона, а не по окну времени: свежезапущенный прогон
+        не гасится эхом чужого перехвата. Незавершённый отчёт не применяется."""
         if not self._active:
             return 0
         now = dt.datetime.now(dt.timezone.utc)
         rows = (await session.execute(
-            sa.select(TaskRun.task_id)
+            sa.select(Task.code, TaskRun.id)
             .join(Task, Task.id == TaskRun.task_id)
             .where(TaskRun.finished_at.isnot(None),
                    TaskRun.outcome == "interrupted",
                    TaskRun.finished_at >= now - dt.timedelta(minutes=10),
-                   Task.code.in_(list(self._active.keys()))))).scalars().all()
+                   Task.code.in_(list(self._active_runs.keys()))))).all()
         killed = 0
-        for task_id in rows:
-            code = (await session.execute(
-                sa.select(Task.code).where(Task.id == task_id))).scalar_one_or_none()
-            t = self._active.pop(code, None) if code else None
+        for code, rid in rows:
+            if self._active_runs.get(code) != str(rid):
+                continue  # гасим только тот прогон, который сами запустили
+            t = self._active.pop(code, None)
+            self._active_runs.pop(code, None)
             if t is not None and not t.done():
                 t.cancel()
                 killed += 1
@@ -492,6 +514,11 @@ class Daemon:
         ))
         await self._apply_checklist_updates(session, task, report)
 
+        if report.status == "success" and not report.proposed_transition:
+            # агент не предложил переход — задача остаётся на статусе; повтор
+            # откладывается паузой (_next_retry_at: success на том же статусе)
+            session.add(_chronicle(task.id, "agent",
+                                   "Отчёт без предложенного перехода — повторный запуск отложен"))
         if report.status == "success" and report.proposed_transition:
             to = report.proposed_transition.get("to")
             try:
@@ -540,27 +567,36 @@ class Daemon:
                     pos = (await session.execute(sa.text(
                         "SELECT coalesce(max(position),0)+1 FROM checklist_item "
                         "WHERE checklist_id = :c"), {"c": str(chk[0])})).scalar_one()
-                    session.execute(sa.text(
+                    await session.execute(sa.text(
                         "INSERT INTO checklist_item (id, checklist_id, position, kind, text, status) "
                         "VALUES (gen_random_uuid(), :c, :p, 'item', :x, 'todo')"),
                         {"c": str(chk[0]), "p": pos, "x": upd["text"]})
         await session.commit()
 
     async def _merge_before_done(self, session, task) -> None:
-        """Слияние перед done (ФТ-ah-37); конфликт → blocked, человек распутывает."""
+        """Слияние перед done (ФТ-ah-37); конфликт -> TransitionDenied (далее ретрай-лестница)."""
         from repository.models import Project
 
         from infrastructure.git.worktree import GitError, merge_task_branch
+        from infrastructure.paths import host_to_container
         from usecase.task.transition import TransitionDenied
 
         project = await session.get(Project, task.project_id)
         try:
-            await merge_task_branch(project.path, task.code, project.base_branch)
+            # путь проекта в БД хранится как на хосте; git-операции идут в контейнере
+            await merge_task_branch(host_to_container(project.path), task.code,
+                                    project.base_branch)
         except GitError as err:
             raise TransitionDenied(
-                f"Конфликт слияния: распутайте вручную и автомат повторит ({err.stderr[:200]})",
+                f"Конфликт слияния: распутайте вручную, автомат повторит ({err.stderr[:200]})",
                 status_code=200)
+        # уборка: чистый worktree после слияния больше не нужен (ветка сохраняется)
+        try:
+            from infrastructure.git.worktree import cleanup_task_worktree
 
+            await cleanup_task_worktree(host_to_container(project.path), task.code)
+        except Exception:  # noqa: BLE001 - неуспешная уборка не роняет переход
+            log.info("worktree cleanup skipped for %s", task.code, exc_info=True)
 
 async def task_id_by_code(session, code):
     from repository.models import Task
