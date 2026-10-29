@@ -342,10 +342,17 @@ class Daemon:
                 # приоритет: свой путь агента → глобальная папка инструментов (одна на все проекты)
                 agent_dir = ((profile or {}).get("agent_dir")
                              or (cfg.get("agents.tools_dir") or "").strip() or None)
+                # cwd прогона: worktree этапа разработки, иначе папка проекта —
+                # агент не должен блуждать по /app контейнера в поисках кода
+                project_path = (await session.execute(
+                    sa.text("SELECT path FROM project WHERE id = :i"),
+                    {"i": str(task.project_id)})).scalar_one_or_none()
                 req_kwargs: dict = dict(
                     task_code=task_code, persona=persona,
                     context_md=await self._context_md(session, task),
                     worktree_path=worktree,
+                    cwd_path=None if worktree else (
+                        host_to_container(project_path) if project_path else None),
                     provider=await self._provider_for(session, agent_id),
                     timeouts={"start": int(cfg["daemon.timeout_start_seconds"]),
                               "work": int(cfg["daemon.timeout_work_seconds"])},
@@ -551,6 +558,22 @@ class Daemon:
         if report.status == "success" and report.proposed_transition:
             to = report.proposed_transition.get("to")
             try:
+                # Слияние перед done — ТОЛЬКО по легальному ребру: раньше merge
+                # запускался до проверки перехода, и «done» из статуса без ребра
+                # (например todo→done) давал ложный «Конфликт слияния» вместо
+                # честного «переход отклонён» и сжигал попытки прогона.
+                from domain.transition.engine import check_edge
+                from domain.transition.graph import load_graph
+
+                from usecase.task.gates import load_gate_data
+                from usecase.task.transition import _subject_for, task_flow_version_id
+
+                subject = await _subject_for(session, agent, task)
+                graph = await load_graph(session, await task_flow_version_id(session, task))
+                decision = check_edge(graph, task.status_key, to, subject,
+                                      await load_gate_data(session, task))
+                if not decision.allowed:
+                    raise TransitionDenied(decision.reason)
                 if to == "done" and task.task_type_id:
                     await self._merge_before_done(session, task)
                 task = await apply_transition(session, agent, task.code, to)

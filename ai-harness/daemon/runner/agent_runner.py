@@ -34,6 +34,8 @@ class RunRequest:
     context_md: str
     persona: str | None = None   # «Имя — роль»: единственная персона-строка от агента
     worktree_path: Path | None = None
+    # cwd прогона без worktree (папка проекта); при worktree cwd = worktree_path
+    cwd_path: str | None = None
     provider: dict | None = None   # {protocol,url,model,token} расшифрован только здесь
     timeouts: dict = field(default_factory=lambda: {"start": 300, "work": 1800})
     allowed_tools: tuple[str, ...] = ("Read", "Grep", "Glob", "Edit", "Write", "Bash")
@@ -157,7 +159,7 @@ def _options_kwargs(req: RunRequest, fields: set[str]) -> dict:
 
     Неизвестные данной версии опции тихо отбрасываются: старый SDK не падает
     от новых полей профиля агента."""
-    kwargs: dict = {"cwd": str(req.worktree_path) if req.worktree_path else None,
+    kwargs: dict = {"cwd": str(req.cwd_path or req.worktree_path or ""),
               "allowed_tools": list(req.allowed_tools),
               "permission_mode": "acceptEdits",
               "max_turns": 100}
