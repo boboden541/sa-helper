@@ -99,11 +99,21 @@ async def merge_task_branch(project_path: str, task_code: str,
     """Слияние task/<code> в базовую перед done; конфликт → GitError (→ blocked)."""
     root = Path(project_path) / repo_path if repo_path else Path(project_path)
     branch = f"task/{task_code}"
-    # слияние через временный checkout базовой ветки в основном репозитории
+    # слияние через временный checkout базовой ветки в основном репозитории.
+    # Мультирепозиторий: базовой ветки проекта может не быть в целевом репо
+    # (tc-admin@develop при base_branch=main) — тогда интеграция идёт в
+    # текущую (дефолтную) ветку репозитория
     current = await _git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=root)
-    if current != base_branch:
-        # работа в основном репо не предполагается, но уважаем текущую ветку
-        await _git(["checkout", base_branch], cwd=root)
+    base = base_branch
+    try:
+        head = await _git(["rev-parse", "--verify", "--quiet",
+                           f"refs/heads/{base_branch}"], cwd=root)
+    except GitError:
+        head = ""
+    if not head.strip():
+        base = current
+    if current != base:
+        await _git(["checkout", base], cwd=root)
     try:
         await _git(["merge", "--no-ff", "-m", f"Merge {branch}", branch], cwd=root)
     except GitError:
