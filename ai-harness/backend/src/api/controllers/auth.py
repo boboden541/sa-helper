@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Cookie, Depends, Response
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,7 +40,9 @@ async def login_view(payload: LoginIn, response: Response,
 @router.post("/logout")
 async def logout_view(response: Response,
                       session: AsyncSession = Depends(get_session),
-                      ai_harness_session: str = ""):
+                      ai_harness_session: str | None = Cookie(default=None, alias=COOKIE_NAME)):
+    """Токен сессии читается из httpOnly-куки (раньше — query-параметр:
+    серверная сессия не удалялась и жила до конца TTL, анализ 30.10.2026)."""
     if ai_harness_session:
         await logout(session, ai_harness_session)
     response.delete_cookie(COOKIE_NAME)

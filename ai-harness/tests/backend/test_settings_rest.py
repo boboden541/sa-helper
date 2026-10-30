@@ -341,3 +341,21 @@ async def test_agents_tools_dir_roundtrip(client, session, tmp_path):
 
     if before:  # вернуть как было — не ломать другие тесты
         await client.put("/api/v1/agents-tools-dir", json={"toolsDir": before})
+
+
+async def test_logout_invalidates_server_session(client, session):
+    """Сессия удаляется на сервере, а не только кука в браузере (анализ
+    30.10.2026: токен читался из query-параметра — серверная сессия жила
+    до конца TTL)."""
+    from usecase.auth.login import COOKIE_NAME, user_for_token
+
+    login_res = await client.post("/api/v1/auth/login", json={"name": "Алексей", "password": "harness"})
+    assert login_res.status_code == 200
+    token = login_res.cookies.get(COOKIE_NAME)
+    assert token, "login не выдал куку сессии"
+    assert await user_for_token(session, token) is not None
+
+    client.cookies.set(COOKIE_NAME, token)
+    res = await client.post("/api/v1/auth/logout")
+    assert res.status_code == 200
+    assert await user_for_token(session, token) is None
