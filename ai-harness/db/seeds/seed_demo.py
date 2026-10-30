@@ -74,9 +74,16 @@ async def demo() -> None:
                 print("распределение на агентов готово")
 
         # --- базовый демо-набор ------------------------------------------------
-        existing = (await session.execute(sa.select(sa.func.count()).select_from(Task))).scalar_one()
-        if existing >= 5:
-            print(f"Демо-данные уже есть ({existing} задач) — пропускаю")
+        # Идемпотентность по своему артефакту, а не по общему числу задач:
+        # гвардия «уже есть ≥5 задач» отсекала этот блок сразу после блока
+        # распределения (он сам создаёт 5) — на свежем сиде «Личный кабинет»
+        # никогда не появлялся, и e2e full-sweep 04+ не могли пройти
+        # (дрейф спек против сида, анализ 30.10.2026)
+        lk = (await session.execute(
+            sa.select(sa.func.count()).select_from(Task)
+            .where(Task.title == "Личный кабинет клиента"))).scalar_one()
+        if lk:
+            print("Демо-набор «Личный кабинет» уже есть — пропускаю")
             await dispose_engine()
             return
 
