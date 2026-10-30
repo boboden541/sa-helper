@@ -4,8 +4,19 @@
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
     // конвенция подчёркнутого (ФТ-ah-5/14): <u>…</u> рендерится, остальной HTML — нет
     .replace(/&lt;(\/?u)&gt;/g, '<$1>')
+}
+
+// Ссылки/картинки: только безопасные схемы и относительные пути.
+// Кавычка уже экранирована escapeHtml, поэтому из атрибута не вырваться —
+// фильтр схем закрывает javascript:/data:/vbscript: (XSS, анализ 30.10.2026).
+const SAFE_URL = /^(https?:\/\/|mailto:|\/|#|\.\.?\/)/i
+
+function safeUrl(raw: string): string {
+  const url = raw.trim()
+  return SAFE_URL.test(url) ? url : ''
 }
 
 export function renderMarkdown(md: string): string {
@@ -23,8 +34,14 @@ export function renderMarkdown(md: string): string {
     .replace(/___([^_]+)___/g, '<u><s>$1</s></u>')
     .replace(/__([^_]+)__/g, '<u>$1</u>')
     .replace(/~~([^~]+)~~/g, '<s>$1</s>')
-    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img alt="$1" src="$2" />')
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
+    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_m, alt: string, raw: string) => {
+      const u = safeUrl(raw)
+      return u ? `<img alt="${alt}" src="${u}" />` : alt
+    })
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, text: string, raw: string) => {
+      const u = safeUrl(raw)
+      return u ? `<a href="${u}">${text}</a>` : text
+    })
 
   const flushTable = () => {
     if (!tableBuffer.length) return
