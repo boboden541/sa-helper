@@ -68,6 +68,7 @@ export function RunLogPanel({ code }: { code: string }) {
   const [lines, setLines] = useState<LogLine[]>([])
   const [viewRun, setViewRun] = useState<string | null>(null)
   const [live, setLive] = useState(false)
+  const [nudge, setNudge] = useState(0)  // клик по активному прогону переподключает поток
   const boxRef = useRef<HTMLDivElement>(null)
   const pinBottom = useRef(true)
 
@@ -122,7 +123,7 @@ export function RunLogPanel({ code }: { code: string }) {
       es.close()
       if (poll) clearInterval(poll)
     }
-  }, [active?.id, code])
+  }, [active?.id, code, nudge])
 
   // завершение прогона — добираем хвост поллингом
   useEffect(() => {
@@ -155,7 +156,8 @@ export function RunLogPanel({ code }: { code: string }) {
         {runs.length === 0 && <div className="muted" style={{ fontSize: 12 }}>Прогонов ещё не было — задача ждёт своей очереди или исполняется человеком.</div>}
         {runs.map((r) => (
           <button key={r.id} className={`rl-run ${viewRun === r.id ? 'sel' : ''}`}
-            onClick={() => { if (!r.running) openHistory(r.id) }}>
+            onClick={() => { if (!r.running) openHistory(r.id); else setNudge((n) => n + 1) }}
+            title={r.running ? 'Показать живой лог этого прогона' : 'Показать лог прогона'}>
             <span className="num">#{r.attempt}</span>
             <span>{r.agent}</span>
             {r.running
