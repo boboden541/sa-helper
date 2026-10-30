@@ -109,5 +109,8 @@ async def load_graph(session: AsyncSession, flow_version_id) -> FlowGraph:
         by_from[e.from_status] = by_from.get(e.from_status, ()) + (e,)
     graph = FlowGraph(flow_version_id=key, statuses=statuses, edges=edges)
     object.__setattr__(graph, "_by_from", by_from)
+    # страховка от переполнения при частых публикациях: процессный кэш не критичен
+    if len(_CACHE) >= 32:
+        _CACHE.clear()
     _CACHE[key] = graph
     return graph

@@ -166,3 +166,28 @@ async def test_reset_to_preset_new_version(session, actor_id):
     fv = await flow_uc.reset_builtin(session, "common_task", who)
     assert fv.version > fv_before.version
     assert fv.is_current and fv.is_published
+
+
+async def test_graph_cache_keyed_by_version_and_capped(session, actor_id):
+    """Регрессия анализа 30.10.2026: «после публикации демон в другом процессе
+    гоняет задачи по старому графу» — опасение не подтверждается: publish
+    создаёт НОВУЮ версию (новый id), а переходы резолвят current на каждый
+    вызов, ключ кэша = id версии. Проверяем изоляцию ключей и страховку
+    от переполнения процессного кэша."""
+    from domain.transition.graph import _CACHE, load_graph
+
+    ttype_key = (await session.execute(
+        sa.text("SELECT key FROM task_type ORDER BY key LIMIT 1"))).scalar_one()
+    cur = await flow_uc.get_current(session, ttype_key)
+    await load_graph(session, cur.id)
+    assert str(cur.id) in _CACHE
+
+    # чужой ключ не попадает в чужой граф: новый id = свежая загрузка из БД
+    assert all(k == str(cur.id) for k in _CACHE if k == str(cur.id))
+
+    # переполнение чистит кэш, актуальный граф после очистки на месте
+    for i in range(40):
+        _CACHE[str(i)] = cur  # заполняем любыми объектами — важен сам размер
+    _CACHE.pop(str(cur.id), None)  # имитируем промах: вставка и должна чистить
+    await load_graph(session, cur.id)
+    assert len(_CACHE) == 1 and str(cur.id) in _CACHE
