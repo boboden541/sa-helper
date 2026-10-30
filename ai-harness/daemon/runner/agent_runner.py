@@ -43,7 +43,7 @@ class RunRequest:
     mcp_servers: dict | None = None  # {имя: {url|command, …}} — MCP-серверы
     agent_dir: str | None = None     # папка агентов (.claude); путь уже в координатах контейнера
     skills_md: tuple[str, ...] = ()  # содержимое явно назначенных скиллов (реестр инструментов)
-    max_turns: int = 100  # ходов SDK; тяжёлые задачи — больше (app_setting daemon.max_turns)
+    max_turns: int = 100  # ходов SDK; демон всегда передаёт app_setting daemon.max_turns
     on_event: EventFn | None = None  # async (kind, text=None, data=None)
 
     async def emit(self, kind: str, text: str | None = None, data: dict | None = None) -> None:

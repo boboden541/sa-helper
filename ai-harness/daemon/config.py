@@ -13,6 +13,9 @@ _DEFAULTS = {
     "daemon.timeout_work_seconds": "1800",
     "daemon.max_attempts": "3",
     "daemon.retry_pauses_minutes": "1,5,15",
+    # лимит ходов SDK на прогон (замысел 5867e2a; до 30.10.2026 ключ
+    # существовал только в комментарии — настройка молча не работала)
+    "daemon.max_turns": "200",
     "daemon.max_parallel": "4",
     # глобальная папка инструментов (одна на все проекты) — приоритет ниже,
     # чем свой agent_dir агента; ключ пишет backend (usecase/settings/tools.py)

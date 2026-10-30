@@ -493,6 +493,7 @@ class Daemon:
                               "work": int(cfg["daemon.timeout_work_seconds"])},
                     model=(profile or {}).get("model"),
                     mcp_servers=(profile or {}).get("mcp_servers"),
+                    max_turns=int(cfg.get("daemon.max_turns") or 200),
                     on_event=on_event,
                 )
                 if profile and profile.get("allowed_tools"):

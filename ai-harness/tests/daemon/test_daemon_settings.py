@@ -80,3 +80,20 @@ async def test_tick_seconds_floor_is_one(_test_db):
         assert await daemon.tick_seconds(30) == 1
     finally:
         await _del_setting(_test_db, "daemon.tick_seconds")
+
+
+async def test_max_turns_default_and_from_db(_test_db):
+    """daemon.max_turns — настраиваемый лимит ходов заработал (замысел 5867e2a;
+    до 30.10.2026 ключ существовал только в комментарии — настройка молча
+    не работала, реальный дефолт был 100)."""
+    async with _maker(_test_db)() as s:
+        cfg = await load_daemon_settings(s)
+    assert cfg["daemon.max_turns"] == "200"
+
+    await _set_setting(_test_db, "daemon.max_turns", "350")
+    try:
+        async with _maker(_test_db)() as s:
+            cfg = await load_daemon_settings(s)
+    finally:
+        await _del_setting(_test_db, "daemon.max_turns")
+    assert cfg["daemon.max_turns"] == "350"
