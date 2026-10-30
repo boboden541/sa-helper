@@ -34,6 +34,11 @@ def create_app() -> FastAPI:
     app.add_exception_handler(DomainError, domain_error_handler)
     from api.controllers import auth, journal, settings, tasks, transitions
 
+    @app.get("/api/v1/healthz", include_in_schema=False)
+    async def healthz():
+        # без обращения к БД: живость процесса для docker healthcheck
+        return {"status": "ok"}
+
     app.include_router(tasks.router)
     app.include_router(transitions.router)
     app.include_router(auth.router)

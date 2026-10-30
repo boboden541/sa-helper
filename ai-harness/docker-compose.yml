@@ -46,6 +46,12 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request;urllib.request.urlopen('http://localhost:8000/api/v1/healthz', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
 
   frontend:
     build:
@@ -56,6 +62,11 @@ services:
       - backend
     ports:
       - "8088:80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost/"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
 
   daemon:
     build:
