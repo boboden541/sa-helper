@@ -77,10 +77,17 @@ test('06 Карточка: правка описания через markdown →
 
 test('07 Карточка: чек-лист разработчика — создать, текстовый режим, статусы', async ({ page }) => {
   await page.locator('.card', { hasText: 'Профиль пользователя' }).first().click()
-  const blk = page.locator('.blk', { hasText: 'разработчика' }).first()
-  await blk.locator('.cl-add input').fill('шаг один')
+  // hasText по всему .blk цепляет и блок переходов (в причинах отказов есть
+  // «чек-лист разработчика») — фильтруем по заголовку h3 внутри блока
+  const blk = page.locator('.blk').filter({
+    has: page.locator('h3', { hasText: 'чек-лист разработчика' }),
+  }).first()
+  // уникальная метка: чеклист переживает прогоны, и повторный «шаг один»
+  // даёт strict violation по двум одинаковым строкам
+  const item = 'шаг один ' + Date.now()
+  await blk.locator('.cl-add input').fill(item)
   await blk.locator('.cl-add input').press('Enter')
-  await expect(blk.locator('.cl-row', { hasText: 'шаг один' })).toBeVisible()
+  await expect(blk.locator('.cl-row', { hasText: item })).toBeVisible()
   await blk.locator('.pencil[title*="Текстовый режим"]').click()
   await expect(blk.locator('.cl-text textarea')).toBeVisible()
 })
@@ -101,7 +108,7 @@ test('08 Карточка: форс-переход без причины нев�
 })
 
 test('09 Диалог создания: создание задачи → pending + уведомление', async ({ page }) => {
-  await page.locator('.filters button', { hasText: '＋ Задача' }).click()
+  await page.locator('.filters button', { hasText: '+ Задача' }).click()
   await page.locator('.modal-card input').first().fill('AH')
   await page.locator('.modal-card input').nth(1).fill('E2E созданная задача')
   await page.locator('.modal-card select').nth(1).selectOption('high')
@@ -118,13 +125,15 @@ test('10 Список: таблица задач, клик открывает к
 
 test('11 Eve: фраза → намерение → «да» → переход применён', async ({ page }) => {
   await page.locator('.eve-btn').click()
-  await page.locator('.eve-input textarea').fill('переведи AH-7 в бэклог')
+  // «бэклог»→backlog: статуса backlog в каноническом пресете нет; «блок»→blocked,
+  // ребро in_progress→blocked (runner auto_or_agent) — валидная цель
+  await page.locator('.eve-input textarea').fill('переведи AH-7 в блок')
   await page.locator('.eve-input textarea').press('Enter')
   await expect(page.locator('.intent')).toBeVisible({ timeout: 8000 })
   await page.locator('.intent .ia button', { hasText: 'Да' }).click()
   await page.waitForTimeout(600)
   const card = await api('/api/v1/tasks/AH-7')
-  expect(card.statusKey).toBe('backlog')
+  expect(card.statusKey).toBe('blocked')
 })
 
 test('12 Настройки Status-flow: граф (fs-card), переключение на таблицу (6 колонок)', async ({ page }) => {
@@ -134,7 +143,9 @@ test('12 Настройки Status-flow: граф (fs-card), переключе�
   await expect(page.locator('.fs-card').first()).toBeVisible()
   await expect(page.locator('.flow-toolbar .seg button.active')).toContainText('Задачи')
   await page.locator('.mode-tabs button', { hasText: 'Таблица' }).click()
-  await expect(page.locator('.flow-canvas.flow-table table th', { hasText: 'Кто работает' })).toBeVisible()
+  // состав колонок текущего редактора: «Кто работает» живёт в «Агенты и матрица»
+  await expect(page.locator('.flow-canvas.flow-table table th', { hasText: 'Чеклист-гейт' })).toBeVisible()
+  await expect(page.locator('.flow-canvas.flow-table table th', { hasText: 'Возможные переходы' })).toBeVisible()
   await expect(page.locator('.flow-canvas.flow-table table th', { hasText: 'Alias-колонка' })).toBeVisible()
   const chip = page.locator('.tr-chip').first()
   await expect(chip).toContainText('→')
@@ -145,10 +156,11 @@ test('13 Status-flow: поповер добавления перехода с «
   await page.waitForSelector('.set-tabs')
 
   await page.locator('.mode-tabs button', { hasText: 'Таблица' }).click()
-  await page.locator('.tr-cell button.btn.small').first().click()
-  await expect(page.locator('.tr-pop')).toBeVisible()
-  await expect(page.locator('.tr-pop select').nth(1)).toBeVisible()
-  await page.locator('.tr-pop button', { hasText: 'Отмена' }).click()
+  // инлайн-форма «＋ переход»: «→ куда» + «Кто запускает» (бывший .tr-pop)
+  await page.locator('button', { hasText: '＋ переход' }).first().click()
+  await expect(page.locator('.tr-cell .flex select').first()).toBeVisible()
+  await expect(page.locator('.tr-cell .flex select').nth(1)).toBeVisible()
+  await page.locator('.tr-cell .flex button', { hasText: '✕' }).click()
 })
 
 test('14 Настройки Проекты: создание, архив, удаление — полный цикл', async ({ page }) => {
@@ -158,7 +170,8 @@ test('14 Настройки Проекты: создание, архив, уда
   await page.locator('button', { hasText: '＋ Проект' }).click()
   await page.locator('.agent-editor input').nth(0).fill('E2E Проект')
   await page.locator('.agent-editor input').nth(1).fill('E2' + String(Date.now()).slice(-4))
-  await page.locator('.agent-editor input').nth(2).fill('/tmp')
+  // /tmp на macOS — «dubious ownership» у git; свежий подпуть создаёт приложение
+  await page.locator('.agent-editor input').nth(2).fill('/tmp/e2e-proj-' + String(Date.now()).slice(-6))
   await page.locator('.agent-editor button', { hasText: 'Сохранить' }).click()
   await expect(page.locator('.prov-row', { hasText: 'E2E Проект' })).toBeVisible()
   const row = page.locator('.prov-row', { hasText: 'E2E Проект' })
@@ -175,10 +188,12 @@ test('15 Провайдеры: пресеты подставляют URL; check 
 
   const presetSelect = page.locator('.prov-form select').first()
   await presetSelect.selectOption('OpenAI')
-  await expect(page.locator('.prov-form input').nth(1)).toHaveValue('https://api.openai.com/v1')
-  await page.locator('.prov-form input[placeholder="название"]').fill('e2e-conn')
-  await page.locator('.prov-form input[placeholder="модель"]').fill('gpt-4o-mini')
-  await page.locator('.prov-form input[placeholder="API-токен"]').fill('sk-invalid-e2e')
+  // у полей label вместо placeholder (дрейф макета); URL — второй инпут формы
+  const fld = (label: string) => page.locator('.prov-form .f-field', { hasText: label }).locator('input')
+  await expect(fld('URL')).toHaveValue('https://api.openai.com/v1')
+  await fld('Название').fill('e2e-conn')
+  await fld('Модель').fill('gpt-4o-mini')
+  await fld('API-токен').fill('sk-invalid-e2e')
   await page.locator('.prov-form button', { hasText: 'Проверить' }).click()
   await expect(page.locator('.check-row.err')).toBeVisible({ timeout: 20000 })
 })
@@ -188,11 +203,13 @@ test('16 Провайдеры: сохранение подключения с в
   await page.waitForSelector('.prov-form')
 
   const uniq = String(Date.now()).slice(-6)
-  await page.locator('.prov-form input[placeholder="название"]').fill('e2e-anthropic-' + uniq)
-  await page.locator('.prov-form select').first().selectOption('anthropic')
-  await page.locator('.prov-form input[placeholder="URL"]').fill('https://api.anthropic.com')
-  await page.locator('.prov-form input[placeholder="модель"]').fill('claude-sonnet-5')
-  await page.locator('.prov-form input[placeholder="API-токен"]').fill('sk-e2e-save-' + uniq)
+  const fld2 = (label: string) => page.locator('.prov-form .f-field', { hasText: label }).locator('input')
+  await fld2('Название').fill('e2e-anthropic-' + uniq)
+  // первый селект — пресет-чузер, протокол — второй
+  await page.locator('.prov-form select').nth(1).selectOption('anthropic')
+  await fld2('URL').fill('https://api.anthropic.com')
+  await fld2('Модель').fill('claude-sonnet-5')
+  await fld2('API-токен').fill('sk-e2e-save-' + uniq)
   await page.locator('.prov-form button', { hasText: 'Сохранить' }).click()
   await expect(page.locator('.prov-row').filter({ hasText: uniq })).toBeVisible()
 })
@@ -215,6 +232,8 @@ test('18 Матрица: чекбоксы-поповер, человек на ba
   await cell.locator('button', { hasText: 'назначить' }).click()
   await expect(cell.locator('.ag-pop')).toBeVisible()
   const checkboxes = cell.locator('.ag-pop input[type="checkbox"]')
+  // список людей грузится асинхронно — ждём первый чекбокс перед подсчётом
+  await expect(checkboxes.first()).toBeVisible()
   expect(await checkboxes.count()).toBeGreaterThanOrEqual(5)
 })
 
@@ -246,7 +265,9 @@ test('21 Полный прогон без 5xx от backend', async ({ page }) =>
   expectNo500s()
 })
 
-async function api(path: string): Promise<Record<string, unknown>> {
-  const res = await fetch('http://localhost:8088' + path)
+async function api(path: string, init?: RequestInit): Promise<Record<string, unknown>> {
+  // init обязателен: сценарий 08 делает POST создания — раньше второй аргумент
+  // отбрасывался, шел GET списка, и задача искалась как #undefined
+  const res = await fetch('http://localhost:8088' + path, init)
   return res.json()
 }

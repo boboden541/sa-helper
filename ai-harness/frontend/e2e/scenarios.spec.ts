@@ -38,8 +38,12 @@ test('редактирование описания: карандаш → пра
 })
 
 test('чек-лист: карандаш макета открывает текстовый режим; строки парсятся', async ({ page }) => {
-  await page.locator('.card').first().click()
-  const blk = page.locator('.blk', { hasText: 'чек-лист разработчика' }).first()
+  // на свежом сиде первая карточка — история: чеклистов разработчика у неё нет
+  await page.locator('.card', { hasText: 'Профиль пользователя' }).first().click()
+  // фильтр по h3: hasText по .blk цепляет и блок переходов (причины отказов)
+  const blk = page.locator('.blk').filter({
+    has: page.locator('h3', { hasText: 'чек-лист разработчика' }),
+  }).first()
   await blk.locator('.pencil[title*="Текстовый режим"]').click()
   await expect(blk.locator('.cl-text textarea')).toBeVisible()
   await blk.locator('.cl-text textarea').fill('# Этап\n- подготовить окружение\n~ вести тесты\n+ закрыть пункт')
