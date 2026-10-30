@@ -163,29 +163,33 @@ async def _cascade_terminal(session: AsyncSession, task: Task, to: str,
 
     from repository.models import TaskRelation, TaskType
 
-    rows = (await session.execute(
+    rels = (await session.execute(
         sa.select(TaskRelation)
         .join(Task, Task.id == TaskRelation.to_task)
         .where(TaskRelation.from_task == task.id))).scalars().all()
-    rows += (await session.execute(
+    rels += (await session.execute(
         sa.select(TaskRelation)
         .join(Task, Task.id == TaskRelation.from_task)
         .where(TaskRelation.to_task == task.id))).scalars().all()
     seen_ids: set = set()
-    for rel in rows:
+    neighbor_ids: list = []
+    for rel in rels:
         if rel.id in seen_ids:
             continue
         seen_ids.add(rel.id)
         neighbor_code = rel.to_task if rel.from_task == task.id else rel.from_task
         if neighbor_code in visited:
             continue
-        neighbor = (await session.execute(
-            sa.select(Task).where(Task.id == neighbor_code))).scalar_one_or_none()
-        if neighbor is None or neighbor.status_key == to:
-            continue
-        tkey = (await session.execute(
-            sa.select(TaskType.key).where(TaskType.id == neighbor.task_type_id))).scalar_one()
-        if tkey == "story":
+        neighbor_ids.append(neighbor_code)
+    # соседи одним joined-запросом (анализ 30.10.2026: 3-4 запроса на каждого)
+    if not neighbor_ids:
+        return
+    neighbors = (await session.execute(
+        sa.select(Task, TaskType.key)
+        .join(TaskType, TaskType.id == Task.task_type_id)
+        .where(Task.id.in_(neighbor_ids)))).all()
+    for neighbor, tkey in neighbors:
+        if neighbor.status_key == to or tkey == "story":
             continue
         visited.add(neighbor.code)
         try:

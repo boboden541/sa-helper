@@ -69,12 +69,19 @@ async def _next_retry_at(session: AsyncSession, task_id, status_key: str,
     )).first()
     if row is None:
         return None
+    return _retry_at_from_run(row, status_key, cfg)
+
+
+def _retry_at_from_run(run, status_key: str, cfg: dict[str, str]) -> dt.datetime:
+    """Чистая часть расчёта паузы: run = (finished_at, attempt_no, outcome,
+    status_key) — общий для одиночного и пакетного чтения (анализ 30.10.2026)."""
     pauses = retry_pauses_minutes(cfg)
-    if row.outcome in ("interrupted", "success") and (
-            row.outcome == "interrupted" or row.status_key == status_key):
-        return row.finished_at + dt.timedelta(minutes=pauses[-1])
-    attempt = min(row.attempt_no, len(pauses)) - 1
-    return row.finished_at + dt.timedelta(minutes=pauses[max(attempt, 0)])
+    finished_at, attempt_no, outcome, run_sk = run[0], run[1], run[2], run[3]
+    if outcome in ("interrupted", "success") and (
+            outcome == "interrupted" or run_sk == status_key):
+        return finished_at + dt.timedelta(minutes=pauses[-1])
+    attempt = min(attempt_no, len(pauses)) - 1
+    return finished_at + dt.timedelta(minutes=pauses[max(attempt, 0)])
 
 
 class Daemon:
@@ -305,30 +312,56 @@ class Daemon:
                    Project.is_archived.is_(False))
         )).all()
 
-        # только статусы с назначенным живым агентом (матрица)
+        # только статусы с назначенным живым агентом (матрица).
+        # Предвыборка пачками (анализ 30.10.2026: на задачу приходилось 3-4
+        # отдельных запроса — сотни задач на тике умножали тики на сотни Query)
         from daemon.runner.circuit import paused_connections
 
         paused_conns = await paused_connections(session)
+
+        assign_rows = (await session.execute(
+            sa.select(Assignment.task_type_id, Assignment.status_key,
+                      Assignment.user_id, Assignment.mode, Assignment.position)
+            .join(User, User.id == Assignment.user_id)
+            .where(User.user_type == "agent", User.is_service.is_(False))
+            .order_by(Assignment.position)
+        )).all()
+        assignments: dict[tuple, tuple] = {}
+        for at, sk, uid, mode, pos in assign_rows:
+            key = (str(at), sk)
+            if key not in assignments:  # первая по position — «замещение»
+                assignments[key] = (uid, mode, pos)
+
+        conn_rows = (await session.execute(
+            sa.text("SELECT user_id, connection_id FROM agent_profile"))).all()
+        conn_by_agent = {str(uid): cid for uid, cid in conn_rows}
+
+        from repository.models import TaskRun
+
+        last_runs: dict[str, tuple] = {}
+        if rows:
+            lr = (await session.execute(
+                sa.select(TaskRun.task_id, TaskRun.finished_at, TaskRun.attempt_no,
+                          TaskRun.outcome, TaskRun.status_key)
+                .where(TaskRun.task_id.in_([row.Task.id for row in rows]),
+                       TaskRun.outcome.in_(("failed", "interrupted", "success")))
+                .distinct(TaskRun.task_id)
+                .order_by(TaskRun.task_id, TaskRun.finished_at.desc())
+            )).all()
+            last_runs = {str(r[0]): tuple(r)[1:] for r in lr}
+
         ready = []
         for row in rows:
             task = row.Task
-            agent_row = (await session.execute(
-                sa.select(Assignment.user_id, Assignment.mode, Assignment.position)
-                .join(User, User.id == Assignment.user_id)
-                .where(Assignment.task_type_id == task.task_type_id,
-                       Assignment.status_key == task.status_key,
-                       User.user_type == "agent", User.is_service.is_(False))
-                .order_by(Assignment.position)
-            )).first()
+            agent_row = assignments.get((str(task.task_type_id), task.status_key))
             if agent_row is None:
                 continue
-            retry_at = await _next_retry_at(session, task.id, task.status_key, cfg)
+            last = last_runs.get(str(task.id))
+            retry_at = _retry_at_from_run(last, task.status_key, cfg) if last else None
             if retry_at and retry_at > now:
                 continue  # ждёт растущей паузы ретрая
             # массовый отказ провайдера: задачи ждут, не блокируются (ФТ-ah-35)
-            agent_conn = (await session.execute(
-                sa.text("SELECT connection_id FROM agent_profile WHERE user_id = :u"),
-                {"u": str(agent_row[0])})).scalar_one_or_none()
+            agent_conn = conn_by_agent.get(str(agent_row[0]))
             conn_key = str(agent_conn) if agent_conn else "default"
             if agent_conn is not None and conn_key in paused_conns:
                 continue
