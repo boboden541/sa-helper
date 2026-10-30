@@ -19,7 +19,7 @@ interface AppState {
   setEve: (open: boolean) => void
 }
 
-function parseHash(hash: string): Partial<AppState> {
+export function parseHash(hash: string): Partial<AppState> {
   const clean = hash.replace(/^#\/?/, '')
   const result: Partial<AppState> = {}
   if (clean.startsWith('dark')) result.theme = 'dark'

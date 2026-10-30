@@ -9,13 +9,13 @@ import { DndContext, PointerSensor, useSensor, useSensors,
   type DragEndEvent, type DragStartEvent } from '@dnd-kit/core'
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { api, type TaskCard } from '../../api/client'
-import { currentLive, fmtTokens, subscribeLive } from '../../shared/live'
-import {
-  ALIAS_OF, esc, prioBadge, stChip, tagHtml, typeChip,
-} from '../../shared/refs'
+import { currentLive, subscribeLive } from '../../shared/live'
+import { ALIAS_OF } from '../../shared/refs'
+import { PrioBadge, StChip } from '../../shared/chips'
 import { pushUndo } from '../../shared/undo'
 import { toast } from '../../shared/toast'
 import { ColmapPanel } from './ColmapPanel'
+import { STATUS_COLORS, TaskCardView } from './TaskCard'
 import type { LiveTask } from '../../shared/live'
 
 interface Column { id: string; label: string; color: string; position: number }
@@ -27,33 +27,8 @@ const KEY_BY_LABEL: Record<string, string> = {
   'Заблокировано': 'blocked', 'Отменено': 'canceled',
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  pending: '#c07d1e', backlog: '#8792a3', todo: '#1f8fb5', progress: '#3d63d2', in_progress: '#3d63d2',
-  review_ready: '#7d4fd1', in_review: '#7d4fd1', qa_ready: '#c2601a', in_testing: '#c2601a',
-  done: '#25935b', canceled: '#8792a3', blocked: '#cf4436',
-}
-
 function useLiveMap(): Record<string, LiveTask> {
   return useSyncExternalStore(subscribeLive, currentLive)
-}
-
-function cardHtml(t: TaskCard, merged: boolean, live?: LiveTask): string {
-  return `<article class="card ${t.statusKey === 'blocked' ? 'top' : ''}" style="--st:${STATUS_COLORS[t.statusKey] ?? '#8792a3'}">
-    <div class="card-top">
-      <span class="code" data-open-page="${t.code}">${t.code}</span>
-      ${typeChip(t.type)}
-      <span class="sp"></span>
-      ${merged ? stChip(t.statusKey) : ''}
-      ${prioBadge(t.priority)}
-    </div>
-    <div class="card-title">${esc(t.title)}</div>
-    <div class="card-tags">${(t.tags ?? []).map(tagHtml).join('')}</div>
-    ${live
-      ? `<div class="agent live">${live.stale ? '⚠' : '<span class="dot pulse" style="background:#25935b"></span>'}${esc(live.agent)} работает · ${live.minutes} мин${live.total ? ` · ${fmtTokens(live.total)} токенов` : ''}</div>`
-      : t.agent ? `<div class="agent"><span class="dot pulse" style="background:#7d4fd1"></span>${esc(t.agent.name)}</div>` : ''}
-    ${(live?.total || t.tokensUsed) ? `<div class="token-row"><span class="mini-chip mc-violet" title="Токены, потраченные агентами на задачу">${live?.total ? `${fmtTokens(live.total)} · сейчас` : `${fmtTokens(t.tokensUsed ?? 0)} токенов`}</span></div>` : ''}
-    ${t.statusKey === 'blocked' ? `<div class="card-sub">✕ Требуется человек: ${esc(t.blockedReason ?? '')}</div>` : ''}
-  </article>`
 }
 
 function DraggableCard({ task, merged, onOpen, onOpenPage }: {
@@ -70,11 +45,8 @@ function DraggableCard({ task, merged, onOpen, onOpenPage }: {
   return (
     <div ref={setNodeRef} style={style} {...listeners} {...attributes}
       className={isDragging ? 'card-dragging-src' : ''}>
-      <div dangerouslySetInnerHTML={{ __html: cardHtml(task, merged, live) }}
-        onClick={(e) => {
-          if ((e.target as HTMLElement).closest('[data-open-page]')) onOpenPage()
-          else if ((e.target as HTMLElement).closest('.card')) onOpen()
-        }} />
+      <TaskCardView task={task} merged={merged} live={live}
+        onOpen={onOpen} onOpenPage={onOpenPage} />
     </div>
   )
 }
@@ -250,10 +222,10 @@ export function Board({ tasks, reload, boardEdit }: { tasks: TaskCard[]; reload:
       </button>
       <span className="code">{story.code}</span>
       <span className="t">{story.title}</span>
-      <span dangerouslySetInnerHTML={{ __html: stChip(story.statusKey) }} />
+      <StChip st={story.statusKey} />
       <span className="kidscnt num">{closedKids}/{kidCount} {plural(kidCount)}</span>
       <span className="fill" />
-      <span dangerouslySetInnerHTML={{ __html: prioBadge(story.priority) }} />
+      <PrioBadge p={story.priority} />
     </div>
   )
 
