@@ -20,13 +20,35 @@ class GitError(Exception):
         super().__init__(message)
         self.stderr = stderr
 
+    def __str__(self) -> str:
+        # stderr раньше терялся: в причинах блокировок оставался только
+        # «git ... failed» без настоящей причины git (шторм 29.10: 306 сбоев
+        # longpaths без диагноза). Теперь причина видна сразу.
+        msg = self.args[0] if self.args else "git error"
+        err = (self.stderr or "").strip()
+        if not err:
+            return msg
+        if "dubious ownership" in err:
+            err += " — папка репозитория принадлежит другому пользователю; " \
+                   "в контейнере демона выполните: git config --global --add safe.directory '*'"
+        return f"{msg}: {err[:300]}"
+
 
 _GIT_TIMEOUT = 300  # зависший git не держит прогон вечность
+
+# longpaths/autocrlf — флагом на каждый вызов, а не записью в config
+# репозитория: запись берёт .git/config.lock (убитый прогон оставлял lock —
+# лавина детерминированных отказов 29.10) и портирует настройки в чужой repo.
+# Оба флага нужны только на Windows.
+import sys as _sys
+
+_GIT_FLAGS = ["-c", "core.longpaths=true", "-c", "core.autocrlf=false"] \
+    if _sys.platform == "win32" else []
 
 
 async def _git(args: list[str], cwd: Path | None = None) -> str:
     proc = await asyncio.create_subprocess_exec(
-        "git", *args, cwd=str(cwd) if cwd else None,
+        "git", *_GIT_FLAGS, *args, cwd=str(cwd) if cwd else None,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
     )
     try:
@@ -59,8 +81,6 @@ async def ensure_task_worktree(project_path: str, task_code: str,
     wt.parent.mkdir(parents=True, exist_ok=True)
     if wt.exists() and (wt / ".git").exists():
         return wt
-    # кроссплатформенные настройки worktree
-    await _git(["config", "core.longpaths", "true"], cwd=root)
     exists = await _git(["branch", "--list", branch], cwd=root)
     if not exists.strip():
         # базовая ветка проекта может отсутствовать в целевом репо
@@ -76,7 +96,6 @@ async def ensure_task_worktree(project_path: str, task_code: str,
             base = await _git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=root)
         await _git(["branch", branch, base], cwd=root)
     await _git(["worktree", "add", str(wt), branch], cwd=root)
-    await _git(["config", "core.autocrlf", "false"], cwd=wt)
     return wt
 
 

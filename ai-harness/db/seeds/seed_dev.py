@@ -65,6 +65,14 @@ async def seed() -> None:
         # скилл на агента (решение владельца 29.10.2026 «под каждый статус — свой
         # скилл и свой пользователь»): подготовка ревью/тестирования вынесена в
         # отдельные скиллы и отдельных агентов
+        # модели тяжёлых агентов (решение владельца 30.10.2026: оптимизация
+        # расхода токенов — Разработчик/Ревьюер дают 87% входа конвейера;
+        # пусто = дефолт SDK, что кратно дороже). Лёгкие подготовщики и ПСИ
+        # остаются на дефолте.
+        AGENT_MODELS = {
+            "Разработчик": "claude-sonnet-5-5",
+            "Ревьюер": "claude-sonnet-5-5",
+        }
         AGENT_SKILLS = {
             "Планировщик": ["decomposer-methodology"],
             "Разработчик": ["developer-methodology"],
@@ -89,10 +97,16 @@ async def seed() -> None:
             if profile is None:
                 session.add(AgentProfile(
                     user_id=agent.id, role=role, is_preset=True,
+                    model=AGENT_MODELS.get(name),
                     preset_source={"role": role, "skills": AGENT_SKILLS.get(name, [])},
                     skills=AGENT_SKILLS.get(name) or None))
-            elif not profile.skills:
-                profile.skills = AGENT_SKILLS.get(name) or None
+            else:
+                if not profile.skills:
+                    profile.skills = AGENT_SKILLS.get(name) or None
+                # модель проставляем и существующим пустым профилям (сид
+                # идемпотентен), но заданную владельцем вручную не трогаем
+                if profile.model is None and AGENT_MODELS.get(name):
+                    profile.model = AGENT_MODELS[name]
         await session.commit()
 
         # Матрица назначений по умолчанию (ФТ-ah-31; заполнение «из коробки»):

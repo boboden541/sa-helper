@@ -543,16 +543,38 @@ class Daemon:
                 req = RunRequest(**req_kwargs)
         except Exception as err:  # noqa: BLE001 — демон не должен падать
             log.exception("run failed: %s", task_code)
+            from domain.model.validators import DomainError
+            from infrastructure.git.worktree import GitError
+            from usecase.task.transition import apply_blocked
+
+            # Детерминированный сбой окружения (git/шифрование/дефект кода):
+            # ретрай бессмыслен — агенты даже не начинали, а каждый повтор
+            # читает кэш-префикс и жжёт токены (шторм 29.10: 306 прогонов на
+            # один git-сбой, 87% всех прогонов эры — failed). Инфра-сбой →
+            # сразу blocked «требуется участие человека» с причиной-stderr;
+            # попытки не сжигаются. Агентские сбои (таймауты, отчёты failed)
+            # остаются на ретрай-лестнице.
+            infra = isinstance(err, (GitError, DomainError, NameError,
+                                     ImportError, FileNotFoundError))
             async with self._maker() as s2:
-                # сбой инфраструктуры (worktree/git/провайдер) тоже считается
-                # попыткой: иначе задача ретраится вечно, сжигая токены
-                # (VITRINA-32…35: git-ошибка worktree, ретрай каждый тик)
-                await s2.execute(sa.text(
-                    "UPDATE task SET retry_count = retry_count + 1 WHERE code = :c"),
-                    {"c": task_code})
+                task_id = await task_id_by_code(s2, task_code)
+                if infra:
+                    try:
+                        task_row = await s2.get(Task, task_id)
+                        await apply_blocked(s2, task_row, None, str(err)[:500],
+                                            subject_kind="auto", rule_code="INFRA")
+                    except Exception:  # noqa: BLE001 — blocked любой ценой
+                        log.warning("apply_blocked failed for %s", task_code, exc_info=True)
+                        await s2.rollback()
+                        await s2.execute(sa.text(
+                            "UPDATE task SET status_key = 'blocked', blocked_reason = :r "
+                            "WHERE id = :i"), {"r": str(err)[:500], "i": str(task_id)})
+                else:
+                    await s2.execute(sa.text(
+                        "UPDATE task SET retry_count = retry_count + 1 WHERE code = :c"),
+                        {"c": task_code})
                 await s2.commit()
-                await release_reservation(s2, await task_id_by_code(s2, task_code),
-                                          "failed", str(err)[:500])
+                await release_reservation(s2, task_id, "failed", str(err)[:500])
             self._active.pop(task_code, None)
             self._active_runs.pop(task_code, None)
             return
@@ -902,12 +924,13 @@ class Daemon:
             await merge_task_branch(host_to_container(project.path), task.code,
                                     project.base_branch, repo_path=task.repo_path)
         except GitError as err:
-            dirty = "не чиста" in str(err) or "не чиста" in err.stderr
-            reason = (f"Слияние не выполнено: {err} — распутайте вручную, "
-                      f"автомат повторит ({err.stderr[:200]})") if not dirty else \
-                     (f"Рабочая копия проекта не чиста — коммит или stash, "
-                      f"автомат повторит слияние ({err.stderr[:200]})")
-            raise TransitionDenied(reason, status_code=200)
+            # str(GitError) уже включает stderr (диагностика шторма 29.10)
+            text = str(err)
+            if "не чиста" in text:
+                raise TransitionDenied(f"{text} Автомат повторит слияние.", status_code=200)
+            raise TransitionDenied(
+                f"Слияние не выполнено: {text} — распутайте вручную, автомат повторит.",
+                status_code=200)
         # уборка: чистый worktree после слияния больше не нужен (ветка сохраняется)
         try:
             from infrastructure.git.worktree import cleanup_task_worktree

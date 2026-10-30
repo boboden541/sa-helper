@@ -254,3 +254,49 @@ async def test_report_artifact_is_saved(_test_db):
             "SELECT kind, version, left(body_md, 20) FROM task_artifact "
             "WHERE task_id = :t"), {"t": str(task.id)})).all()
         assert rows == [("review_report", 1, "# Отчёт о ревью\n- пу")]
+
+
+async def test_infra_failure_blocks_without_burning_attempts(_test_db):
+    """Детерминированный сбой окружения (git/шифрование) → задача сразу blocked
+    с причиной-stderr, попытки не сжигаются. Ретраить такой отказ бессмысленно:
+    агент даже не начинал, а каждый повтор читает кэш-префикс (шторм 29.10:
+    306 прогонов на один git-сбой — 76% всех сбоев эры). GitError теперь несёт
+    stderr в сообщении — диагноз виден в карточке, а не только в логах."""
+    import asyncio
+
+    from daemon.scheduler.scheduler import Daemon
+    from infrastructure.git.worktree import GitError
+    from repository.models import Chronicle, TaskRun
+
+    agent_id, code = await _ready_task(_test_db)
+    maker = _maker(_test_db)
+
+    class _WorktreeBroken(Daemon):
+        async def _ensure_worktree(self, session, task):
+            raise GitError("git config core.longpaths true failed",
+                           "fatal: unable to access '.git/config.lock': File exists")
+
+    daemon = _WorktreeBroken(maker, runner=None)
+    async with maker() as s:
+        task = (await s.execute(sa.select(Task).where(Task.code == code))).scalar_one()
+        from daemon.runner.reservation import reserve_task
+
+        assert await reserve_task(s, task.id, agent_id, "in_progress")
+
+    await daemon._run_task(code, agent_id, "in_progress",
+                           {"daemon.timeout_start_seconds": "300",
+                            "daemon.timeout_work_seconds": "1800"})
+    await asyncio.sleep(0)
+
+    async with maker() as s:
+        task = (await s.execute(sa.select(Task).where(Task.code == code))).scalar_one()
+        assert task.status_key == "blocked"
+        assert task.retry_count == 0, "инфра-сбой не сжигает попытки"
+        assert "config.lock" in (task.blocked_reason or ""), "stderr в причине блокировки"
+        chron = (await s.execute(sa.select(Chronicle).where(
+            Chronicle.task_id == task.id, Chronicle.rule_code == "INFRA"))).scalars().all()
+        assert chron, "rule_code INFRA в хронике"
+        run = (await s.execute(sa.select(TaskRun).where(
+            TaskRun.task_id == task.id))).scalars().one()
+        assert run.outcome == "failed"
+        assert "config.lock" in (run.detail or "")
