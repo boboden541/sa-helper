@@ -25,6 +25,7 @@ export function TaskCardView({ task, merged, live, onOpen, onOpenPage }: {
   const blocked = task.statusKey === 'blocked'
   return (
     <article className={`card ${blocked ? 'top' : ''}`}
+      data-code={task.code}
       style={{ ['--st' as string]: STATUS_COLORS[task.statusKey] ?? '#8792a3' }}
       onClick={(e) => {
         if ((e.target as HTMLElement).closest('[data-open-page]')) onOpenPage()

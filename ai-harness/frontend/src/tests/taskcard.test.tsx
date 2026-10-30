@@ -27,7 +27,7 @@ function legacyCardHtml(t: TaskCard, merged: boolean, live?: LiveTask): string {
     review_ready: '#7d4fd1', in_review: '#7d4fd1', qa_ready: '#c2601a', in_testing: '#c2601a',
     done: '#25935b', canceled: '#8792a3', blocked: '#cf4436',
   }
-  return `<article class="card ${t.statusKey === 'blocked' ? 'top' : ''}" style="--st:${STATUS_COLORS[t.statusKey] ?? '#8792a3'}">
+  return `<article class="card ${t.statusKey === 'blocked' ? 'top' : ''}" data-code="${t.code}" style="--st:${STATUS_COLORS[t.statusKey] ?? '#8792a3'}">
     <div class="card-top">
       <span class="code" data-open-page="${t.code}">${t.code}</span>
       ${typeChip(t.type)}
