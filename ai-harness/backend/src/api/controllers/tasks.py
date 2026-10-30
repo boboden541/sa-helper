@@ -8,7 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dto.task_dto import TaskCardOut, TaskCreateIn, TaskListOut, TaskPatchIn
 from api.deps import get_actor, get_session
+from domain.model.validators import DomainError
 from repository.models import User
+from usecase.task import relations as relations_uc
 from usecase.task.create_task import CreateTaskInput, create_task
 from usecase.task.list_tasks import list_tasks
 from usecase.task.patch_task import ApiNotFound, patch_task
@@ -108,28 +110,15 @@ class RelationIn(BaseModel):
 async def relation_add(code: str, payload: RelationIn,
                        session: AsyncSession = Depends(get_session),
                        actor: User = Depends(get_actor)):
-    import sqlalchemy as sa
-
-    from repository.models import Task, TaskRelation
-
     if payload.kind not in ("do_after", "blocked_by"):
         raise ApiError(400, "Тип связи: do_after или blocked_by")
     task = await _load_task_or_404(session, code)
-    other = (await session.execute(
-        sa.select(Task).where(Task.code == payload.toCode.upper()))).scalar_one_or_none()
-    if other is None:
-        raise ApiError(404, f"Задача {payload.toCode} не найдена")
-    if other.id == task.id:
-        raise ApiError(400, "Нельзя связать задачу с собой")
-    dup = (await session.execute(
-        sa.select(sa.func.count()).select_from(TaskRelation)
-        .where(TaskRelation.from_task == task.id, TaskRelation.to_task == other.id,
-               TaskRelation.kind == payload.kind))).scalar_one()
-    if dup:
-        raise ApiError(400, "Такая связь уже есть")
-    rel = TaskRelation(from_task=task.id, to_task=other.id, kind=payload.kind)
-    session.add(rel)
-    await session.commit()
+    try:
+        rel = await relations_uc.add(session, task, to_code=payload.toCode, kind=payload.kind)
+    except ApiNotFound as err:
+        raise ApiError(404, str(err))
+    except DomainError as err:
+        raise ApiError(400, err.message)
     return {"id": str(rel.id)}
 
 
@@ -137,20 +126,10 @@ async def relation_add(code: str, payload: RelationIn,
 async def relation_del(code: str, relation_id: str,
                        session: AsyncSession = Depends(get_session),
                        actor: User = Depends(get_actor)):
-    import uuid as uuid_mod
-
-    import sqlalchemy as sa
-
-    from repository.models import Task, TaskRelation
-
     task = await _load_task_or_404(session, code)
-    rel = (await session.execute(
-        sa.select(TaskRelation).where(TaskRelation.id == uuid_mod.UUID(relation_id),
-                                      TaskRelation.from_task == task.id))).scalar_one_or_none()
+    rel = await relations_uc.delete(session, task, relation_id)
     if rel is None:
         raise ApiError(404, "Связь не найдена")
-    await session.execute(sa.delete(TaskRelation).where(TaskRelation.id == rel.id))
-    await session.commit()
     return {"ok": True}
 
 
