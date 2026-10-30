@@ -18,6 +18,7 @@ reservation.release_reservation.
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import json
 import re
@@ -26,6 +27,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 EventFn = Callable[..., Awaitable[None]]
+
+# Старый SDK без поля env у опций: ANTHROPIC_* ставятся в os.environ всего
+# процесса — два параллельных прогона с разными подключениями могли уйти
+# с чужим токеном/моделью. Такие прогоны сериализуются локом; современный
+# путь (options.env) работает без локи — параллелизм сохраняется.
+_ENV_LOCK = asyncio.Lock()
 
 
 @dataclass
@@ -403,14 +410,23 @@ class ClaudeCodeRunner:
                                          f"{req.agent_dir} → .claude")
         options = opts_cls(**_options_kwargs(req, fields))
         env = _sdk_env(req.provider)
+        if env and "env" not in fields:
+            # legacy-SDK без поля env у опций: окружение ставится в os.environ
+            # всего процесса — сериализуем такие прогоны, иначе два параллельных
+            # прогона с разными подключениями уйдут с чужим токеном (анализ 30.10)
+            async with _ENV_LOCK:
+                return await self._run_env(req, prompt, options, env)
+        return await self._run_env(req, prompt, options, env)
+
+    async def _run_env(self, req: RunRequest, prompt: str, options,
+                       env: dict | None) -> RunReport:
+        """Сам прогон: окружение провайдера в os.environ только на время
+        прогона (legacy-путь — под _ENV_LOCK), таймауты, сбор текста отчёта."""
+        import os
         saved_env = None
         if env:
-            if "env" in fields:
-                options.env = env
-            else:
-                import os
-                saved_env = {k: os.environ.get(k) for k in env}
-                os.environ.update(env)
+            saved_env = {k: os.environ.get(k) for k in env}
+            os.environ.update(env)
         collected: list[str] = []
         usage: dict = {"input": 0, "output": 0, "cache": 0, "total": 0}
         try:
