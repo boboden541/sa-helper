@@ -23,6 +23,7 @@ def _card_out(c) -> TaskCardOut:
         code=c.code, title=c.title, priority=c.priority, type=c.type,
         statusKey=c.status_key, storyCode=c.story_code, tags=c.tags, agent=c.agent,
         project=c.project, psiPath=c.psi_path, repoPath=c.repo_path, tokensUsed=c.tokens_used,
+        tokensInput=c.tokens_input, tokensOutput=c.tokens_output, tokensCache=c.tokens_cache,
     )
 
 

@@ -1276,3 +1276,11 @@ button.conn.off:hover{color:var(--accent-text)}
 .pipeline-btn:hover{border-color:var(--border2); color:var(--text)}
 .pipeline-btn.paused{color:var(--danger); border-color:color-mix(in srgb, #cf4436 40%, transparent);
   background:color-mix(in srgb, #cf4436 8%, var(--surface))}
+
+/* Разбивка токенов (фича 30.10.2026): клик по сумме раскрывает вход/выход/кэш */
+.tok-click{cursor:pointer}
+.tok-click:hover .tok, .tok-click:hover .mini-chip{text-decoration:underline dotted}
+.tok-breakdown{margin-top:6px}
+.tok-split{display:inline-flex; gap:14px; font-size:12px; color:var(--text3); font-variant-numeric:tabular-nums}
+.tok-split b{color:var(--text2); font-weight:600}
+td .tok-split, .token-row .tok-split{display:flex; flex-wrap:wrap; margin-top:4px}

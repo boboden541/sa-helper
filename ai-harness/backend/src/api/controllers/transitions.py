@@ -132,10 +132,15 @@ async def card_view(code: str,
 
     from repository.models import TaskRun
 
-    tokens_used = (await session.execute(
-        sa.select(sa.func.coalesce(sa.func.sum(
-            TaskRun.input_tokens + TaskRun.output_tokens + TaskRun.cache_tokens), 0))
-        .where(TaskRun.task_id == task.id))).scalar_one()
+    # суммы и разбивка расхода токенов по всем прогонам (фича 30.10.2026:
+    # клик по цифре раскрывает вход/выход/кэш)
+    tokens_in, tokens_out, tokens_cache = (await session.execute(
+        sa.select(
+            sa.func.coalesce(sa.func.sum(TaskRun.input_tokens), 0),
+            sa.func.coalesce(sa.func.sum(TaskRun.output_tokens), 0),
+            sa.func.coalesce(sa.func.sum(TaskRun.cache_tokens), 0))
+        .where(TaskRun.task_id == task.id))).one()
+    tokens_used = tokens_in + tokens_out + tokens_cache
 
     # подписи всех статусов flow-версии задачи — для кнопок перехода и форса
     from repository.models import FlowStatus
@@ -148,7 +153,8 @@ async def card_view(code: str,
         code=task.code, title=task.title, priority=task.priority, type=type_key,
         statusKey=task.status_key, tags=list(tags), descriptionMd=task.description_md,
         storyCode=story_code, psiPath=task.psi_path, repoPath=task.repo_path,
-                    tokensUsed=tokens_used,
+                    tokensUsed=tokens_used, tokensInput=tokens_in,
+                    tokensOutput=tokens_out, tokensCache=tokens_cache,
         gate=GateOut(
             allowed=[to for to, d in decisions.items() if d.allowed],
             labels=status_labels,

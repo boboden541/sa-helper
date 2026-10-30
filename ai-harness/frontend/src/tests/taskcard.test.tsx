@@ -40,7 +40,7 @@ function legacyCardHtml(t: TaskCard, merged: boolean, live?: LiveTask): string {
     ${live
       ? `<div class="agent live">${live.stale ? '⚠' : '<span class="dot pulse" style="background:#25935b"></span>'}${esc(live.agent)} работает · ${live.minutes} мин${live.total ? ` · ${fmtTokens(live.total)} токенов` : ''}</div>`
       : t.agent ? `<div class="agent"><span class="dot pulse" style="background:#7d4fd1"></span>${esc(t.agent.name)}</div>` : ''}
-    ${(live?.total || t.tokensUsed) ? `<div class="token-row"><span class="mini-chip mc-violet" title="Токены, потраченные агентами на задачу">${live?.total ? `${fmtTokens(live.total)} · сейчас` : `${fmtTokens(t.tokensUsed ?? 0)} токенов`}</span></div>` : ''}
+    ${(live?.total || t.tokensUsed) ? `<div class="token-row tok-click" title="Токены, потраченные агентами на задачу — клик раскрывает вход/выход/кэш"><span class="mini-chip mc-violet">${live?.total ? `${fmtTokens(live.total)} · сейчас` : `${fmtTokens(t.tokensUsed ?? 0)} токенов`}</span></div>` : ''}
     ${t.statusKey === 'blocked' ? `<div class="card-sub">✕ Требуется человек: ${esc(t.blockedReason ?? '')}</div>` : ''}
   </article>`
 }
@@ -92,5 +92,63 @@ describe('карточка доски: React === прежний cardHtml', () =>
   it('неизвестный статус — серая полоса, фолбэк классов', () => {
     const odd: TaskCard = { ...base, statusKey: 'custom_status' }
     expect(render(odd)).toBe(dom(legacyCardHtml(odd, false)))
+  })
+})
+
+// Разбивка токенов (фича 30.10.2026): клик по сумме раскрывает вход/выход/кэш;
+// в закрытом состоянии разметка карточки не меняется (эталон выше это фиксирует).
+describe('токены: клик по сумме раскрывает разбивку', () => {
+  it('вход/выход/кэш из данных задачи', async () => {
+    const { createRoot } = await import('react-dom/client')
+    const { act } = await import('react')
+
+    const t: TaskCard = { ...base, tokensInput: 1300, tokensOutput: 250, tokensCache: 900 }
+    const div = document.createElement('div')
+    document.body.appendChild(div)
+    const root = createRoot(div)
+    await act(async () => {
+      root.render(<TaskCardView task={t} merged={false} onOpen={() => {}} onOpenPage={() => {}} />)
+    })
+    expect(div.querySelector('.tok-split')).toBeNull()
+
+    const row = div.querySelector('.token-row') as HTMLElement
+    await act(async () => {
+      row.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    const split = (div.querySelector('.tok-split') as HTMLElement).textContent ?? ''
+    expect(split).toContain('вход'); expect(split).toContain('1К')
+    expect(split).toContain('выход'); expect(split).toContain('250')
+    expect(split).toContain('кэш'); expect(split).toContain('900')
+
+    // повторный клик сворачивает
+    await act(async () => {
+      row.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(div.querySelector('.tok-split')).toBeNull()
+    root.unmount()
+    div.remove()
+  })
+
+  it('живой прогон — значения потока вместо накопленных', async () => {
+    const { createRoot } = await import('react-dom/client')
+    const { act } = await import('react')
+
+    const t: TaskCard = { ...base }
+    const live = { code: 'AH-123', agent: 'Разработчик', minutes: 2, stale: false, title: 'AH-123',
+      input: 500, output: 100, cache: 40, total: 640 }
+    const div = document.createElement('div')
+    document.body.appendChild(div)
+    const root = createRoot(div)
+    await act(async () => {
+      root.render(<TaskCardView task={t} merged={false} live={live} onOpen={() => {}} onOpenPage={() => {}} />)
+    })
+    const row = div.querySelector('.token-row') as HTMLElement
+    await act(async () => {
+      row.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    const split = (div.querySelector('.tok-split') as HTMLElement).textContent ?? ''
+    expect(split).toContain('500')
+    root.unmount()
+    div.remove()
   })
 })

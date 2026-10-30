@@ -33,6 +33,9 @@ class TaskCard:
     tags: list[str] = field(default_factory=list)
     agent: dict | None = None
     tokens_used: int = 0  # сумма токенов всех прогонов (формат «1300К»)
+    tokens_input: int = 0  # разбивка: вход
+    tokens_output: int = 0  # разбивка: выход
+    tokens_cache: int = 0  # разбивка: кэш
     gate: dict = field(default_factory=lambda: {"allowed": [], "denied": []})
 
 
@@ -57,12 +60,11 @@ def build_query(projects: list[str] | None = None,
     )
 
     proj_t = Project.__table__
-    # суммарный расход токенов по всем прогонам задачи (решение владельца 27.10.2026)
-    tokens_sq = (
-        sa.select(sa.func.coalesce(sa.func.sum(
-            TaskRun.input_tokens + TaskRun.output_tokens + TaskRun.cache_tokens), 0))
-        .where(TaskRun.task_id == Task.id).correlate(Task).scalar_subquery()
-    )
+    # суммарный расход токенов по всем прогонам задачи (решение владельца 27.10.2026);
+    # разбивка вход/выход/кэш — для раскрытия по клику (фича 30.10.2026)
+    def _tok_sq(cols):
+        return sa.select(sa.func.coalesce(sa.func.sum(cols), 0)) \
+            .where(TaskRun.task_id == Task.id).correlate(Task).scalar_subquery()
     query = (
         sa.select(
             Task,
@@ -70,7 +72,10 @@ def build_query(projects: list[str] | None = None,
             User.name.label("agent_name"),
             proj_t.c.mnemonic.label("project_mnemonic"),
             story_sq.label("story_code"),
-            tokens_sq.label("tokens_used"),
+            _tok_sq(TaskRun.input_tokens + TaskRun.output_tokens + TaskRun.cache_tokens).label("tokens_used"),
+            _tok_sq(TaskRun.input_tokens).label("tokens_input"),
+            _tok_sq(TaskRun.output_tokens).label("tokens_output"),
+            _tok_sq(TaskRun.cache_tokens).label("tokens_cache"),
         )
         .join(type_t, type_t.c.id == Task.task_type_id)
         .outerjoin(User, User.id == Task.reserved_by)
@@ -141,6 +146,9 @@ async def list_tasks(
             story_code=row.story_code,
             agent={"name": row.agent_name} if row.agent_name else None,
             tokens_used=int(row.tokens_used or 0),
+            tokens_input=int(row.tokens_input or 0),
+            tokens_output=int(row.tokens_output or 0),
+            tokens_cache=int(row.tokens_cache or 0),
         )
         for row in rows
     ]

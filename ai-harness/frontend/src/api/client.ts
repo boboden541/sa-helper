@@ -13,6 +13,9 @@ export interface TaskCard {
   tags?: string[]
   agent?: { name: string } | null
   tokensUsed?: number
+  tokensInput?: number
+  tokensOutput?: number
+  tokensCache?: number
   gate?: { allowed: string[]; denied: { to: string; reason: string }[]; labels?: Record<string, string> }
   descriptionMd?: string
   changedByOther?: boolean

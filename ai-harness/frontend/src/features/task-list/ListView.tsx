@@ -1,11 +1,13 @@
 // Список — table.tasks из макета (code, tt, type-chip, st-chip, prioBadge, who)
 
-import { useSyncExternalStore } from 'react'
+import { useSyncExternalStore, useState } from 'react'
+import { TokSplit, partsOf } from '../../shared/tokens'
 import { api, type TaskCard } from '../../api/client'
 import { prioBadge, stChip, tagHtml, typeChip } from '../../shared/refs'
 import { currentLive, fmtTokens, subscribeLive } from '../../shared/live'
 
 export function ListView({ tasks }: { tasks: TaskCard[] }) {
+  const [tokOpenCode, setTokOpenCode] = useState<string | null>(null)
   const live = useSyncExternalStore(subscribeLive, currentLive)
   const open = async (code: string) => {
     const card = await api.task(code).catch(() => null)
@@ -22,11 +24,17 @@ export function ListView({ tasks }: { tasks: TaskCard[] }) {
               <td><span className="code">{t.code}</span></td>
               <td className="tt">{t.title}{t.storyCode && <small>история {t.storyCode}</small>}
                 {(live[t.code] || t.tokensUsed) ? (
-                  <span className="mini-chip mc-violet" style={{ marginLeft: 8 }}
-                    title={live[t.code] ? 'Агент работает прямо сейчас' : 'Токены, потраченные агентами'}>
+                  <span className="mini-chip mc-violet tok-click" style={{ marginLeft: 8 }}
+                    title={live[t.code] ? 'Агент работает прямо сейчас — клик раскрывает вход/выход/кэш' : 'Токены, потраченные агентами — клик раскрывает вход/выход/кэш'}
+                    onClick={(e) => { e.stopPropagation(); setTokOpenCode((v) => (v === t.code ? null : t.code)) }}>
                     {live[t.code]
                       ? `● ${live[t.code].agent} · ${live[t.code].minutes} мин · ${fmtTokens(live[t.code].total)}`
                       : `${fmtTokens(t.tokensUsed ?? 0)} токенов`}
+                    {tokOpenCode === t.code && (() => {
+                      const lv = live[t.code]
+                      const [i, o, c] = partsOf(lv, t.tokensInput ?? 0, t.tokensOutput ?? 0, t.tokensCache ?? 0)
+                      return <TokSplit input={i} output={o} cache={c} />
+                    })()}
                   </span>
                 ) : null}
               </td>

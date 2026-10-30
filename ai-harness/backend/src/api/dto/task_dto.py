@@ -59,6 +59,10 @@ class TaskCardOut(BaseModel):
     tags: list[str] = []
     agent: dict | None = None
     tokens_used: int = Field(default=0, alias="tokensUsed")
+    # разбивка суммы: вход / выход / кэш по всем прогонам задачи (фича 30.10)
+    tokens_input: int = Field(default=0, alias="tokensInput")
+    tokens_output: int = Field(default=0, alias="tokensOutput")
+    tokens_cache: int = Field(default=0, alias="tokensCache")
     gate: GateOut = GateOut()
     description_md: str | None = Field(default=None, alias="descriptionMd")
     created_at: str | None = Field(default=None, alias="createdAt")

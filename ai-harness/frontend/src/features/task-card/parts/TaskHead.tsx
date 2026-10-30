@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react'
 import { api, type TaskCard } from '../../../api/client'
 import { fmtTokens } from '../../../shared/live'
 import { prioBadge, stChip, tagHtml, typeChip } from '../../../shared/refs'
+import { TokSplit } from '../../../shared/tokens'
 import { toast } from '../../../shared/toast'
 import { PENCIL, type LiveRun } from './common'
 
@@ -16,6 +17,7 @@ export function TaskHead({ code, card, liveRun, reload }: {
   reload: () => void
 }) {
   const [editingTitle, setEditingTitle] = useState(false)
+  const [tokOpen, setTokOpen] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
   const [storyEdit, setStoryEdit] = useState(false)
   const [repoOptions, setRepoOptions] = useState<{ label: string; repoPath: string | null }[]>([])
@@ -105,11 +107,17 @@ export function TaskHead({ code, card, liveRun, reload }: {
             </span>
           : card.agent && <span className="meta-item"><span className="dot pulse" style={{ background: '#7d4fd1' }} /> в работе у {card.agent.name}</span>}
         {(card.tokensUsed ?? 0) > 0 && (
-          <span className="meta-item" title="Суммарный расход токенов всеми прогонами задачи">
+          <span className="meta-item tok-click" title="Суммарный расход токенов всеми прогонами задачи — клик раскрывает вход/выход/кэш"
+            onClick={() => setTokOpen((v) => !v)}>
             <span className="lbl">Токены</span> <b className="tok">{fmtTokens(card.tokensUsed)}</b>
           </span>
         )}
       </div>
+      {tokOpen && (card.tokensUsed ?? 0) > 0 && (
+        <div className="tok-breakdown">
+          <TokSplit input={card.tokensInput ?? 0} output={card.tokensOutput ?? 0} cache={card.tokensCache ?? 0} />
+        </div>
+      )}
       <div className="card-tags mt8">
         {(card.tags ?? []).map((t) => <span key={t} dangerouslySetInnerHTML={{ __html: tagHtml(t) }} />)}
         {!tagsEditing && (

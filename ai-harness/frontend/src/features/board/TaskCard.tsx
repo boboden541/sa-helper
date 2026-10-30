@@ -8,6 +8,9 @@ import type { TaskCard } from '../../api/client'
 import { fmtTokens, type LiveTask } from '../../shared/live'
 import { PrioBadge, StChip, TagChip, TypeChip } from '../../shared/chips'
 
+import { useState } from 'react'
+import { TokSplit, partsOf } from '../../shared/tokens'
+
 // Цвета статусов для левой полосы карточки и полосы истории (фолбэк — серый).
 export const STATUS_COLORS: Record<string, string> = {
   pending: '#c07d1e', backlog: '#8792a3', todo: '#1f8fb5', progress: '#3d63d2', in_progress: '#3d63d2',
@@ -23,6 +26,8 @@ export function TaskCardView({ task, merged, live, onOpen, onOpenPage }: {
   onOpenPage: () => void
 }) {
   const blocked = task.statusKey === 'blocked'
+  const [tokOpen, setTokOpen] = useState(false)
+  const showTok = Boolean(live?.total || task.tokensUsed)
   return (
     <article className={`card ${blocked ? 'top' : ''}`}
       data-code={task.code}
@@ -48,11 +53,18 @@ export function TaskCardView({ task, merged, live, onOpen, onOpenPage }: {
         : task.agent
           ? <div className="agent"><span className="dot pulse" style={{ background: '#7d4fd1' }} />{task.agent.name}</div>
           : null}
-      {(live?.total || task.tokensUsed) ? (
-        <div className="token-row">
-          <span className="mini-chip mc-violet" title="Токены, потраченные агентами на задачу">
+      {showTok ? (
+        <div className="token-row tok-click" title="Токены, потраченные агентами на задачу — клик раскрывает вход/выход/кэш"
+          onClick={(e) => { e.stopPropagation(); setTokOpen((v) => !v) }}>
+          <span className="mini-chip mc-violet">
             {live?.total ? `${fmtTokens(live.total)} · сейчас` : `${fmtTokens(task.tokensUsed ?? 0)} токенов`}
           </span>
+          {tokOpen && (
+            <TokSplit {...(() => {
+              const [i, o, c] = partsOf(live, task.tokensInput ?? 0, task.tokensOutput ?? 0, task.tokensCache ?? 0)
+              return { input: i, output: o, cache: c }
+            })()} />
+          )}
         </div>
       ) : null}
       {blocked ? <div className="card-sub">{`✕ Требуется человек: ${task.blockedReason ?? ''}`}</div> : null}
