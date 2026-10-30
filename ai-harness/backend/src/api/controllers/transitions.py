@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_actor, get_session
+from api.dto.task_dto import GateOut, TaskCardOut
 from api.middleware.errors import ApiError
 from domain.model.validators import DomainError
 from domain.transition.engine import Subject, allowed_targets
@@ -83,39 +84,12 @@ async def force_view(code: str, payload: ForceIn,
     return TransitionResult(applied=True)
 
 
-class GateOut(BaseModel):
-    allowed: list[str]
-    denied: list[dict]
-    labels: dict[str, str] = {}
-
-
-class TaskCardOut(BaseModel):
-    code: str
-    title: str
-    priority: str
-    type: str
-    statusKey: str = Field(alias="statusKey")
-    tags: list[str] = []
-    descriptionMd: str = Field(alias="descriptionMd")
-    storyCode: str | None = Field(default=None, alias="storyCode")
-    psiPath: str | None = Field(default=None, alias="psiPath")
-    repoPath: str | None = Field(default=None, alias="repoPath")
-    gate: GateOut
-    createdAt: str
-    updatedAt: str
-    blockedReason: str | None = None
-    relations: list[dict] = []
-    tokens_used: int = Field(default=0, alias="tokensUsed")
-    model_config = ConfigDict(populate_by_name=True)
-
-
 @router.get("/{code}", response_model=TaskCardOut)
 async def card_view(code: str,
                     session: AsyncSession = Depends(get_session),
                     actor: User = Depends(get_actor)):
     import sqlalchemy as sa
 
-    from domain.model.enums import PRIORITY_RANK  # noqa: F401
     from repository.models import Project, TaskTag, Tag
 
     task = await _load_task_or_404(session, code)

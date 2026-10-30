@@ -41,7 +41,11 @@ class GateOut(BaseModel):
 
 
 class TaskCardOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    """Единая карточка задачи: список/доска заполняют базовое подмножество,
+    GET /{code} — полное (описание, гейты, связи, метки времени). Один DTO
+    вместо двух расходившихся копий (анализ 30.10.2026)."""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     code: str
     title: str
@@ -56,6 +60,11 @@ class TaskCardOut(BaseModel):
     agent: dict | None = None
     tokens_used: int = Field(default=0, alias="tokensUsed")
     gate: GateOut = GateOut()
+    description_md: str | None = Field(default=None, alias="descriptionMd")
+    created_at: str | None = Field(default=None, alias="createdAt")
+    updated_at: str | None = Field(default=None, alias="updatedAt")
+    blocked_reason: str | None = Field(default=None, alias="blockedReason")
+    relations: list[dict] = []
     changed_by_other: bool | None = Field(default=None, alias="changedByOther", exclude=True)
 
 
