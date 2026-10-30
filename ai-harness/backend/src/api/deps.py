@@ -16,9 +16,9 @@ async def get_session() -> AsyncSession:
         await session.close()
 
 
-async def get_actor(request: Request, session: AsyncSession = Depends(get_session)) -> "User":
-    """Актор запроса: сессия по httpOnly-cookie (ФТ-ah-73); без входа и при
-    auth.required=false — первый человек (dev-режим этапа 1–3); иначе 401."""
+async def _resolve_actor(request: Request, session: AsyncSession) -> "User | None":
+    """Актор по куке; без входа и при auth.required=false — первый человек
+    (dev-режим этапов 1–3); при auth.required и отсутствии сессии — 401."""
     import sqlalchemy as sa
 
     from repository.models import User
@@ -36,3 +36,18 @@ async def get_actor(request: Request, session: AsyncSession = Depends(get_sessio
     return (await session.execute(
         sa.select(User).where(User.user_type == "human").order_by(User.created_at).limit(1)
     )).scalar_one_or_none()
+
+
+async def get_actor(request: Request, session: AsyncSession = Depends(get_session)) -> "User":
+    """Актор запроса: сессия по httpOnly-cookie (ФТ-ah-73)."""
+    return await _resolve_actor(request, session)
+
+
+async def actor_snapshot(request: Request) -> "User":
+    """Актор для долгоживущих ответов (SSE): короткая сессия закрывается сразу
+    после разрешения пользователя — dependency-сессия не живёт весь стрим
+    (анализ 30.10.2026: idle-in-transaction на 15–30 минут выкупала пул)."""
+    from database import get_sessionmaker
+
+    async with get_sessionmaker()() as session:
+        return await _resolve_actor(request, session)

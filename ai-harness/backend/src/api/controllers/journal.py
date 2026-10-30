@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.deps import get_actor, get_session
+from api.deps import actor_snapshot, get_actor, get_session
 
 log = logging.getLogger("api")
 from api.middleware.errors import ApiError
@@ -448,7 +448,7 @@ def _run_out(r) -> dict:
 # ---------- живые события интерфейса (решение владельца 27.10.2026) ----------
 
 @router.get("/activity/stream")
-async def activity_stream(actor: User = Depends(get_actor)):
+async def activity_stream(actor: User = Depends(actor_snapshot)):
     """SSE: задачи «агент работает сейчас» — индикаторы на доске, в списке, в шапке.
     Каждые 2 с — снапшот (изменился → событие); через ~30 мин поток закрывается,
     EventSource переподключается сам."""
@@ -479,7 +479,7 @@ async def activity_stream(actor: User = Depends(get_actor)):
 
 
 @router.get("/tasks/{code}/live")
-async def task_live_stream(code: str, actor: User = Depends(get_actor)):
+async def task_live_stream(code: str, actor: User = Depends(actor_snapshot)):
     """SSE карточки: активный прогон (агент, минуты, токены), новые строки лога
     и новые записи хроники — события run / log / chronicle, end в конце цикла."""
     import asyncio
@@ -570,7 +570,7 @@ async def run_log(run_id: str, after: int = 0, session: AsyncSession = Depends(g
 
 
 @router.get("/tasks/{code}/run-log/stream")
-async def run_log_stream(code: str, actor: User = Depends(get_actor)):
+async def run_log_stream(code: str, actor: User = Depends(actor_snapshot)):
     # session-зависимости здесь НЕТ сознательно: она прожила бы весь стрим
     # (idle-in-transaction до 30 минут); генератор открывает свежие сессии сам
     """SSE-поток живого лога активного прогона: строки появляются по мере работы агента.
