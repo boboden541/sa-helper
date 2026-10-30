@@ -855,9 +855,12 @@ class Daemon:
             await merge_task_branch(host_to_container(project.path), task.code,
                                     project.base_branch, repo_path=task.repo_path)
         except GitError as err:
-            raise TransitionDenied(
-                f"Конфликт слияния: распутайте вручную, автомат повторит ({err.stderr[:200]})",
-                status_code=200)
+            dirty = "не чиста" in str(err) or "не чиста" in err.stderr
+            reason = (f"Слияние не выполнено: {err} — распутайте вручную, "
+                      f"автомат повторит ({err.stderr[:200]})") if not dirty else \
+                     (f"Рабочая копия проекта не чиста — коммит или stash, "
+                      f"автомат повторит слияние ({err.stderr[:200]})")
+            raise TransitionDenied(reason, status_code=200)
         # уборка: чистый worktree после слияния больше не нужен (ветка сохраняется)
         try:
             from infrastructure.git.worktree import cleanup_task_worktree

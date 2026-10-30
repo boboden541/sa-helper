@@ -95,12 +95,30 @@ async def commit_all(worktree: Path, message: str, author: str) -> str | None:
     return await _git(["rev-parse", "HEAD"], cwd=worktree)
 
 
+async def _tracked_status_clean(root) -> bool:
+    """Нет изменений отслеживаемых файлов. Untracked не грязь: .harness/worktrees
+    живёт внутри репозитория и иначе слияние отказывало бы всегда."""
+    try:
+        status = await _git(["status", "--porcelain", "--untracked-files=no"], cwd=root)
+    except GitError:
+        return False
+    return not status.strip()
+
+
 async def merge_task_branch(project_path: str, task_code: str,
                             base_branch: str = "main",
                             repo_path: str | None = None) -> None:
     """Слияние task/<code> в базовую перед done; конфликт → GitError (→ blocked)."""
     root = Path(task_repo_root(project_path, repo_path))
     branch = f"task/{task_code}"
+    # Слияние идёт в живой checkout человека — сначала проверяем чистоту
+    # отслеживаемых файлов: грязная рабочая копия превращала checkout/merge
+    # в ложный «конфликт слияния» и сжигала попытки без вины агента
+    # (анализ 30.10.2026). Untracked (в т.ч. .harness/worktrees внутри репо)
+    # грязью не считаем.
+    if not await _tracked_status_clean(root):
+        raise GitError("Рабочая копия проекта не чиста — закоммитьте или уберите "
+                       "изменения, автомат повторит слияние")
     # слияние через временный checkout базовой ветки в основном репозитории.
     # Мультирепозиторий: базовой ветки проекта может не быть в целевом репо
     # (tc-admin@develop при base_branch=main) — тогда интеграция идёт в
@@ -126,7 +144,7 @@ async def merge_task_branch(project_path: str, task_code: str,
                         exc_info=True)
         raise
     finally:
-        if current != base_branch:
+        if current != base:
             await _git(["checkout", current], cwd=root)
 
 

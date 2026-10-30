@@ -78,3 +78,30 @@ def test_task_repo_root_formula():
     assert task_repo_root("/ws/proj", "tc-admin") == "/ws/proj/tc-admin"
     assert task_repo_root("/ws/proj/", "a/b") == "/ws/proj/a/b"
     assert task_repo_root("", "x") == "/x"
+
+
+async def test_merge_refuses_dirty_checkout(repo):
+    """Слияние не трогает грязную рабочую копию человека (анализ 30.10.2026):
+    раньше checkout базовой в грязном репо давал ложный «конфликт слияния»
+    и сжигал попытки без вины агента."""
+    from infrastructure.git.worktree import merge_task_branch
+
+    subprocess.run(["git", "checkout", "-b", "task/AH-10", "main"],
+                   cwd=repo, check=True, capture_output=True)
+    # грязь = изменение отслеживаемого файла; untracked (.harness и пр.) не считаем
+    (repo / "README.md").write_text("human edits\n", encoding="utf-8")
+    with pytest.raises(GitError, match="не чиста"):
+        await merge_task_branch(str(repo), "AH-10", "main")
+
+
+async def test_merge_ignores_untracked_files(repo):
+    """Untracked-файлы в живой копии (например .harness/worktrees) слиянию
+    не мешают — проверка чистоты смотрит только отслеживаемые файлы."""
+    (repo / "notes.txt").write_text("untracked\n", encoding="utf-8")
+    wt = await ensure_task_worktree(str(repo), "AH-11", "main")
+    (wt / "feature.txt").write_text("x\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=wt, check=True, capture_output=True)
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t",
+                    "commit", "-m", "work"], cwd=wt, check=True, capture_output=True)
+    await merge_task_branch(str(repo), "AH-11", "main")
+    assert (repo / "feature.txt").exists()
