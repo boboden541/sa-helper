@@ -12,8 +12,14 @@ test('DnD: карточка из «На рассмотрении» в «Бэкл
   const card = page.locator(`.lane-cells .card[data-code="${code}"]`)
   await expect(card).toBeVisible()
 
-  const target = page.locator('.cell[data-drop="Бэклог"]').last()
-  // dnd-kit PointerSensor требует промежуточные pointermove с дистанцией ≥ 4px
+  // Канонический пресет: статуса backlog в flow нет — перетаскиваем
+  // «На рассмотрении» → «К работе» (ребро pending→todo, runner human)
+  const target = page.locator('.cell[data-drop="К работе"]').last()
+  // dnd-kit PointerSensor требует промежуточные pointermove с дистанцией ≥ 4px;
+  // карточка может быть ниже вьюпорта — page.mouse работает в координатах
+  // окна, без скролла pointerdown уходит мимо страницы (драйф сида, 30.10.2026)
+  await card.scrollIntoViewIfNeeded()
+  await target.scrollIntoViewIfNeeded()
   const sb = await card.boundingBox()
   const tb = await target.boundingBox()
   await page.mouse.move(sb.x + sb.width / 2, sb.y + sb.height / 2)
@@ -25,7 +31,7 @@ test('DnD: карточка из «На рассмотрении» в «Бэкл
   await expect.poll(async () => {
     const r = await page.request.get(`http://localhost:8088/api/v1/tasks/${code}`)
     return (await r.json()).statusKey
-  }, { timeout: 8000 }).toBe('backlog')
+  }, { timeout: 8000 }).toBe('todo')
 })
 
 test('DnD: запрещённая колонка не принимает карточку', async ({ page }) => {
@@ -37,8 +43,11 @@ test('DnD: запрещённая колонка не принимает кар�
   await page.goto('http://localhost:8088/#board')
   const card = page.locator(`.lane-cells .card[data-code="${code}"]`)
   await expect(card).toBeVisible()
-  // pending → Готово запрещено (нет ребра)
-  await card.dragTo(page.locator('.cell[data-drop="Готово"]').last())
+  // pending → Готово запрещено (нет ребра); скролл обязателен — см. выше
+  await card.scrollIntoViewIfNeeded()
+  const done = page.locator('.cell[data-drop="Готово"]').last()
+  await done.scrollIntoViewIfNeeded()
+  await card.dragTo(done)
   await expect.poll(async () => {
     const r = await page.request.get(`http://localhost:8088/api/v1/tasks/${code}`)
     return (await r.json()).statusKey
