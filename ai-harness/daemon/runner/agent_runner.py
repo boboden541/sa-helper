@@ -117,8 +117,79 @@ def parse_report(text: str) -> RunReport:
         if raw.get("status") not in ("success", "failed", "blocked"):
             continue
         return _report_from(raw, text)
+    # Строгий разбор не удался — частая причина у не-Anthropic моделей
+    # (GLM и др.): непэкранированная кавычка/сырой перевод строки внутри
+    # длинного поля отчёта. Весь труд агента терять нельзя — мягкое
+    # извлечение полей регулярками по последнему JSON-фрагменту.
+    lenient = _parse_report_lenient(text)
+    if lenient is not None:
+        return lenient
     return RunReport(status="failed", summary_md="агент не вернул отчёт по контракту",
                      raw=text[-4000:])
+
+
+_LENIENT_STATUS = re.compile(r'"status"\s*:\s*"(success|failed|blocked)"')
+_LENIENT_FIELD_T = r'"{}"\s*:\s*"((?:[^"\\]|\\.)*)"'
+
+
+def _unjson(s: str) -> str:
+    """Разворачивает базовые \\n/\\t/\" в тексте поля."""
+    return (s.replace("\\r\\n", "\n").replace("\\n", "\n")
+             .replace("\\t", "\t").replace('\\\"', '"'))
+
+
+def _parse_report_lenient(text: str) -> RunReport | None:
+    """Мягкое извлечение отчёта из битого JSON: статус, переход, артефакт,
+    чеклист-обновления по регуляркам. Срабатывает только если строгий
+    разбор не удался — битые поля лучше потерянного прогона."""
+    if '"status"' not in text:
+        return None
+    m = _LENIENT_STATUS.search(text)
+    if not m:
+        return None
+    status = m.group(1)
+
+    def field(name: str) -> str | None:
+        mm = re.compile(_LENIENT_FIELD_T.format(name)).search(text)
+        return _unjson(mm.group(1)) if mm else None
+
+    summary = field("summary_md") or ""
+    transition = None
+    mt = re.search(r'"proposed_transition"\s*:\s*\{[^}]*?"to"\s*:\s*"([a-z_0-9]+)"'
+                   r'[^}]*?"reason"\s*:\s*"((?:[^"\\]|\\.)*)"', text)
+    if mt:
+        transition = {"to": mt.group(1), "reason": _unjson(mt.group(2))}
+
+    updates = []
+    for um in re.finditer(
+            r'"checklist_kind"\s*:\s*"(developer|reviewer|tester|psi)"'
+            r'[^{}]*?"item_position"\s*:\s*(\d+)'
+            r'[^{}]*?"new_status"\s*:\s*"(todo|in_progress|closed|done|failed)"'
+            r'(?:[^{}]*?"text"\s*:\s*"((?:[^"\\]|\\.)*)")?', text):
+        updates.append({"checklist_kind": um.group(1),
+                        "item_position": int(um.group(2)),
+                        "new_status": um.group(3),
+                        "text": _unjson(um.group(4)) if um.group(4) else None})
+
+    artifact_md = field("artifact_md")
+    artifact_kind = field("artifact_kind")
+    if artifact_kind not in ("dev_report", "review_report", "qa_report"):
+        artifact_kind = None
+        artifact_md = None
+
+    comments = re.findall(r'"comments"\s*:\s*\[(.*?)\]', text, re.S)
+    comment_list = []
+    if comments:
+        for cm in re.finditer(r'"((?:[^"\\]|\\.)*)"', comments[-1]):
+            body = _unjson(cm.group(1)).strip()
+            if body:
+                comment_list.append(body[:4000])
+
+    return RunReport(status=status, summary_md=summary[:2000] or "(мягкий разбор битого JSON)",
+                     checklist_updates=updates,
+                     artifact_md=artifact_md, artifact_kind=artifact_kind,
+                     proposed_transition=transition,
+                     comments=comment_list[:5], raw=text[-4000:])
 
 
 def _report_from(raw: dict, text: str) -> RunReport:

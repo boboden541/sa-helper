@@ -372,12 +372,24 @@ class Daemon:
             if task.code in self._active:
                 continue
             if task.retry_count >= max_attempts:
-                # исчерпание попыток → blocked «требуется участие человека» (ФТ-ah-34)
+                # исчерпание попыток → blocked «требуется участие человека» (ФТ-ah-34).
+                # Прозрачность (решение владельца 30.10.2026): в причину входят
+                # последние сбои прогонов — «что случилось» видно сразу, без
+                # раскопок хроник и лент прогонов.
                 former = task.status_key
+                causes = (await session.execute(
+                    sa.select(sa.text("DISTINCT ON (detail) left(detail, 120) AS d"))
+                    .select_from(sa.text("task_run"))
+                    .where(sa.text(
+                        "task_id = :tid AND outcome = 'failed' AND coalesce(detail,'') <> ''"))
+                    .order_by(sa.text("detail, started_at DESC")).limit(3)
+                    .params(tid=str(task.id)))).scalars().all()
+                cause_txt = ("; последние сбои: " + " | ".join(causes)) if causes else ""
                 task.status_key = "blocked"
                 task.blocked_reason = (
                     "Требуется участие человека: исчерпаны попытки "
-                    f"({task.retry_count} из {max_attempts}) на статусе «{former}»")
+                    f"({task.retry_count} из {max_attempts}) на статусе «{former}»."
+                    + cause_txt)[:500]
                 session.add(_chronicle(task.id, "exhausted",
                                        f"Автоблокировка: {task.blocked_reason}"))
                 await session.commit()
