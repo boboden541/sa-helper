@@ -1147,7 +1147,8 @@ table.mx td{vertical-align:top}
 
 /* ============ Живой лог прогона агента (вкладка «Прогоны») ============ */
 .rl-panel{display:flex; flex-direction:column; gap:8px}
-.rl-runs{display:flex; flex-wrap:wrap; gap:6px}
+.rl-runs{display:flex; flex-wrap:wrap; gap:6px; max-height:180px; overflow-y:auto;
+  padding-right:4px} /* десятки прогонов не должны уводить лог за экран (30.10.2026) */
 .rl-run{display:flex; align-items:center; gap:8px; padding:4px 10px; border:1px solid var(--border);
   border-radius:9px; background:var(--surface); cursor:pointer; font-size:12px}
 .rl-run.sel{border-color:var(--accent)}

@@ -93,6 +93,7 @@ export function RunLogPanel({ code }: { code: string }) {
     setViewRun(active.id)
     setLines([])
     pinBottom.current = true
+    requestAnimationFrame(() => boxRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }))
     let last = 0
     let poll: ReturnType<typeof setInterval> | null = null
     const append = (items: LogLine[]) => {
@@ -140,6 +141,8 @@ export function RunLogPanel({ code }: { code: string }) {
   const openHistory = (runId: string) => {
     setViewRun(runId)
     void api.runLog(runId, 0).then((r: { items: LogLine[] }) => setLines(r.items)).catch(() => {})
+    // лог лежит ниже списка чипов: без прокрутки «раскрытие» не видно
+    requestAnimationFrame(() => boxRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }))
   }
 
   const interrupt = () => {
