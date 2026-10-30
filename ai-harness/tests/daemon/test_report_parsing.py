@@ -50,3 +50,16 @@ def test_bad_transition_type_dropped():
     report = parse_report(text)
     assert report.status == "success"
     assert report.proposed_transition is None
+
+
+def test_report_kind_outside_registry_dropped():
+    """Чеклист-обновления с kind вне реестра отбрасываются уже в парсере
+    (анализ 30.10.2026: произвольный kind влиял на чеклист-гейты)."""
+    from daemon.runner.agent_runner import parse_report
+
+    report = parse_report('{"status": "success", "summary_md": "ок", '
+                          '"checklist_updates": ['
+                          '{"checklist_kind": "hacker", "item_position": 1, "new_status": "closed"},'
+                          '{"checklist_kind": "developer", "item_position": 2, "new_status": "closed"}]}')
+    kinds = [u["checklist_kind"] for u in report.checklist_updates]
+    assert kinds == ["developer"]

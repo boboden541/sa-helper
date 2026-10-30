@@ -199,12 +199,18 @@ def _parse_report_lenient(text: str) -> RunReport | None:
                      comments=comment_list[:5], raw=text[-4000:])
 
 
+# тот же allowlist, что в API checklist_put: агент не создаёт чеклисты
+# произвольного вида, влияющие на чеклист-гейты (анализ 30.10.2026)
+_CHECKLIST_KINDS = ("developer", "reviewer", "tester", "psi")
+
+
 def _report_from(raw: dict, text: str) -> RunReport:
     """Builds RunReport from parsed dict with field type guards."""
     transition = raw.get("proposed_transition")
     if not isinstance(transition, dict) or not isinstance(transition.get("to"), str):
         transition = None
-    upd = [u for u in raw.get("checklist_updates", []) if isinstance(u, dict)]
+    upd = [u for u in raw.get("checklist_updates", [])
+           if isinstance(u, dict) and u.get("checklist_kind") in _CHECKLIST_KINDS]
     rel = [r for r in raw.get("relations_updates", []) if isinstance(r, dict)
            and isinstance(r.get("task_code"), str)
            and r.get("kind") in ("do_after", "blocked_by")]

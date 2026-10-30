@@ -775,9 +775,17 @@ class Daemon:
         декомпозиция Планировщика пропадала, гейт отклонял переход, сжигая
         попытки по ~100К токенов). Пункта нет или чеклиста нет — создаём."""
         applied = 0
+        skipped_kinds: list[str] = []
         for upd in report.checklist_updates:
             kind = upd.get("checklist_kind")
             new_status = upd.get("new_status")
+            if kind not in ("developer", "reviewer", "tester", "psi"):
+                # тот же allowlist, что в checklist_put: агент не создаёт
+                # чеклисты произвольного вида, влияющие на чеклист-гейты
+                # (анализ 30.10.2026)
+                if kind:
+                    skipped_kinds.append(str(kind))
+                continue
             if not kind or not new_status:
                 continue
             chk = (await session.execute(sa.text(
@@ -814,6 +822,10 @@ class Daemon:
         if applied:
             session.add(_chronicle(task.id, "agent",
                                    f"Чеклист обновлён агентом ({applied} пункт(ов))"))
+        if skipped_kinds:
+            session.add(_chronicle(task.id, "agent",
+                                   "Типы чеклистов вне реестра пропущены: "
+                                   + ", ".join(sorted(set(skipped_kinds)))[:300]))
 
     async def _apply_relations(self, session, task, report) -> int:
         """Связи из отчёта агента (relations_updates): blocked_by / do_after.
