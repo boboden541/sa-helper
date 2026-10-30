@@ -31,8 +31,13 @@ async def _ready_task(_test_db, status="in_progress"):
         if agent is None:
             agent = (await s.execute(pg_insert(User).values(
                 name="Разработчик", user_type="agent").returning(User))).scalar_one()
-        await s.execute(pg_insert(Assignment).values(
-            task_type_id=type_id, status_key=status, user_id=agent.id).on_conflict_do_nothing())
+        # назначение создаём сами: session-фикстура бэкенд-тестов truncates
+        # assignment — надежда на сидовое «Планировщик на todo» роняла
+        # daemon-тесты в полном прогоне после backend (дефект изоляции,
+        # воспроизводится на e52feac до правок 30.10.2026)
+        for st in {status, "todo"}:
+            await s.execute(pg_insert(Assignment).values(
+                task_type_id=type_id, status_key=st, user_id=agent.id).on_conflict_do_nothing())
         await s.execute(sa.text(
             "INSERT INTO task (id, project_id, code, task_type_id, title, description_md, "
             "status_key, flow_version_id, priority, author_id) "
