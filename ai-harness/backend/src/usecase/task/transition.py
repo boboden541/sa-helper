@@ -117,6 +117,43 @@ async def apply_transition(session: AsyncSession, actor: User | None, code: str,
     return task
 
 
+async def apply_blocked(session: AsyncSession, task: Task, actor: User | None,
+                        reason: str, *, subject_kind: str, rule_code: str) -> Task:
+    """Единственная точка автоблокировки: сначала легальное ребро
+    <статус>→blocked движком (с правами субъекта и уведомлениями), при его
+    отсутствии — прямой write с rule_code в хронику (escape-семантика engine,
+    прежнее поведение). Второй параллельный путь изменения статуса без
+    rule_code — источник рассинхрона правил (анализ 30.10.2026).
+    Коммит не делает (кроме внутреннего в apply_transition) — за вызывающим."""
+    from domain.transition.engine import check_edge
+    from usecase.task.gates import load_gate_data
+
+    graph = await load_graph(session, await task_flow_version_id(session, task))
+    decision = None
+    if graph.edge(task.status_key, "blocked") is not None:
+        gates = await load_gate_data(session, task)
+        decision = check_edge(graph, task.status_key, "blocked",
+                              await _subject_for(session, actor, task, subject_kind),
+                              gates)
+        if decision.allowed:
+            task.blocked_reason = reason[:500]
+            return await apply_transition(session, actor, task.code, "blocked",
+                                          subject_kind=subject_kind,
+                                          rule_code=rule_code)
+    task.status_key = "blocked"
+    task.updated_at = dt.datetime.now(dt.timezone.utc)
+    task.blocked_reason = reason[:500]
+    denial = decision and not decision.allowed
+    session.add(Chronicle(
+        task_id=task.id, event_type="transition",
+        author_id=actor.id if actor is not None else None,
+        author_kind=subject_kind if subject_kind in ("agent", "eve") else "auto",
+        rule_code=rule_code,
+        message="Автоблокировка: " + (f"{decision.reason} " if denial else "") + reason,
+    ))
+    return task
+
+
 async def _cascade_terminal(session: AsyncSession, task: Task, to: str,
                             actor: User, visited: set[str]) -> None:
     """Связанные задачи (оба направления, кроме историй) получают тот же статус:

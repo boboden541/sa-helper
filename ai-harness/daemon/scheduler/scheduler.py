@@ -149,9 +149,10 @@ class Daemon:
             if has_agent:
                 continue
             former = task.status_key  # статус до блокировки — попадёт в сообщение
-            task.status_key = "blocked"
-            task.blocked_reason = f"Нет назначенного агента на статус «{former}»"
-            session.add(_chronicle(task.id, "assignment", "Нет назначенного агента — задача заблокирована"))
+            from usecase.task.transition import apply_blocked
+            await apply_blocked(session, task, None,
+                                f"Нет назначенного агента на статус «{former}»",
+                                subject_kind="auto", rule_code="AUTO_BLOCK")
             blocked += 1
         await session.commit()
         return blocked
@@ -753,8 +754,9 @@ class Daemon:
                 await release_reservation(session, task.id, "failed", denied.reason)
                 return
         elif report.status == "blocked":
-            task.status_key = "blocked"
-            task.blocked_reason = report.summary_md[:500]
+            from usecase.task.transition import apply_blocked
+            await apply_blocked(session, task, agent, report.summary_md[:500],
+                                subject_kind="agent", rule_code="AGENT_REPORT")
             await release_reservation(session, task.id, "blocked")
             await session.commit()
             return
