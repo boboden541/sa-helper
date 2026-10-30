@@ -300,3 +300,87 @@ async def test_infra_failure_blocks_without_burning_attempts(_test_db):
             TaskRun.task_id == task.id))).scalars().one()
         assert run.outcome == "failed"
         assert "config.lock" in (run.detail or "")
+
+
+async def test_run_limit_blocks_and_warns(_test_db):
+    """Общий лимит прогонов задачи (30.10.2026): после daemon.max_runs_per_task
+    задача блокируется (rule_code RUN_LIMIT), до порога — разовое предупреждение
+    «цикл не сходится». retry_count сбрасывается переходами, поэтому без этого
+    лимита цикл «разработка↔ревью» легально сжигал сотни прогонов."""
+    from daemon.scheduler.scheduler import Daemon
+    from repository.models import Chronicle, Notification, TaskRun
+
+    agent_id, code = await _ready_task(_test_db)
+    maker = _maker(_test_db)
+
+    async with maker() as s:
+        task_id = (await s.execute(
+            sa.text("SELECT id FROM task WHERE code = :c"), {"c": code})).scalar_one()
+        for n in range(3):
+            await s.execute(sa.text(
+                "INSERT INTO task_run (id, task_id, agent_id, status_key, attempt_no, "
+                "finished_at, outcome) SELECT gen_random_uuid(), :t, :a, 'in_progress', :n, "
+                "now() - interval '2 hours', 'failed'"), {"t": str(task_id), "a": str(agent_id), "n": n + 1})
+        await s.commit()
+
+    daemon = Daemon(maker, runner=None)
+    cfg = {"daemon.max_attempts": "3", "daemon.max_parallel": "4",
+           "daemon.warn_runs_per_task": "2", "daemon.max_runs_per_task": "3",
+           "daemon.timeout_start_seconds": "300", "daemon.timeout_work_seconds": "1800",
+           "daemon.retry_pauses_minutes": "1,5,15", "agents.tools_dir": ""}
+
+    async with maker() as s:
+        launched = await daemon._launch_ready(s, cfg)
+    assert launched == 0, "лимит прогонов: запуск не происходит"
+
+    async with maker() as s:
+        task = (await s.execute(sa.select(Task).where(Task.code == code))).scalar_one()
+        assert task.status_key == "blocked"
+        assert "лимит прогонов" in (task.blocked_reason or "")
+        assert task.retry_count == 0
+        rule = (await s.execute(sa.select(Chronicle).where(
+            Chronicle.task_id == task.id,
+            Chronicle.rule_code == "RUN_LIMIT"))).scalars().all()
+        assert rule, "rule_code RUN_LIMIT в хронике"
+        notifs = (await s.execute(sa.select(Notification).where(
+            Notification.code == code,
+            Notification.event_key == "cycle_not_converging",
+            Notification.resolved_at.is_(None)))).scalars().all()
+        assert len(notifs) == 1, "одно открытое предупреждение"
+
+
+async def test_session_id_saved_from_event(_test_db):
+    """session_id из init-события SDK пишется в task_run — без него resume
+    следующего прогона невозможен."""
+    from daemon.scheduler.scheduler import Daemon
+    from repository.models import TaskRun
+
+    class _SidRunner:
+        async def run(self, req):
+            await req.emit("system", text="сессия агента запущена",
+                           data={"session_id": "sess-e2e-77"})
+            from daemon.runner.agent_runner import RunReport
+
+            return RunReport(status="success", summary_md="ок")
+
+    agent_id, code = await _ready_task(_test_db)
+    maker = _maker(_test_db)
+    daemon = Daemon(maker, _SidRunner())
+    cfg = {"daemon.timeout_start_seconds": "300", "daemon.timeout_work_seconds": "1800",
+           "daemon.max_attempts": "3"}
+    async with maker() as s:
+        task_id = (await s.execute(
+            sa.text("SELECT id FROM task WHERE code = :c"), {"c": code})).scalar_one()
+        from daemon.runner.reservation import reserve_task
+
+        assert await reserve_task(s, task_id, agent_id, "in_progress")
+    # самодостаточность: активное подключение от backend-тестов провайдеров
+    # не должно влиять (расшифровка чужого ключа = инфра-сбой прогона)
+    async with maker() as s:
+        await s.execute(sa.text("DELETE FROM connection"))
+        await s.commit()
+    await daemon._run_task(code, agent_id, "in_progress", cfg)
+    async with maker() as s:
+        run = (await s.execute(sa.select(TaskRun).where(
+            TaskRun.task_id == task_id))).scalars().one()
+        assert run.session_id == "sess-e2e-77"

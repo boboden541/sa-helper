@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import os
 import sys
 from pathlib import Path
@@ -20,7 +21,12 @@ TEST_URL = os.environ.get(
     "TEST_DATABASE_URL",
     f"postgresql+asyncpg://harness:harness@localhost:5433/{TEST_DB}")
 os.environ["DATABASE_URL"] = TEST_URL
-os.environ.setdefault("AI_HARNESS_TOKEN_KEY", "")
+# Валидный ключ (не пустой!): иначе активное подключение, оставленное
+# backend-тестами провайдеров, роняло расшифровку в daemon-тестах, которые
+# идут позже (сама расшифровка работает — ключ фиксированный на процесс)
+os.environ.setdefault(
+    "AI_HARNESS_TOKEN_KEY",
+    base64.b64encode(b"harness-test-token-key-32-bytes!").decode())
 
 import sqlalchemy as sa  # noqa: E402
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine  # noqa: E402

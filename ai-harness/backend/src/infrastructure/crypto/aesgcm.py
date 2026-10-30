@@ -9,7 +9,10 @@ from __future__ import annotations
 import base64
 import os
 
+from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+from domain.model.validators import DomainError
 
 
 def encrypt_token(key: bytes, plaintext: str) -> bytes:
@@ -20,7 +23,18 @@ def encrypt_token(key: bytes, plaintext: str) -> bytes:
 
 def decrypt_token(key: bytes, blob: bytes) -> str:
     nonce, ct = blob[:12], blob[12:]
-    return AESGCM(key).decrypt(nonce, ct, None).decode()
+    try:
+        return AESGCM(key).decrypt(nonce, ct, None).decode()
+    except InvalidTag:
+        # Неверный ключ/данные: у cryptography InvalidTag — ПУСТОЕ исключение,
+        # в логах демона выглядело как необъяснимый сбой прогона. Теперь это
+        # DomainError с диагнозом → планировщик классифицирует как инфра-сбой
+        # (детерминированный: ретрай бессмыслен) и блокирует с причиной.
+        raise DomainError(
+            "Не удалось расшифровать токен подключения — ключ "
+            "AI_HARNESS_TOKEN_KEY изменился с момента сохранения; "
+            "пересохраните подключение в настройках",
+            tech="AESGCM InvalidTag") from None
 
 
 def token_mask(token: str) -> str:

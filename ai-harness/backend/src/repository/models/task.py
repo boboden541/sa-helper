@@ -167,6 +167,7 @@ class TaskRun(Base):
     input_tokens: Mapped[int] = mapped_column(BigInteger, default=0, server_default=text("0"))
     output_tokens: Mapped[int] = mapped_column(BigInteger, default=0, server_default=text("0"))
     cache_tokens: Mapped[int] = mapped_column(BigInteger, default=0, server_default=text("0"))
+    session_id: Mapped[str | None] = mapped_column(String(64))  # SDK-сессия прогона — для resume (30.10.2026)
 
 
 # Ссылки на UUID-диалект используются миграциями; держим импорт живым для mypy-полноты

@@ -51,6 +51,7 @@ class RunRequest:
     agent_dir: str | None = None     # папка агентов (.claude); путь уже в координатах контейнера
     skills_md: tuple[str, ...] = ()  # содержимое явно назначенных скиллов (реестр инструментов)
     max_turns: int = 100  # ходов SDK; демон всегда передаёт app_setting daemon.max_turns
+    resume_session_id: str | None = None  # продолжить прошлую сессию (лимит ходов/таймаут)
     on_event: EventFn | None = None  # async (kind, text=None, data=None)
 
     async def emit(self, kind: str, text: str | None = None, data: dict | None = None) -> None:
@@ -271,6 +272,10 @@ def _options_kwargs(req: RunRequest, fields: set[str]) -> dict:
     if req.agent_dir:
         # подхват .claude из worktree: скиллы, команды, субагенты, настройки
         kwargs["setting_sources"] = ["project"]
+    if getattr(req, "resume_session_id", None):
+        # продолжение оборванной сессии (лимит ходов/таймаут); старый SDK без
+        # поля resume тихо отбросит опцию и начнёт свежую сессию
+        kwargs["resume"] = req.resume_session_id
     return {k: v for k, v in kwargs.items() if k in fields}
 
 
@@ -465,7 +470,8 @@ class ClaudeCodeRunner:
             await req.emit("system", text="сессия агента запущена",
                            data={"model": getattr(message, "model", None),
                                  "cwd": getattr(message, "cwd", None),
-                                 "tools": getattr(message, "tools", None)})
+                                 "tools": getattr(message, "tools", None),
+                                 "session_id": getattr(message, "session_id", None)})
             return
         _accumulate_usage(message, usage)
         if usage.get("total"):

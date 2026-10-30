@@ -350,6 +350,19 @@ class Daemon:
             )).all()
             last_runs = {str(r[0]): tuple(r)[1:] for r in lr}
 
+        # счётчик прогонов задачи в целом: retry_count сбрасывается переходами,
+        # поэтому цикл «разработка↔ревью» легально сжигал сотни прогонов
+        # (VITRINA-35: 130). Пакетно, одним group-by.
+        from repository.models import TaskRun as _TR
+
+        run_counts: dict = {}
+        if rows:
+            rc = (await session.execute(
+                sa.select(_TR.task_id, sa.func.count())
+                .where(_TR.task_id.in_([row.Task.id for row in rows]))
+                .group_by(_TR.task_id))).all()
+            run_counts = {str(tid): n for tid, n in rc}
+
         ready = []
         for row in rows:
             task = row.Task
@@ -405,6 +418,30 @@ class Daemon:
         for task, type_key, agent_id, mode, position in sorted(ready, key=_dep_key):
             if task.code in self._active:
                 continue
+            total_runs = run_counts.get(str(task.id), 0)
+            warn_n = int(cfg.get("daemon.warn_runs_per_task") or 0)
+            max_n = int(cfg.get("daemon.max_runs_per_task") or 0)
+            if max_n and total_runs >= max_n:
+                # лимит прогонов задачи: цикл не сходится — стоп, разбирает человек
+                from usecase.journal.notifications import raise_event
+                from usecase.task.transition import apply_blocked
+
+                await apply_blocked(
+                    session, task, None,
+                    f"Требуется участие человека: исчерпан лимит прогонов задачи "
+                    f"({total_runs} из daemon.max_runs_per_task={max_n}) — цикл "
+                    f"разработки не сходится; проверьте ревью/тесты или поднимите лимит",
+                    subject_kind="auto", rule_code="RUN_LIMIT")
+                await raise_event(session, task.code, "cycle_not_converging",
+                                  f"Задача {task.code}: {total_runs} прогонов — цикл не сходится")
+                await session.commit()
+                continue
+            if warn_n and total_runs >= warn_n and total_runs < max_n:
+                from usecase.journal.notifications import raise_event
+
+                # идемпотентно (частичный UNIQUE): одно открытое уведомление
+                await raise_event(session, task.code, "cycle_not_converging",
+                                  f"Задача {task.code}: {total_runs}-й прогон — цикл может не сходиться")
             if task.retry_count >= max_attempts:
                 # исчерпание попыток → blocked «требуется участие человека» (ФТ-ah-34).
                 # Прозрачность (решение владельца 30.10.2026): в причину входят
@@ -488,6 +525,13 @@ class Daemon:
                                    data: dict | None = None) -> None:
                     from repository.models import TaskRunLog
 
+                    if kind == "system" and data and data.get("session_id"):
+                        # SDK-сессия прогона — для resume после «лимит ходов/таймаут»
+                        async with self._maker() as ss:
+                            await ss.execute(sa.text(
+                                "UPDATE task_run SET session_id = :s WHERE id = :r"),
+                                {"s": str(data["session_id"])[:64], "r": str(run_id)})
+                            await ss.commit()
                     if kind == "usage" and data:
                         # накопительные значения за прогон — пишем как есть (идемпотентно),
                         # интерфейс читает их живьём (решение владельца 27.10.2026)
@@ -518,6 +562,17 @@ class Daemon:
                     sa.text("SELECT path FROM project WHERE id = :i"),
                     {"i": str(task.project_id)})).scalar_one_or_none()
                 root = task_repo_root(project_path, task.repo_path)
+                # resume: прошлый прогон той же задачи оборвался лимитом ходов
+                # или таймаутом — продолжаем его SDK-сессию (наработка в разговоре
+                # сохраняется; бюджет ходов у запроса свой, лестница ретраев
+                # ограничивает цепочку). Инфра-сбои и обычные failed — свежий лист.
+                resume_sid = (await session.execute(sa.text(
+                    "SELECT session_id FROM task_run "
+                    "WHERE task_id = :t AND outcome = 'failed' AND session_id IS NOT NULL "
+                    "AND (detail LIKE '% Reached maximum number of turns%' "
+                    "     OR detail LIKE '%Таймаут прогона%') "
+                    "ORDER BY started_at DESC LIMIT 1"),
+                    {"t": str(task.id)})).scalar_one_or_none()
                 req_kwargs: dict = dict(
                     task_code=task_code, persona=persona,
                     context_md=await self._context_md(session, task),
@@ -530,6 +585,7 @@ class Daemon:
                     model=(profile or {}).get("model"),
                     mcp_servers=(profile or {}).get("mcp_servers"),
                     max_turns=int(cfg.get("daemon.max_turns") or 200),
+                    resume_session_id=resume_sid,
                     on_event=on_event,
                 )
                 if profile and profile.get("allowed_tools"):
