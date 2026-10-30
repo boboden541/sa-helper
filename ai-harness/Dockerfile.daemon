@@ -13,6 +13,13 @@ RUN ARCH=$(uname -m | sed 's/x86_64/x64/; s/aarch64/arm64/') \
     | tar -xJ -C /usr/local --strip-components=1 \
  && npm install -g @anthropic-ai/claude-code
 
+# Headless-браузер для e2e-прогонов агентов (решение владельца 30.10.2026,
+# VITRINA-36: тестировщик не мог проверить UI-сценарии — «в среде нет
+# браузера»). Chromium + системные зависимости; ~600 МБ к образу.
+RUN npm install -g playwright@1.64.1 \
+ && npx playwright install --with-deps chromium \
+ && npm cache clean --force
+
 WORKDIR /app
 COPY pyproject.toml ./
 COPY backend/src ./backend/src

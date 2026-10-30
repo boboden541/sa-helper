@@ -36,6 +36,8 @@ services:
     # агенты ходят наружу через этот канал
     dns:
       - ${CONTAINER_DNS:-8.8.8.8}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       # домашняя директория компьютера видна контейнеру: проекты можно
       # указывать любыми путями хоста (решение владельца 26.10.2026)
@@ -88,6 +90,10 @@ services:
     # см. комментарий у backend: агенту нужен живой DNS до провайдера
     dns:
       - ${CONTAINER_DNS:-8.8.8.8}
+    # мост к стендам на хосте (ticketscloud :5000, meili :7700 и пр.) —
+    # без записи host.docker.internal не резолвится и stage недоступен агентам
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     command: ["python", "-m", "daemon.main"]
 
   adminer:
