@@ -66,3 +66,15 @@ async def test_merge_conflict_raises(repo):
                     "commit", "-m", "base edit"], cwd=repo, check=True, capture_output=True)
     with pytest.raises(GitError):
         await merge_task_branch(str(repo), "AH-9", "main")
+
+
+def test_task_repo_root_formula():
+    """Единая формула корня целевого репозитория (анализ 30.10.2026): cwd
+    прогона без worktree, worktree и слияние считали корень по-разному —
+    cwd прогона терял repo_path (мультирепозиторий 29.10.2026)."""
+    from infrastructure.paths import task_repo_root
+
+    assert task_repo_root("/ws/proj", None) == "/ws/proj"
+    assert task_repo_root("/ws/proj", "tc-admin") == "/ws/proj/tc-admin"
+    assert task_repo_root("/ws/proj/", "a/b") == "/ws/proj/a/b"
+    assert task_repo_root("", "x") == "/x"

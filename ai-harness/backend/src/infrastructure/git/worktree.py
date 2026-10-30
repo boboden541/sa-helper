@@ -10,6 +10,8 @@ import asyncio
 import logging
 from pathlib import Path
 
+from infrastructure.paths import task_repo_root
+
 log = logging.getLogger("daemon.git")
 
 
@@ -97,7 +99,7 @@ async def merge_task_branch(project_path: str, task_code: str,
                             base_branch: str = "main",
                             repo_path: str | None = None) -> None:
     """Слияние task/<code> в базовую перед done; конфликт → GitError (→ blocked)."""
-    root = Path(project_path) / repo_path if repo_path else Path(project_path)
+    root = Path(task_repo_root(project_path, repo_path))
     branch = f"task/{task_code}"
     # слияние через временный checkout базовой ветки в основном репозитории.
     # Мультирепозиторий: базовой ветки проекта может не быть в целевом репо
@@ -160,7 +162,7 @@ async def cleanup_task_worktree(project_path: str, task_code: str,
 
     Ветка task/<code> сохраняется (артефактный контракт: одна задача - одна ветка).
     """
-    root = Path(project_path) / repo_path if repo_path else Path(project_path)
+    root = Path(task_repo_root(project_path, repo_path))
     wt = worktree_path_for(str(root), worktree_code(task_code))
     if wt.exists() and not await worktree_is_clean(wt):
         return  # грязный worktree не трогаем - разберётся человек

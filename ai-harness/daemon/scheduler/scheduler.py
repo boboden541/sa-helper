@@ -472,22 +472,24 @@ class Daemon:
                                          text=text, data=data))
                         await s.commit()
 
-                from infrastructure.paths import host_to_container
+                from infrastructure.paths import host_to_container, task_repo_root
 
                 # приоритет: свой путь агента → глобальная папка инструментов (одна на все проекты)
                 agent_dir = ((profile or {}).get("agent_dir")
                              or (cfg.get("agents.tools_dir") or "").strip() or None)
-                # cwd прогона: worktree этапа разработки, иначе папка проекта —
+                # cwd прогона: worktree этапа разработки, иначе целевой репозиторий
+                # (мультирепозиторий: task.repo_path, как в merge_task_branch) —
                 # агент не должен блуждать по /app контейнера в поисках кода
                 project_path = (await session.execute(
                     sa.text("SELECT path FROM project WHERE id = :i"),
                     {"i": str(task.project_id)})).scalar_one_or_none()
+                root = task_repo_root(project_path, task.repo_path)
                 req_kwargs: dict = dict(
                     task_code=task_code, persona=persona,
                     context_md=await self._context_md(session, task),
                     worktree_path=worktree,
                     cwd_path=None if worktree else (
-                        host_to_container(project_path) if project_path else None),
+                        host_to_container(root) if root else None),
                     provider=await self._provider_for(session, agent_id),
                     timeouts={"start": int(cfg["daemon.timeout_start_seconds"]),
                               "work": int(cfg["daemon.timeout_work_seconds"])},

@@ -45,3 +45,13 @@ def host_to_container(path: str) -> str:
     except (ValueError, OSError):
         pass
     return path
+
+
+def task_repo_root(project_path: str, repo_path: str | None) -> str:
+    """Корень целевого репозитория задачи (мультирепозиторий, 29.10.2026):
+    project_path, либо project_path/repo_path. Одна формула для cwd прогона,
+    worktree и слияния (раньше дублировалась и расходилась — cwd прогона
+    без worktree терял repo_path, анализ 30.10.2026)."""
+    if repo_path:
+        return f"{project_path.rstrip('/')}/{repo_path}"
+    return project_path
