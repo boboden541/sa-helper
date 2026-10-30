@@ -14,7 +14,11 @@ sys.path.insert(0, str(ROOT / "backend" / "src"))
 sys.path.insert(0, str(ROOT))
 
 TEST_DB = "ai_harness_test"
-TEST_URL = f"postgresql+asyncpg://harness:harness@localhost:5433/{TEST_DB}"
+# Креды переопределяются окружением (TEST_DATABASE_URL); дефолт — локальный
+# docker compose (постгрес на 5433, юзер/пароль из переменных compose)
+TEST_URL = os.environ.get(
+    "TEST_DATABASE_URL",
+    f"postgresql+asyncpg://harness:harness@localhost:5433/{TEST_DB}")
 os.environ["DATABASE_URL"] = TEST_URL
 os.environ.setdefault("AI_HARNESS_TOKEN_KEY", "")
 
