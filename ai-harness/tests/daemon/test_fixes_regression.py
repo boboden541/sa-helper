@@ -384,3 +384,19 @@ async def test_session_id_saved_from_event(_test_db):
         run = (await s.execute(sa.select(TaskRun).where(
             TaskRun.task_id == task_id))).scalars().one()
         assert run.session_id == "sess-e2e-77"
+
+
+def test_targeted_retry_block_content():
+    """Прицельный перепрогон: блок называет причину гейта и перечисляет открытое;
+    без причины или без открытых пунктов блок не строится (полный прогон)."""
+    from daemon.scheduler.scheduler import targeted_retry_block
+
+    block = targeted_retry_block(
+        "чек-лист тестировщика: не закрыто 1 пункт",
+        [{"kind": "tester", "position": 0, "text": "Подготовка окружения", "status": "todo"}])
+    assert block and "не закрыто 1 пункт" in block
+    assert "Подготовка окружения" in block and "todo" in block
+    assert "полный регресс не повторяй" in block
+
+    assert targeted_retry_block(None, [{"kind": "x", "position": 0, "text": "t", "status": "todo"}]) is None
+    assert targeted_retry_block("причина", []) is None

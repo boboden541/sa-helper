@@ -72,6 +72,7 @@ async def seed() -> None:
         AGENT_MODELS = {
             "Разработчик": "claude-sonnet-5-5",
             "Ревьюер": "claude-sonnet-5-5",
+            "Тестировщик": "claude-sonnet-5-5",
         }
         AGENT_SKILLS = {
             "Планировщик": ["decomposer-methodology"],

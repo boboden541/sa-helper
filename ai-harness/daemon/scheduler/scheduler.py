@@ -566,6 +566,26 @@ class Daemon:
                 # или таймаутом — продолжаем его SDK-сессию (наработка в разговоре
                 # сохраняется; бюджет ходов у запроса свой, лестница ретраев
                 # ограничивает цепочку). Инфра-сбои и обычные failed — свежий лист.
+                # прицельный перепрогон: прошлый failed — отказ чеклист-гейта?
+                last_denied = (await session.execute(sa.text(
+                    "SELECT detail FROM task_run "
+                    "WHERE task_id = :t AND outcome = 'failed' "
+                    "AND detail LIKE '%чек-лист%' AND detail LIKE '%не закрыто%' "
+                    "ORDER BY started_at DESC LIMIT 1"),
+                    {"t": str(task.id)})).scalar_one_or_none()
+                base_ctx = await self._context_md(session, task)
+                if last_denied:
+                    open_items = (await session.execute(sa.text(
+                        "SELECT ci.kind AS kind, ci.position AS position, "
+                        "ci.text AS text, ci.status AS status "
+                        "FROM checklist_item ci JOIN checklist c ON c.id = ci.checklist_id "
+                        "WHERE c.task_id = :t AND ci.status NOT IN ('done', 'closed') "
+                        "ORDER BY c.kind, ci.position"),
+                        {"t": str(task.id)})).mappings().all()
+                    block = targeted_retry_block(
+                        last_denied.strip(), [dict(r) for r in open_items])
+                    if block:
+                        base_ctx = base_ctx + "\n\n" + block
                 resume_sid = (await session.execute(sa.text(
                     "SELECT session_id FROM task_run "
                     "WHERE task_id = :t AND outcome = 'failed' AND session_id IS NOT NULL "
@@ -575,7 +595,7 @@ class Daemon:
                     {"t": str(task.id)})).scalar_one_or_none()
                 req_kwargs: dict = dict(
                     task_code=task_code, persona=persona,
-                    context_md=await self._context_md(session, task),
+                    context_md=base_ctx,
                     worktree_path=worktree,
                     cwd_path=None if worktree else (
                         host_to_container(root) if root else None),
@@ -1001,6 +1021,24 @@ async def task_id_by_code(session, code):
 
     return (await session.execute(
         sa.select(Task.id).where(Task.code == code))).scalar_one()
+
+
+def targeted_retry_block(denied_reason: str, open_items: list[dict]) -> str | None:
+    """Блок «прицельный перепрогон» для контекста: прошлый прогон упёрся в
+    чеклист-гейт — следующий агент верифицирует только открытое, не повторяет
+    полный регресс (экономия: 50 мин и ~11М кэша на повтор)."""
+    if not (denied_reason and open_items):
+        return None
+    lines = [f"{it['kind']}#{it['position']}: {it['text']} ({it['status']})"
+             for it in open_items]
+    return (
+        "## Прицельный перепрогон (важно)\n"
+        f"Прошлый прогон выполнил работу, но переход отклонён гейтом: {denied_reason}.\n"
+        f"Единственное препятствие — открытые пункты чеклиста:\n"
+        + "\n".join(f"- {l}" for l in lines)
+        + "\nВерифицируй ТОЛЬКО эти пункты (полный регресс не повторяй — он уже "
+          "пройден прошлым прогоном), закрой их в checklist_updates и предложи переход."
+    )
 
 
 def _chronicle(task_id, rule: str, message: str):
