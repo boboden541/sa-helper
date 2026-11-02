@@ -99,6 +99,8 @@ checklist_updates ЭТОГО ЖЕ отчёта с new_status=closed/done. Нев
 выполненный пункт блокирует гейт перехода и обесценивает весь прогон:
 следующему агенту придётся повторять работу ради одной галочки. Закрытые
 пункты не переделывай — работай по открытым.
+Если status=blocked: ПОСЛЕДНЕЕ предложение summary_md — точная причина блокировки
+и что нужно от человека (карточка показывает хвост summary).
 Переход: предложи переход только по существующему ребру из твоего текущего статуса
 (ключи статусов и рёбра — в контексте задачи). Если твой прошлый переход был
 отклонён (причина отказа — в хрониках задачи, они в контексте): устрани причину —
@@ -210,6 +212,15 @@ def _parse_report_lenient(text: str) -> RunReport | None:
 _CHECKLIST_KINDS = ("developer", "reviewer", "tester", "psi")
 
 
+def _comments_list(raw_comments) -> list:
+    """comments из отчёта: массив строк; СТРОКА разворачивается в один элемент —
+    иначе итерация строки даёт комментарии по одной букве (дефект 31.10:
+    «К», «у», «т»… в карточке задачи)."""
+    if isinstance(raw_comments, str):
+        return [raw_comments]
+    return list(raw_comments or [])
+
+
 def _report_from(raw: dict, text: str) -> RunReport:
     """Builds RunReport from parsed dict with field type guards."""
     transition = raw.get("proposed_transition")
@@ -229,7 +240,8 @@ def _report_from(raw: dict, text: str) -> RunReport:
         artifact_kind=raw.get("artifact_kind"),
         proposed_transition=transition,
         questions=[q for q in raw.get("questions", []) if isinstance(q, str)],
-        comments=[c for c in raw.get("comments", []) if isinstance(c, str) and c.strip()],
+        comments=[c for c in _comments_list(raw.get("comments", []))
+                  if isinstance(c, str) and c.strip()],
         raw=text[-4000:],
     )
 

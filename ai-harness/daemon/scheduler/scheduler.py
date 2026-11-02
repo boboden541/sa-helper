@@ -886,7 +886,8 @@ class Daemon:
                 return
         elif report.status == "blocked":
             from usecase.task.transition import apply_blocked
-            await apply_blocked(session, task, agent, report.summary_md[:500],
+            await apply_blocked(session, task, agent,
+                                blocked_reason_from_summary(report.summary_md),
                                 subject_kind="agent", rule_code="AGENT_REPORT")
             await release_reservation(session, task.id, "blocked")
             await session.commit()
@@ -1021,6 +1022,17 @@ async def task_id_by_code(session, code):
 
     return (await session.execute(
         sa.select(Task.id).where(Task.code == code))).scalar_one()
+
+
+def blocked_reason_from_summary(summary: str, limit: int = 500) -> str:
+    """Причина блокировки для карточки: агент начинает summary с отчёта о работе,
+    а причину блокировки пишет в КОНЦЕ (VITRINA-37: «Итог: …» обрезалось ровно
+    перед сутью). Берём хвост целиком: обрыв в начале причины информативнее
+    её отсутствия."""
+    reason = (summary or "").strip()
+    if len(reason) <= limit:
+        return reason
+    return "…" + reason[-(limit - 1):]
 
 
 def targeted_retry_block(denied_reason: str, open_items: list[dict]) -> str | None:

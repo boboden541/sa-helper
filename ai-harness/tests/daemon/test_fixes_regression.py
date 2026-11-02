@@ -400,3 +400,26 @@ def test_targeted_retry_block_content():
 
     assert targeted_retry_block(None, [{"kind": "x", "position": 0, "text": "t", "status": "todo"}]) is None
     assert targeted_retry_block("причина", []) is None
+
+
+def test_blocked_reason_takes_tail():
+    """Причина блокировки — хвост summary (агент пишет причину в конце);
+    срез по границе предложения, без обрыва на середине слова."""
+    from daemon.scheduler.scheduler import blocked_reason_from_summary
+
+    long = "Контурный прогон выполнен. " * 40 + "Итог: открыт П.8.6 — нужен BI-сервис."
+    reason = blocked_reason_from_summary(long)
+    assert reason.startswith("…")
+    assert reason.endswith("нужен BI-сервис.")
+    assert blocked_reason_from_summary("короткая причина") == "короткая причина"
+
+
+def test_comments_string_not_char_split():
+    """comments строкой вместо массива: один комментарий-строка, а не буквы
+    (дефект 31.10: «К», «у», «т»… в карточке задачи)."""
+    from daemon.runner.agent_runner import parse_report
+
+    raw = ('{"status": "blocked", "summary_md": "причина", '
+           '"comments": "Кутнул окружение для Г8"}')
+    report = parse_report(raw)
+    assert report.comments == ["Кутнул окружение для Г8"]
