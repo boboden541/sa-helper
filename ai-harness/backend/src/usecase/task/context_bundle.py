@@ -104,7 +104,7 @@ async def build_context_md(session: AsyncSession, task: Task) -> str:
         .join(Project, Project.id == Task.project_id)
         .where(Task.project_id == task.project_id,
                Task.status_key.notin_(("done", "canceled")), Task.id != task.id)
-        .order_by(Task.code).limit(40))).all()
+        .order_by(Task.code).limit(12)))
     if siblings:
         lines = [f"- {code} «{title}» — {status}" for code, title, status in siblings]
         parts.append("\n## Задачи проекта (для связей: что сначала, что потом, кто кого блокирует)\n"
@@ -133,7 +133,7 @@ async def build_context_md(session: AsyncSession, task: Task) -> str:
     tail = (await session.execute(
         sa.select(Chronicle.message)
         .where(Chronicle.task_id == task.id)
-        .order_by(Chronicle.created_at.desc()).limit(20))).scalars().all()
+        .order_by(Chronicle.created_at.desc()).limit(12))).scalars().all()
     if tail:
         parts.append("\n## Хроника (последние события)\n" +
                      "\n".join(f"- {m}" for m in reversed(tail)))

@@ -52,6 +52,7 @@ class RunRequest:
     skills_md: tuple[str, ...] = ()  # содержимое явно назначенных скиллов (реестр инструментов)
     max_turns: int = 100  # ходов SDK; демон всегда передаёт app_setting daemon.max_turns
     resume_session_id: str | None = None  # продолжить прошлую сессию (лимит ходов/таймаут)
+    soft_turns: int | None = None  # мягкий лимит ходов: смена сессии до деградации контекста
     on_event: EventFn | None = None  # async (kind, text=None, data=None)
 
     async def emit(self, kind: str, text: str | None = None, data: dict | None = None) -> None:
@@ -376,6 +377,11 @@ class RunnerTimeout(Exception):
     """SDK/process did not produce messages within configured timeouts."""
 
 
+class RunnerSoftLimit(Exception):
+    """Сессия достигла мягкого лимита ходов: контекст вырос, продуктивность
+    хода падает — завершаем и продолжаем в СВЕЖЕЙ сессии (handoff из лога)."""
+
+
 class ClaudeCodeRunner:
     """Реальный раннер: headless Claude Agent SDK в worktree задачи.
 
@@ -411,6 +417,7 @@ class ClaudeCodeRunner:
         deadline = loop.time() + work_to
         gen = self._sdk.query(prompt=prompt, options=options)
         started = False
+        turns = 0
         try:
             while True:
                 remaining = start_to if not started else max(0.0, deadline - loop.time())
@@ -421,6 +428,13 @@ class ClaudeCodeRunner:
                 except asyncio.TimeoutError:
                     raise RunnerTimeout("start" if not started else "work") from None
                 started = True
+                turns += 1
+                if req.soft_turns and turns >= req.soft_turns:
+                    # мягкий лимит: сессия длинная — ход дорожает (кэш = ходы x
+                    # префикс), внимание размывается. Завершаем; прогресс — в
+                    # чеклисте/коммитах; следующий прогон = свежая сессия + handoff
+                    await req.emit("system", text=f"мягкий лимит ходов ({req.soft_turns}) — смена сессии")
+                    raise RunnerSoftLimit(str(req.soft_turns)) from None
                 await self._emit_message(req, message, collected, usage)
         finally:
             try:
@@ -466,6 +480,14 @@ class ClaudeCodeRunner:
             phase = "старт" if err.args and err.args[0] == "start" else "работа"
             return RunReport(status="failed",
                              summary_md=f"Таймаут прогона ({phase}) — процесс агента остановлен демоном")
+        except RunnerSoftLimit as err:
+            # не failed-дефект: плановая смена сессии до деградации длинного
+            # контекста; прогресс в чеклисте/коммитах, handoff уйдёт в контекст
+            await req.emit("system", text="смена сессии (мягкий лимит ходов)")
+            return RunReport(status="failed",
+                             summary_md=f"Мягкий лимит ходов ({err}) — плановая смена сессии: "
+                                        f"прогресс в чеклисте и коммитах, следующий прогон "
+                                        f"продолжит с открытых пунктов")
         finally:
             if saved_env is not None:
                 import os

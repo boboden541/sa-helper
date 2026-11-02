@@ -188,3 +188,37 @@ async def test_session_id_from_data_dict():
     report = await runner.run(req)
     assert report.status == "success"
     assert ("system", "sess-data-99") in [(k, (d or {}).get("session_id")) for k, d in events]
+
+
+class _ManyTurnsSDK(_ResumeCaptureSDK):
+    """SDK, который болтает без конца — для мягкого лимита ходов."""
+
+    @staticmethod
+    async def query(*, prompt, options):
+        _ResumeCaptureSDK.last_options = options
+        for i in range(50):
+            class Msg:
+                subtype = None
+                usage = None
+                message = None
+                content = "болтаю"
+
+            yield Msg()
+        final = Msg()
+        final.subtype = None
+        final.result = '{"status": "success", "summary_md": "готово"}'
+        final.usage = None
+        final.message = None
+        yield final
+
+
+async def test_soft_limit_stops_session():
+    """Мягкий лимит ходов: длинная сессия завершается плановой сменой
+    (не жёстким падением), отчёт объясняет продолжение."""
+    runner = ClaudeCodeRunner(sdk_module=_ManyTurnsSDK())
+    req = RunRequest(task_code="AH-T", context_md="к",
+                     timeouts={"start": 5, "work": 10}, soft_turns=5)
+    report = await runner.run(req)
+    assert report.status == "failed"
+    assert "Мягкий лимит ходов" in report.summary_md
+    assert "продолжит с открытых пунктов" in report.summary_md

@@ -586,11 +586,35 @@ class Daemon:
                         last_denied.strip(), [dict(r) for r in open_items])
                     if block:
                         base_ctx = base_ctx + "\n\n" + block
+
+                # handoff: микро-состояние последнего обрыва — последние действия
+                # предыдущего агента (разговор умер вместе с сессией, а чеклист
+                # про это не знает); ~12 записей лога прогона
+                last_run_id = (await session.execute(sa.text(
+                    "SELECT id FROM task_run WHERE task_id = :t "
+                    "AND outcome IN ('failed', 'interrupted') "
+                    "ORDER BY started_at DESC LIMIT 1"), {"t": str(task.id)})).scalar_one_or_none()
+                if last_run_id:
+                    handoff_rows = (await session.execute(sa.text(
+                        "SELECT kind, left(coalesce(text,''),150) AS txt FROM task_run_log "
+                        "WHERE run_id = :r AND kind IN ('tool', 'thinking') "
+                        "AND coalesce(text, '') <> '' "
+                        "ORDER BY seq DESC LIMIT 12"), {"r": str(last_run_id)})).mappings().all()
+                    if handoff_rows:
+                        base_ctx += "\n\n## Handoff — последние действия предыдущего агента " \
+                                    "(сессия оборвана; продолжай с этого места)\n" + \
+                            "\n".join(f"- [{r['kind']}] {r['txt']}"
+                                      for r in reversed(handoff_rows))
+                # resume — только при РАННЕМ обрыве (< 15 мин работы): короткую
+                # сессию продолжить дешевле, чем начинать заново; длинная уже
+                # деградировала (ход дорожал с ростом префикса) — вместо неё
+                # свежая сессия + handoff из лога (решение владельца 31.10.2026)
                 resume_sid = (await session.execute(sa.text(
                     "SELECT session_id FROM task_run "
                     "WHERE task_id = :t AND outcome = 'failed' AND session_id IS NOT NULL "
                     "AND (detail LIKE '% Reached maximum number of turns%' "
                     "     OR detail LIKE '%Таймаут прогона%') "
+                    "AND finished_at - started_at < interval '15 minutes' "
                     "ORDER BY started_at DESC LIMIT 1"),
                     {"t": str(task.id)})).scalar_one_or_none()
                 req_kwargs: dict = dict(
@@ -606,6 +630,7 @@ class Daemon:
                     mcp_servers=(profile or {}).get("mcp_servers"),
                     max_turns=int(cfg.get("daemon.max_turns") or 200),
                     resume_session_id=resume_sid,
+                    soft_turns=int(cfg.get("daemon.soft_turns") or 0) or None,
                     on_event=on_event,
                 )
                 if profile and profile.get("allowed_tools"):
