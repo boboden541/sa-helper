@@ -24,8 +24,11 @@ statuses:
   - key: done
     label: Готово
     alias: done
+    stage_desc: "ПСИ пройден полностью (M6 — автоматически); владелец архивирует вручную"
+  - key: completed
+    label: Завершено
     terminal: true
-    stage_desc: "Реализована и протестирована, замечаний нет"
+    stage_desc: "Архив владельца: ручной перенос из «Готово»"
   - key: canceled
     label: Отменено
     alias: canceled
@@ -48,7 +51,8 @@ transitions:
   - {from: qa_ready, to: in_testing, runner: auto, display: "Автоматически", rule: M3}
   - {from: qa_ready, to: blocked, runner: human, display: "Ручное вмешательство"}
   - {from: qa_ready, to: canceled, runner: human, display: "Ручное вмешательство"}
-  - {from: in_testing, to: done, runner: human, display: "Зачёт по ПСИ (M6)", rule: M6}
+  - {from: in_testing, to: done, runner: agent, display: "Зачёт по ПСИ (M6) — автоматически при полном прогоне", rule: M6}
+  - {from: done, to: completed, runner: human, display: "Ручное завершение владельцем"}
   - {from: in_testing, to: blocked, runner: auto, display: "Автоматически", rule: M4}
   - {from: in_testing, to: in_progress, runner: auto, display: "Автоматически", rule: M1}
   - {from: in_testing, to: canceled, runner: human, display: "Ручное вмешательство"}
