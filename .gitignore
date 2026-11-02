@@ -11,3 +11,4 @@ __pycache__/
 future-features.md
 .venv/
 node_modules/
+mongo_backup/
