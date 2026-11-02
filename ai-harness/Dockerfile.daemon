@@ -7,6 +7,17 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends curl xz-utils git ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
+# Docker CLI для агентов (решение владельца 31.10.2026, VITRINA-37:
+# тестировщик/разработчик сами поднимают контейнеры стенда). Только клиент:
+# демон докера не запускается, работа идёт через смонтированный сокет хоста.
+RUN install -m 0755 -d /etc/apt/keyrings \
+ && curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc \
+ && chmod a+r /etc/apt/keyrings/docker.asc \
+ && echo "deb [signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian bookworm stable" \
+    > /etc/apt/sources.list.d/docker.list \
+ && apt-get update && apt-get install -y --no-install-recommends docker-ce-cli \
+ && rm -rf /var/lib/apt/lists/*
+
 # Node 20 под Claude Code CLI (map: x86_64→x64, aarch64→arm64)
 RUN ARCH=$(uname -m | sed 's/x86_64/x64/; s/aarch64/arm64/') \
  && curl -fsSL "https://nodejs.org/dist/v20.18.1/node-v20.18.1-linux-${ARCH}.tar.xz" \

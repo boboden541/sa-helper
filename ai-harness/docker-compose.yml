@@ -81,6 +81,10 @@ services:
         condition: service_healthy
     volumes:
       - ${HOME}:/app/host-home
+      # агенты сами управляют контейнерами стендов (решение владельца 31.10.2026;
+      # глобальные правила — в методологиях developer/qa: проект задачи
+      # harness-<КОД>, reuse вместо дублей, чужие контейнеры не трогать)
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-harness}:${POSTGRES_PASSWORD:-harness}@postgres:5432/${POSTGRES_DB:-ai_harness}
       DAEMON_TICK_SECONDS: ${DAEMON_TICK_SECONDS:-30}
