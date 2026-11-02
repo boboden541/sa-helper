@@ -148,3 +148,43 @@ async def test_resume_dropped_when_sdk_unsupported():
                      resume_session_id="sess-x")
     report = await runner.run(req)
     assert report.status == "success"
+
+
+class _DataStyleSDK(_ResumeCaptureSDK):
+    """SDK нового поколения: init отдаёт данные в message.data (словарём)."""
+
+    @staticmethod
+    async def query(*, prompt, options):
+        _ResumeCaptureSDK.last_options = options
+
+        class Msg:
+            subtype = "init"
+            data = {"model": "fake", "cwd": ".", "tools": [],
+                    "session_id": "sess-data-99"}
+            content = None
+
+        yield Msg()
+        final = Msg()
+        final.subtype = None
+        final.usage = None
+        final.message = None
+        final.content = None
+        final.result = '{"status": "success", "summary_md": "ок"}'
+        yield final
+
+
+async def test_session_id_from_data_dict():
+    """SDK 0.2.x: session_id живёт в message.data — без этого resume молча
+    не включался (дефект 02.11: 12:32-прогон исчерпал 200 ходов, сессия не
+    сохранилась, следующий прогон стартовал с чистого листа)."""
+    events: list = []
+
+    async def on_event(kind, text=None, data=None):
+        events.append((kind, data))
+
+    runner = ClaudeCodeRunner(sdk_module=_DataStyleSDK())
+    req = RunRequest(task_code="AH-T", context_md="к",
+                     timeouts={"start": 5, "work": 10}, on_event=on_event)
+    report = await runner.run(req)
+    assert report.status == "success"
+    assert ("system", "sess-data-99") in [(k, (d or {}).get("session_id")) for k, d in events]

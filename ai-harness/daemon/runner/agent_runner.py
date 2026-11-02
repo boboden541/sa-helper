@@ -484,11 +484,16 @@ class ClaudeCodeRunner:
         sdk = self._sdk
         subtype = getattr(message, "subtype", None)
         if subtype == "init":
+            # SDK >= 0.2.x: данные init лежат в message.data (словарь), а не в
+            # атрибутах — раньше session_id всегда читался как None, resume
+            # молча не включался, и каждый ретрай стартовал с чистого листа
+            init = getattr(message, "data", None) or {}
             await req.emit("system", text="сессия агента запущена",
-                           data={"model": getattr(message, "model", None),
-                                 "cwd": getattr(message, "cwd", None),
-                                 "tools": getattr(message, "tools", None),
-                                 "session_id": getattr(message, "session_id", None)})
+                           data={"model": init.get("model", getattr(message, "model", None)),
+                                 "cwd": init.get("cwd", getattr(message, "cwd", None)),
+                                 "tools": init.get("tools", getattr(message, "tools", None)),
+                                 "session_id": init.get("session_id",
+                                                        getattr(message, "session_id", None))})
             return
         _accumulate_usage(message, usage)
         if usage.get("total"):
