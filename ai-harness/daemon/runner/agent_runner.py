@@ -428,14 +428,16 @@ class ClaudeCodeRunner:
                 except asyncio.TimeoutError:
                     raise RunnerTimeout("start" if not started else "work") from None
                 started = True
-                turns += 1
+                # ход = сообщение ассистента с контентом; tool-результаты и
+                # служебные сообщения ходами не считаются (иначе лимит втрое
+                # агрессивнее задуманного — VITRINA-1, 02.11.2026)
+                turns += await self._emit_message(req, message, collected, usage)
                 if req.soft_turns and turns >= req.soft_turns:
                     # мягкий лимит: сессия длинная — ход дорожает (кэш = ходы x
                     # префикс), внимание размывается. Завершаем; прогресс — в
                     # чеклисте/коммитах; следующий прогон = свежая сессия + handoff
                     await req.emit("system", text=f"мягкий лимит ходов ({req.soft_turns}) — смена сессии")
                     raise RunnerSoftLimit(str(req.soft_turns)) from None
-                await self._emit_message(req, message, collected, usage)
         finally:
             try:
                 await gen.aclose()
@@ -504,7 +506,10 @@ class ClaudeCodeRunner:
 
 
     async def _emit_message(self, req: RunRequest, message,
-                            collected: list[str], usage: dict) -> None:
+                            collected: list[str], usage: dict) -> bool:
+        """Обработка сообщения SDK; True = это был ХОД ассистента (для мягкого
+        лимита — tool-результаты и служебные сообщения ходами не считаются:
+        раньше лимит втрое агрессивнее задуманного — VITRINA-1, 02.11)."""
         sdk = self._sdk
         subtype = getattr(message, "subtype", None)
         if subtype == "init":
@@ -518,15 +523,16 @@ class ClaudeCodeRunner:
                                  "tools": init.get("tools", getattr(message, "tools", None)),
                                  "session_id": init.get("session_id",
                                                         getattr(message, "session_id", None))})
-            return
+            return False
         _accumulate_usage(message, usage)
         if usage.get("total"):
             await req.emit("usage", data=dict(usage))
         content = getattr(message, "content", None)
         if content is None and getattr(message, "result", None) is not None:
-            # ResultMessage: итоговый текст
+            # ResultMessage: итоговый текст (не ход)
             collected.append(str(getattr(message, "result")))
-            return
+            return False
+        assistant_turn = bool(content)
         for block in (content or []):
             btype = type(block).__name__
             text = getattr(block, "text", None)
@@ -542,6 +548,7 @@ class ClaudeCodeRunner:
             elif text:
                 collected.append(text)
                 await req.emit("thinking", text=text)
+        return assistant_turn
 
 
 def _uget(usage, key: str) -> int:

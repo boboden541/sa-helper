@@ -876,6 +876,18 @@ class Daemon:
         await self._apply_relations(session, task, report)
         await self._apply_checklist_updates(session, task, report)
 
+        if report.summary_md.startswith("Мягкий лимит ходов"):
+            # плановая смена сессии: не дефект и не вина агента — попытку не
+            # сжигаем (иначе задача блокируется после 3 «смен», VITRINA-1,
+            # 02.11.2026), исход interrupted даёт максимальную паузу до
+            # следующей смены; чеклист/артефакт/связи уже применены выше
+            session.add(_chronicle(task.id, "agent",
+                                   "Смена сессии (мягкий лимит ходов) — прогресс сохранён"))
+            await release_reservation(session, task.id, "interrupted",
+                                      report.summary_md[:200])
+            await session.commit()
+            return
+
         if report.status == "success" and not report.proposed_transition:
             # агент не предложил переход — задача остаётся на статусе; повтор
             # откладывается паузой (_next_retry_at: success на том же статусе)

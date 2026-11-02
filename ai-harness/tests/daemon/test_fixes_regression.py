@@ -423,3 +423,36 @@ def test_comments_string_not_char_split():
            '"comments": "Кутнул окружение для Г8"}')
     report = parse_report(raw)
     assert report.comments == ["Кутнул окружение для Г8"]
+
+
+async def test_soft_limit_does_not_burn_attempts(_test_db):
+    """Мягкий лимит ходов — ПЛАНОВАЯ смена сессии, а не failure: попытка не
+    сжигается (иначе 3 «смены» блокируют легитимно длинную задачу —
+    VITRINA-1, 02.11.2026), исход interrupted даёт паузу до следующей смены."""
+    import json as _json
+
+    from daemon.runner.agent_runner import RunReport
+    from daemon.scheduler.scheduler import Daemon
+    from repository.models import TaskRun
+
+    agent_id, code = await _ready_task(_test_db, status="in_testing")
+    maker = _maker(_test_db)
+    daemon = Daemon(maker, runner=None)
+    report = RunReport(status="failed", summary_md="Мягкий лимит ходов (120) — "
+                       "плановая смена сессии: прогресс в чеклисте и коммитах")
+    async with maker() as s:
+        task = (await s.execute(sa.select(Task).where(Task.code == code))).scalar_one()
+        from daemon.runner.reservation import reserve_task
+
+        assert await reserve_task(s, task.id, agent_id, "in_testing")
+    async with maker() as s:
+        agent = await s.get(__import__(
+            "repository.models", fromlist=["User"]).User, agent_id)
+        await daemon._apply_report(s, task, agent, report, {"daemon.max_attempts": "3"})
+    async with maker() as s:
+        task = (await s.execute(sa.select(Task).where(Task.code == code))).scalar_one()
+        assert task.retry_count == 0, "смена сессии не сжигает попытку"
+        assert task.status_key == "in_testing", "задача НЕ блокируется"
+        run = (await s.execute(sa.select(TaskRun).where(
+            TaskRun.task_id == task.id))).scalars().one()
+        assert run.outcome == "interrupted"

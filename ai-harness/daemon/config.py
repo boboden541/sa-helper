@@ -23,7 +23,7 @@ _DEFAULTS = {
     "daemon.max_runs_per_task": "40",
     # мягкий лимит ходов: длинная сессия деградирует (ход дорожает с ростом
     # префикса) — плановая смена сессии до жёсткого потолка
-    "daemon.soft_turns": "60",
+    "daemon.soft_turns": "120",
     "daemon.max_parallel": "4",
     # глобальная папка инструментов (одна на все проекты) — приоритет ниже,
     # чем свой agent_dir агента; ключ пишет backend (usecase/settings/tools.py)
