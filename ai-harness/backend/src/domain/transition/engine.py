@@ -22,6 +22,7 @@ AGENT_CANCEL = "agent_cancel"        # агент не может отменят
 AGENT_TERMINAL = "agent_terminal"    # из терминального статуса агенту хода нет
 LINKS_BLOCKED = "links_blocked"      # жёсткая связь blocked_by открыта
 PSI_FAILED = "psi_failed"            # непройденные пункты ПСИ
+PLAN_STALE = "plan_stale"            # план не заверен текущей версией эталона
 CHECKLIST_NOT_CREATED = "checklist_not_created"
 CHECKLIST_NOT_CLOSED = "checklist_not_closed"
 CHECKLIST_FAILED = "checklist_failed"
@@ -52,6 +53,9 @@ class GateData:
     open_blockers: tuple[tuple[str, str], ...] = ()  # (code, title)
     artifacts: dict[str, bool] = field(default_factory=dict)  # kind -> present
     psi_failed: int = 0  # непройденные пункты ПСИ истории
+    # план не заверен текущей версией эталона: (ref_version, stamp) —
+    # версионирование эталона, решение владельца 03.11.2026. None — план свеж
+    plan_stale: tuple[int, int] | None = None
 
 
 @dataclass(frozen=True)
@@ -125,6 +129,12 @@ def check_edge(graph: FlowGraph, current: str, target: str, subject: Subject,
         return Decision(False, f"жёсткая связь blocked by {code} — «{title}» не закрыта",
                         code=LINKS_BLOCKED)
 
+    if target == "done" and gates.plan_stale:
+        ref, stamp = gates.plan_stale
+        return Decision(False, "план не соответствует текущему эталону "
+                               f"(заверен v{stamp}, эталон v{ref}) — "
+                               "актуализируй план и заверь его заново",
+                        code=PLAN_STALE)
     if target == "done" and gates.psi_failed:
         return Decision(False, f"прогон ПСИ не пройден полностью: {gates.psi_failed} "
                                "пунктов «не пройден»", code=PSI_FAILED)

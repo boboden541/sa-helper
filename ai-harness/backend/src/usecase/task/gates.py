@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlalchemy as sa
 from domain.transition.engine import ChecklistState, GateData
-from repository.models import Checklist, ChecklistItem, Task, TaskArtifact, TaskRelation
+from repository.models import Checklist, ChecklistItem, Task, TaskArtifact, TaskRelation, TaskType
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -50,9 +50,30 @@ async def load_gate_data(session: AsyncSession, task: Task) -> GateData:
                ChecklistItem.status == "failed")
     )).scalar_one()
 
+    # свежесть плана (версионирование эталона, 03.11.2026): у истории —
+    # psi-план (заверяется регистрацией версии документа), у остальных —
+    # чеклист разработчика (заверяется обновлением). Плана нет у истории —
+    # тоже дрейф (0 < ref_version)
+    tkey = (await session.execute(
+        sa.select(TaskType.key).where(TaskType.id == task.task_type_id))).scalar_one()
+    plan_stale: tuple[int, int] | None = None
+    if tkey == "story":
+        stamp = (await session.execute(
+            sa.select(Checklist.source_ref_version)
+            .where(Checklist.task_id == task.id, Checklist.kind == "psi"))).scalar_one_or_none()
+        if stamp is None or stamp < task.ref_version:
+            plan_stale = (task.ref_version, stamp or 0)
+    else:
+        dev = (await session.execute(
+            sa.select(Checklist.source_ref_version)
+            .where(Checklist.task_id == task.id, Checklist.kind == "developer"))).scalar_one_or_none()
+        if dev is not None and dev < task.ref_version:
+            plan_stale = (task.ref_version, dev)
+
     return GateData(
         checklists=checklists,
         open_blockers=tuple((code, title) for code, title in blockers),
         artifacts={k: True for k in artifact_kinds},
         psi_failed=psi_failed,
+        plan_stale=plan_stale,
     )
