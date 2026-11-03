@@ -52,6 +52,9 @@ class Task(Base):
     rework_count: Mapped[int] = mapped_column(SmallInteger, default=0)
     m4_count: Mapped[int] = mapped_column(SmallInteger, default=0)
     blocked_reason: Mapped[str | None] = mapped_column(Text)
+    # «ПСИ устарел»: требования истории изменились после составления документа
+    # (правка описания, добавление дочерней задачи). Новая версия ПСИ снимает.
+    psi_stale: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     # правило, которым задача вошла в blocked (M4/M5/RUN_LIMIT/AUTO_BLOCK…):
     # зеркалу M2 нужен источник блокера — из blocked историю поднимает только
     # «детский» M5 (инцидент VITRINA-1: самоблок не воскресает сам)

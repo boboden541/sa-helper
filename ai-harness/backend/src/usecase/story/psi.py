@@ -88,9 +88,20 @@ async def create_version(session: AsyncSession, story_code: str, author: User,
     session.add(doc)
     await session.flush()
 
-    chk = Checklist(task_id=story.id, kind="psi")
-    session.add(chk)
-    await session.flush()
+    # psi-чеклист у истории ОДИН (uq_checklist_task_kind): новая версия
+    # переиспользует его с заменой пунктов. Было: новый Checklist каждый раз —
+    # второй вызов падал UniqueViolation, «ПСИ v2» через API не создавался
+    # вообще (найдено тестом УИТ 03.11.2026).
+    chk = (await session.execute(
+        sa.select(Checklist).where(Checklist.task_id == story.id,
+                                   Checklist.kind == "psi"))).scalar_one_or_none()
+    if chk is None:
+        chk = Checklist(task_id=story.id, kind="psi")
+        session.add(chk)
+        await session.flush()
+    else:
+        await session.execute(sa.delete(ChecklistItem)
+                              .where(ChecklistItem.checklist_id == chk.id))
     position = 0
     items_count = 0
     for section in sections:
@@ -122,6 +133,10 @@ async def create_version(session: AsyncSession, story_code: str, author: User,
         session.add(Chronicle(task_id=story.id, event_type="psi", author_id=author.id,
                               author_kind="auto", rule_code="PSI_FILE",
                               message=f"Файл ПСИ v{version} НЕ сохранён: {err}"))
+    # новая версия отражает актуальные требования — отметка «ПСИ устарел» снята (УИТ)
+    from usecase.story.staleness import clear_psi_stale
+
+    await clear_psi_stale(session, story, version)
     await session.commit()
     return version
 
@@ -231,6 +246,20 @@ async def new_cycle(session: AsyncSession, story_code: str) -> int:
     return count
 
 
+async def actualize(session: AsyncSession, story_code: str, actor: User) -> dict:
+    """Кнопка «Актуализировать ПСИ»: отметка «ПСИ устарел» + сигнал составителю
+    (человек/Eve). Если история на тестировании — демон снимет паузу прогонов
+    и составитель подхватит задачу на следующем тике."""
+    story = await _story(session, story_code)
+    from usecase.story.staleness import is_story, request_actualize
+
+    if not await is_story(session, story):
+        raise DomainError("Актуализация ПСИ доступна только для истории")
+    await request_actualize(session, story)
+    await session.commit()
+    return {"stale": True, "code": story.code}
+
+
 async def get_document(session: AsyncSession, story_code: str) -> dict:
     story = await _story(session, story_code)
     docs = (await session.execute(
@@ -243,6 +272,7 @@ async def get_document(session: AsyncSession, story_code: str) -> dict:
         .where(PsiDocument.story_id == story.id)
         .order_by(PsiRun.ran_at))).all()
     return {
+        "stale": bool(story.psi_stale),
         "versions": [{"version": d.version, "authorId": str(d.author_id),
                       "at": d.created_at.isoformat()} for d in docs],
         "items": [{"position": i.position, "kind": i.kind, "text": i.text,

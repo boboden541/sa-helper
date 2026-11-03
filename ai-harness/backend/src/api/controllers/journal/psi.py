@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from domain.model.validators import DomainError
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 from repository.models import User
@@ -73,6 +74,17 @@ async def psi_link(code: str, payload: PsiLinkIn,
                    actor: User = Depends(get_actor)):
     await psi_uc.link_bug(session, code, payload.position, payload.bugCode)
     return {"ok": True}
+
+
+@router.post("/stories/{code}/psi/actualize")
+@_400
+async def psi_actualize(code: str, session: AsyncSession = Depends(get_session),
+                        actor: User = Depends(get_actor)):
+    """Кнопка «Актуализировать ПСИ» (человек/Eve): отметка «ПСИ устарел» +
+    сигнал составителю. Агентов отклоняем — актуализация не их решение."""
+    if actor.user_type == "agent" and not actor.is_chat_bot:
+        raise DomainError("Актуализация ПСИ — решение человека")
+    return await psi_uc.actualize(session, code, actor)
 
 
 @router.post("/stories/{code}/psi/new-cycle")

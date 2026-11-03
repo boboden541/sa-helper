@@ -127,3 +127,60 @@ async def test_budget_respects_runs_reset_at(_test_db):
     for t in daemon._active.values():
         t.cancel()
     await asyncio.gather(*daemon._active.values(), return_exceptions=True)
+
+
+async def test_psi_stale_skips_retry_pause(_test_db):
+    """«ПСИ устарел» на истории в in_testing снимает паузу прогонов: после
+    успешной смены сессии (max пауза) составитель запускается на следующем тике,
+    а не через 15 минут (УИТ, решение владельца 03.11.2026)."""
+    from tests.daemon.test_heartbeat_retry import _maker
+
+    from daemon.scheduler.scheduler import Daemon
+
+    async with _maker(_test_db)() as s:
+        await s.execute(sa.text(
+            "TRUNCATE task, task_run, task_tag, tag, chronicle, notification, "
+            "task_relation, checklist, checklist_item, task_assignee RESTART IDENTITY CASCADE"))
+        await s.execute(sa.text("UPDATE project SET next_number = 1"))
+        await s.commit()
+        story_id = (await s.execute(sa.text(
+            "INSERT INTO task (id, project_id, code, task_type_id, title, description_md, "
+            "status_key, flow_version_id, priority, author_id, psi_stale) "
+            "SELECT gen_random_uuid(), p.id, 'AH-' || next_number, t.id, 'История', '', "
+            "'in_testing', fv.id, 'high', u.id, true FROM project p, task_type t, "
+            "flow_version fv, \"user\" u WHERE p.mnemonic='AH' AND t.key='story' "
+            "AND fv.task_type_id=t.id AND fv.is_current AND u.name='Алексей' "
+            "RETURNING id"))).scalar_one()
+        await s.execute(sa.text("UPDATE project SET next_number = next_number + 1 "
+                                "WHERE mnemonic='AH'"))
+        agent = (await s.execute(sa.text(
+            "SELECT id FROM \"user\" WHERE name='ПСИ-составитель'"))).scalar_one_or_none()
+        if agent is None:
+            agent = (await s.execute(sa.text(
+                "INSERT INTO \"user\" (id, name, user_type) VALUES (gen_random_uuid(), "
+                "'ПСИ-составитель', 'agent') RETURNING id"))).scalar_one()
+        await s.execute(sa.text(
+            "INSERT INTO assignment (id, task_type_id, status_key, user_id) "
+            "SELECT gen_random_uuid(), task_type_id, 'in_testing', :a FROM task "
+            "WHERE id = :t ON CONFLICT DO NOTHING"), {"a": str(agent), "t": str(story_id)})
+        # свежий успешный прогон на том же статусе — обычная пауза 15 минут
+        await s.execute(sa.text(
+            "INSERT INTO task_run (id, task_id, agent_id, status_key, attempt_no, "
+            "finished_at, outcome, started_at) SELECT gen_random_uuid(), id, :a, "
+            "'in_testing', 1, now() - interval '1 minute', 'success', "
+            "now() - interval '31 minutes' FROM task WHERE id = :t"),
+            {"a": str(agent), "t": str(story_id)})
+        await s.commit()
+
+    maker = _maker(_test_db)
+    daemon = Daemon(maker, runner=None)
+    cfg = {"daemon.max_attempts": "3", "daemon.max_parallel": "4",
+           "daemon.timeout_start_seconds": "300", "daemon.timeout_work_seconds": "1800",
+           "daemon.retry_pauses_minutes": "1,5,15"}
+    async with maker() as s:
+        launched = await daemon._launch_ready(s, cfg)
+    assert launched == 1, "psi_stale снимает паузу — запуск на этом же тике"
+    import asyncio
+    for t in daemon._active.values():
+        t.cancel()
+    await asyncio.gather(*daemon._active.values(), return_exceptions=True)

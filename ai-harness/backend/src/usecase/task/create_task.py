@@ -160,6 +160,12 @@ async def create_task(session: AsyncSession, actor: User, data: CreateTaskInput)
             )
         )
 
+    # состав задач истории — тоже постановка: новый ребёнок при составленном
+    # ПСИ делает документ устаревшим (УИТ, решение владельца 03.11.2026)
+    if story is not None:
+        from usecase.story.staleness import mark_psi_stale
+
+        await mark_psi_stale(session, story, f"добавлена задача {task.code}")
     await session.commit()
     return CreatedTask(code=task.code, status=start_status, id=task.id)
 

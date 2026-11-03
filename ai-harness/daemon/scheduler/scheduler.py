@@ -406,7 +406,11 @@ class Daemon:
                     continue  # у агента уже есть живой прогон по этой задаче
                 last = last_runs.get((str(task.id), str(uid)))
                 retry_at = _retry_at_from_run(last, task.status_key, cfg) if last else None
-                if retry_at and retry_at > now:
+                # «ПСИ устарел» на истории в in_testing: пауза прогонов снята —
+                # составитель актуализирует документ без 15-минутных простоев
+                # (УИТ, решение владельца 03.11.2026)
+                if retry_at and retry_at > now and not (
+                        task.psi_stale and task.status_key == "in_testing"):
                     continue  # ждёт растущую паузу ретрая
                 # массовый отказ провайдера: задачи ждут, не блокируются (ФТ-ah-35)
                 agent_conn = conn_by_agent.get(str(uid))

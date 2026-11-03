@@ -144,7 +144,13 @@ async def apply_blocked(session: AsyncSession, task: Task, actor: User | None,
 
     graph = await load_graph(session, await task_flow_version_id(session, task))
     decision = None
-    if graph.edge(task.status_key, "blocked") is not None:
+    # Агент блокирует вне рёбер flow (escape-семантика: объявить «нужно
+    # участие человека» — право агента, не переход по flow). Раньше ребро
+    # проверялось субъектом с ПУСТЫМИ правами (_subject_for по kind) —
+    # отказ «Агент не назначен на статус…» попадал в хронику и причину
+    # блокировки, агент читал его и повторял — самоподдерживающийся
+    # мусор в хронике VITRINA-1, ночь 02→03.11.2026.
+    if graph.edge(task.status_key, "blocked") is not None and subject_kind != "agent":
         gates = await load_gate_data(session, task)
         decision = check_edge(graph, task.status_key, "blocked",
                               await _subject_for(session, actor, task, subject_kind),
