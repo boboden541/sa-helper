@@ -6,7 +6,7 @@ import { api } from '../../../api/client'
 import { toast } from '../../../shared/toast'
 
 export function PsiBlock({ code, reload, psiPath }: { code: string; reload: () => void; psiPath: string | null }) {
-  const [doc, setDoc] = useState<{ stale?: boolean; items: { position: number; kind: string; text: string; expected?: string; actual?: string; status: string; bugTaskId?: string }[]; runs: { id: string; passed: number; failed: number }[] } | null>(null)
+  const [doc, setDoc] = useState<{ stale?: boolean; refVersion?: number; planRefVersion?: number | null; items: { position: number; kind: string; text: string; expected?: string; actual?: string; status: string; bugTaskId?: string }[]; runs: { id: string; passed: number; failed: number }[] } | null>(null)
   const [runMode, setRunMode] = useState(false)
   const [results, setResults] = useState<Record<number, { passed: boolean; actual: string }>>({})
   const reloadPsi = () => { void api.psi(code).then(setDoc).catch(() => { /* ПСИ ещё нет — норма */ }) }
@@ -25,12 +25,12 @@ export function PsiBlock({ code, reload, psiPath }: { code: string; reload: () =
       <div className="blk-h"><h3>ПСИ · приёмо-сдаточные испытания</h3></div>
       <div className="psi-doc">
         <div className="psi-head"><b>ПСИ</b> · пунктов: {doc.items.filter((i) => i.kind === 'item').length} · протоколов: {versions}
-          {doc.stale && <span className="badge" style={{ ['--bc' as string]: '#cf8a36' }}>ПСИ устарел — требования изменились</span>}
+          {doc.stale && <span className="badge" style={{ ['--bc' as string]: '#cf8a36' }}>План ПСИ устарел: эталон v{doc.refVersion}, план v{doc.planRefVersion}</span>}
         </div>
         {doc.stale && (
           <div className="muted" style={{ fontSize: 11, margin: '4px 0 6px' }}>
-            Требования изменились после составления документа. Нажмите «Актуализировать ПСИ» —
-            составитель выпустит новую версию с блоком «Что изменилось» наверху.
+            Эталон постановки изменился после заверки плана. Составитель пересмотрит план
+            и зарегистрирует новую версию документа при входе в тестирование.
           </div>
         )}
         {doc.items.filter((i) => i.kind === 'item').map((i) => (
@@ -77,11 +77,6 @@ export function PsiBlock({ code, reload, psiPath }: { code: string; reload: () =
                   await fetch(`/api/v1/stories/${code}/psi/new-cycle`, { method: 'POST' })
                   toast('Новый цикл: пункты сброшены, протоколы целы', 'ok'); reloadPsi()
                 }}>Новый цикл</button>
-                <button className="btn small" onClick={async () => {
-                  const r = await api.psiActualize(code)
-                  toast(r.stale ? 'Актуализация запрошена: составитель выпустит новую версию ПСИ' : 'Отметка не потребовалась', 'ok')
-                  reloadPsi(); reload()
-                }}>⟳ Актуализировать ПСИ</button>
                 {doc.runs.map((r) => (
                   <span key={r.id} className="mini-chip">{r.passed}✓/{r.failed}✗</span>
                 ))}

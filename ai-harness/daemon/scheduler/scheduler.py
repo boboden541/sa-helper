@@ -362,8 +362,19 @@ class Daemon:
         # плановые смены сессии (soft_turns) и обрывы «задача ушла со статуса»
         # (stale_status) не тратят бюджет; прогоны до последнего выхода из
         # blocked (runs_reset_at — «человек разобрался») не считаются.
+        # штампы psi-планов историй-кандидатов: устаревший план снимает паузу
+        # прогонов (пересмотр плана — первоочередная работа составителя)
+        from repository.models import Checklist as _CK
         from repository.models import Task as _T
         from repository.models import TaskRun as _TR
+
+        psi_stamps: dict = {}
+        story_ids = [row.Task.id for row in rows if row.type_key == "story"]
+        if story_ids:
+            stamps = (await session.execute(
+                sa.select(_CK.task_id, _CK.source_ref_version)
+                .where(_CK.kind == "psi", _CK.task_id.in_(story_ids)))).all()
+            psi_stamps = {str(tid): (v or 0) for tid, v in stamps}
 
         run_counts: dict = {}
         if rows:
@@ -406,11 +417,11 @@ class Daemon:
                     continue  # у агента уже есть живой прогон по этой задаче
                 last = last_runs.get((str(task.id), str(uid)))
                 retry_at = _retry_at_from_run(last, task.status_key, cfg) if last else None
-                # «ПСИ устарел» на истории в in_testing: пауза прогонов снята —
-                # составитель актуализирует документ без 15-минутных простоев
-                # (УИТ, решение владельца 03.11.2026)
+                # план psi устарел (эталон v{ref} > план v{stamp}) на истории
+                # в in_testing: пауза снята — пересмотр плана без простоев
                 if retry_at and retry_at > now and not (
-                        task.psi_stale and task.status_key == "in_testing"):
+                        type_key == "story"
+                        and task.ref_version > psi_stamps.get(str(task.id), 0)):
                     continue  # ждёт растущую паузу ретрая
                 # массовый отказ провайдера: задачи ждут, не блокируются (ФТ-ah-35)
                 agent_conn = conn_by_agent.get(str(uid))

@@ -25,6 +25,8 @@ from repository.models import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from usecase.story.reference import psi_plan_ref_version
+
 
 async def _story(session: AsyncSession, code: str) -> Task:
     story = (await session.execute(
@@ -133,10 +135,8 @@ async def create_version(session: AsyncSession, story_code: str, author: User,
         session.add(Chronicle(task_id=story.id, event_type="psi", author_id=author.id,
                               author_kind="auto", rule_code="PSI_FILE",
                               message=f"Файл ПСИ v{version} НЕ сохранён: {err}"))
-    # новая версия отражает актуальные требования — отметка «ПСИ устарел» снята (УИТ)
-    from usecase.story.staleness import clear_psi_stale
-
-    await clear_psi_stale(session, story, version)
+    # регистрация версии документа = заверка psi-плана текущей версией эталона
+    chk.source_ref_version = story.ref_version
     await session.commit()
     return version
 
@@ -246,20 +246,6 @@ async def new_cycle(session: AsyncSession, story_code: str) -> int:
     return count
 
 
-async def actualize(session: AsyncSession, story_code: str, actor: User) -> dict:
-    """Кнопка «Актуализировать ПСИ»: отметка «ПСИ устарел» + сигнал составителю
-    (человек/Eve). Если история на тестировании — демон снимет паузу прогонов
-    и составитель подхватит задачу на следующем тике."""
-    story = await _story(session, story_code)
-    from usecase.story.staleness import is_story, request_actualize
-
-    if not await is_story(session, story):
-        raise DomainError("Актуализация ПСИ доступна только для истории")
-    await request_actualize(session, story)
-    await session.commit()
-    return {"stale": True, "code": story.code}
-
-
 async def get_document(session: AsyncSession, story_code: str) -> dict:
     story = await _story(session, story_code)
     docs = (await session.execute(
@@ -271,8 +257,11 @@ async def get_document(session: AsyncSession, story_code: str) -> dict:
         .join(PsiDocument, PsiDocument.id == PsiRun.psi_doc_id)
         .where(PsiDocument.story_id == story.id)
         .order_by(PsiRun.ran_at))).all()
+    plan_ref = await psi_plan_ref_version(session, story.id)
     return {
-        "stale": bool(story.psi_stale),
+        "stale": plan_ref is not None and plan_ref < story.ref_version,
+        "refVersion": story.ref_version,
+        "planRefVersion": plan_ref,
         "versions": [{"version": d.version, "authorId": str(d.author_id),
                       "at": d.created_at.isoformat()} for d in docs],
         "items": [{"position": i.position, "kind": i.kind, "text": i.text,

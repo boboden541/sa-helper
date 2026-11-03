@@ -103,12 +103,12 @@ async def patch_task(
 
     if events:
         task.updated_at = datetime.now(task.updated_at.tzinfo) if task.updated_at.tzinfo else datetime.now()
-        # смена постановки истории при составленном ПСИ → «ПСИ устарел» (УИТ)
+        # содержание эталона изменилось → версия/хэш + версия родительской
+        # истории (постановка ребёнка — часть эталона истории)
         if "описание изменено" in events:
-            from usecase.story.staleness import is_story, mark_psi_stale
+            from usecase.story.reference import on_description_changed
 
-            if await is_story(session, task):
-                await mark_psi_stale(session, task, "изменено описание истории")
+            await on_description_changed(session, task)
         for message in events:
             session.add(
                 Chronicle(

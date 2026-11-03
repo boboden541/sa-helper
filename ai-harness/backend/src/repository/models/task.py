@@ -52,9 +52,13 @@ class Task(Base):
     rework_count: Mapped[int] = mapped_column(SmallInteger, default=0)
     m4_count: Mapped[int] = mapped_column(SmallInteger, default=0)
     blocked_reason: Mapped[str | None] = mapped_column(Text)
-    # «ПСИ устарел»: требования истории изменились после составления документа
-    # (правка описания, добавление дочерней задачи). Новая версия ПСИ снимает.
-    psi_stale: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # Версия эталона постановки (решение владельца 03.11.2026): растёт при
+    # каждом изменении содержания описания; для истории — ещё при изменении
+    # состава/постановки детей. План (чеклист) устарел ⟺
+    # checklist.source_ref_version < task.ref_version
+    ref_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    # sha256 описания из БД — машинная проверка «эталон менялся» без парсинга
+    ref_hash: Mapped[str | None] = mapped_column(String(64))
     # правило, которым задача вошла в blocked (M4/M5/RUN_LIMIT/AUTO_BLOCK…):
     # зеркалу M2 нужен источник блокера — из blocked историю поднимает только
     # «детский» M5 (инцидент VITRINA-1: самоблок не воскресает сам)
@@ -70,6 +74,10 @@ class Checklist(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     task_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("task.id"))
     kind: Mapped[str] = mapped_column(String(16))  # developer|reviewer|tester|psi
+    # какой версией эталона постановки план заверен (см. task.ref_version):
+    # psi — ставится регистрацией версии документа; остальные — обновлением
+    # чеклиста. План устарел ⟺ значение меньше task.ref_version
+    source_ref_version: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

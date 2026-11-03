@@ -46,13 +46,27 @@ async def build_context_md(session: AsyncSession, task: Task) -> str:
         *( [f"Репозиторий доработки: {task.repo_path} (worktree и ветка task/<код> — в нём)"]
            if task.repo_path else [] ),
         f"\n## Постановка\n{_squeeze(task.description_md or '(описание пусто)', 60000)}",
-        # «ПСИ устарел»: требования изменились после составления документа —
-        # составителю нужна новая версия с разделом «Что изменилось» (УИТ 03.11)
-        *( [f"\n⚠ ПСИ УСТАРЕЛ: требования изменились после составления документа. "
-            f"Требуется новая версия ПСИ с разделом «Что изменилось против прошлой версии». "
-            f"Методология psi-methodology, раздел «Версия v2+»."]
-           if type_key == "story" and task.psi_stale else [] ),
     ]
+
+    # здоровье psi-плана: сравнение версий эталона и заверки плана —
+    # вычисляемый факт, агент обязан увидеть дрейф (решение владельца 03.11.2026)
+    if type_key == "story":
+        from usecase.story.reference import psi_plan_ref_version
+
+        plan_ref = await psi_plan_ref_version(session, task.id)
+        if plan_ref is None:
+            parts.append("\n⚠ PSI-ПЛАНА НЕТ: документ ПСИ не зарегистрирован. "
+                         "Составь документ и зарегистрируй версию "
+                         "(POST /stories/{код}/psi через host.docker.internal:8000) — "
+                         "чеклист psi станет планом прогона. Методология psi-methodology.")
+        elif plan_ref < task.ref_version:
+            parts.append(f"\n⚠ ПЛАН ПСИ УСТАРЕЛ: эталон постановки v{task.ref_version}, "
+                         f"план заверен v{plan_ref}. Сначала пересмотри план под текущий "
+                         "эталон (сверь с psi.md, дополни/убери пункты) и зарегистрируй "
+                         "новую версию документа — потом прогон. "
+                         "Методология psi-methodology: «Полный прогон обязателен».")
+        else:
+            parts.append(f"\nПлан ПСИ актуален: эталон v{task.ref_version}, план заверен v{plan_ref}.")
 
     # Чеклисты — ИСТОЧНИК ИСТИНЫ о прогрессе: открытые пункты = точка продолжения
     checks = (await session.execute(

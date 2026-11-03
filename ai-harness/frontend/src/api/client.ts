@@ -103,9 +103,6 @@ export const api = {
   psiRun: (code: string, results: { position: number; passed: boolean; actual: string }[]) =>
     request<{ passed: number; failed: number; bugProposals: { position: number; action: string; expected: string; actual: string }[] }>(
       `/api/v1/stories/${code}/psi/runs`, { method: 'POST', body: JSON.stringify({ results }) }),
-  psiActualize: (code: string) =>
-    request<{ stale: boolean; code: string }>(
-      `/api/v1/stories/${code}/psi/actualize`, { method: 'POST', body: '{}' }),
   comments: (code: string) =>
     request<{ id: string; author: string; body: string; at: string }[]>(`/api/v1/tasks/${code}/comments`),
   addRelation: (code: string, toCode: string, kind: string) =>

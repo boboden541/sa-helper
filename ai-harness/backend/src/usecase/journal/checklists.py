@@ -61,6 +61,11 @@ async def put_checklist(session: AsyncSession, actor: User, task: Task,
                                       kind="item", text=element["text"],
                                       status=element["status"]))
         position += 1
+    # пересмотр плана = заверка текущей версией эталона. Исключение — psi:
+    # его заверяет ТОЛЬКО регистрация версии документа (create_version),
+    # иначе PUT старых строк маскировал бы дрейф (ночь VITRINA-1, 02.11)
+    if kind != "psi":
+        chk.source_ref_version = task.ref_version
     session.add(Chronicle(task_id=task.id, event_type="field", author_id=actor.id,
                           author_kind="agent" if actor.user_type == "agent" else "human",
                           message=f"Чеклист {kind} обновлён ({position} строк)"))

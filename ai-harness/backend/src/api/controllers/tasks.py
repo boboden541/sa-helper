@@ -155,6 +155,9 @@ async def story_link(code: str, payload: StoryLinkIn,
 
     task = await _load_task_or_404(session, code)
     old_story_id = task.story_id
+    # состав детей — часть эталона истории: привязка/отвязка поднимает версию
+    # эталона обеих затронутых историй (версионирование эталона, 03.11.2026)
+    bumped = []
     if payload.storyCode:
         story = (await session.execute(
             sa.select(Task).where(Task.code == payload.storyCode.upper()))).scalar_one_or_none()
@@ -167,16 +170,24 @@ async def story_link(code: str, payload: StoryLinkIn,
         if story.id == task.id:
             raise ApiError(400, "Нельзя привязать задачу к самой себе")
         task.story_id = story.id
+        bumped.append(story.id)
         session.add(Chronicle(task_id=task.id, event_type="field", author_id=actor.id,
                               author_kind="human",
                               message=f"Задача привязана к истории {story.code}"))
     else:
         task.story_id = None
         if old_story_id:
+            bumped.append(old_story_id)
             old = await session.get(Task, old_story_id)
             session.add(Chronicle(task_id=task.id, event_type="field", author_id=actor.id,
                                   author_kind="human",
                                   message=f"Задача отвязана от истории {old.code if old else '?'}"))
+    from usecase.story.reference import bump_reference
+
+    for sid in dict.fromkeys(bumped):
+        st = await session.get(Task, sid)
+        if st is not None:
+            await bump_reference(session, st, f"изменён состав задач ({task.code})")
     await session.commit()
 
     from usecase.story.mirror import recompute_story_mirroring
