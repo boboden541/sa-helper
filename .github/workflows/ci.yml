@@ -1,0 +1,98 @@
+# CI репозитория: линтер и тесты backend (ai-harness) + проверки frontend.
+#
+# E2E (Playwright, frontend/e2e/) в CI НЕ включён: спекам нужен поднятый
+# docker-стек (postgres + backend + frontend на :8088) и установленные браузеры
+# (npx playwright install) — это отдельная инфраструктура, поэтому сквозной
+# прогон остаётся локальным (python scripts/dev.py + playwright).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend — ruff + pytest
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: harness
+          POSTGRES_PASSWORD: harness
+          # БД ai_harness нужна conftest'у: через неё он создаёт и удаляет тестовую БД
+          POSTGRES_DB: ai_harness
+        ports:
+          # 5433:5432, а не 5432:5432 — админ-подключение в tests/conftest.py
+          # захардкожено на порт 5433 (как в локальном docker compose)
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U harness -d ai_harness"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: ai-harness/pyproject.toml
+
+      # pytest/pytest-asyncio живут в optional-dependencies dev (в основных
+      # зависимостях их нет), ruff в pyproject вообще не заявлен — поэтому
+      # editable-установка с extra плюс ruff отдельной строкой
+      - name: Зависимости
+        run: |
+          pip install -e "ai-harness[dev]"
+          pip install ruff
+
+      # Конфигурация [tool.ruff] живёт в ai-harness/pyproject.toml — ruff
+      # подхватит её сам по дереву файлов
+      - name: Линтер (ruff)
+        run: ruff check ai-harness
+
+      # Тесты сами создают тестовую БД, накатывают миграции и заливают сид
+      # (tests/conftest.py, фикстура _test_db)
+      - name: Тесты (pytest)
+        env:
+          # Дефолт conftest'а смотрит на локальный docker compose (5433) —
+          # в CI сервис постгреса тоже опубликован на 5433
+          TEST_DATABASE_URL: postgresql+asyncpg://harness:harness@localhost:5433/ai_harness_test
+        run: pytest ai-harness/tests -q
+
+  frontend:
+    name: Frontend — tsc + eslint + vitest
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai-harness/frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: ai-harness/frontend/package-lock.json
+
+      - name: Зависимости
+        run: npm ci
+
+      - name: Типы (tsc)
+        run: npx tsc -b
+
+      - name: Линтер (eslint)
+        run: npx eslint .
+
+      - name: Тесты (vitest)
+        run: npx vitest run

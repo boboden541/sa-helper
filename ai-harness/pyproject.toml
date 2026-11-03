@@ -49,3 +49,19 @@ asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
 pythonpath = ["backend/src", "."]
+
+# Линт (CI: ruff check ai-harness). Умеренный набор: ошибки, импорты,
+# питоновские апгрейды — без стилистики, чтобы не воевать с легаси-стилем.
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = [".venv", ".pgdata", "node_modules", "ai_harness.egg-info", "dist"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "B"]
+ignore = [
+    "E501",  # длина строк — комментарии репо часто длинные
+    "B008",  # Depends() в сигнатурах FastAPI
+    "E402",  # импорты после кода — паттерн репо (проверка конфига, docstring-контракты)
+    "B904",  # raise … from err — стилистика репо
+]
