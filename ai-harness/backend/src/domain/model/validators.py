@@ -26,9 +26,12 @@ def validate_title(title: str) -> str:
 
 
 def validate_description(description_md: str) -> str:
-    if not isinstance(description_md, str) or len(description_md) > 20000:
+    # 150 000 (решение владельца 03.11.2026, было 20 000): полная постановка
+    # СТ-документа (VITRINA-1 — 77 854 симв.) должна помещаться целиком,
+    # без обходного пути «полный текст в хронике»
+    if not isinstance(description_md, str) or len(description_md) > 150000:
         raise DomainError(
-            "Описание — до 20 000 символов; не помещается — сигнал декомпозировать задачу",
+            "Описание — до 150 000 символов; не помещается — сигнал декомпозировать задачу",
             tech=f"description length={len(description_md or '')}",
             field="description_md",
         )

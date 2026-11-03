@@ -71,7 +71,14 @@ test('05 Карточка: смена приоритета через prio-menu 
 })
 
 test('06 Карточка: правка описания через markdown → сохранение → рендер', async ({ page }) => {
-  await page.locator('.card').first().click()
+  // своя задача, не «первая карточка доски»: тест однажды переписал описание
+  // боевой истории VITRINA-1 (инцидент 03.11.2026) — чужие карточки не трогаем
+  const r = await api('/api/v1/tasks', { method: 'POST', body: JSON.stringify({
+    projectId: 'AH', type: 'common_task', title: 'E2E правка описания',
+    priority: 'low', authorTag: 'by_human' }) })
+  const code = String(r.code)
+  await page.goto(`/#${code}`)
+  await page.waitForSelector('.drawer.show .tcode')
   await page.locator('.drawer.show .blk-h .pencil.show').first().click()
   await page.locator('.desc-edit .mode-tabs button', { hasText: 'Markdown' }).click()
   await page.locator('.desc-edit textarea').fill('## E2E описание\n- пункт один')

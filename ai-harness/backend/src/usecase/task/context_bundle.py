@@ -45,7 +45,7 @@ async def build_context_md(session: AsyncSession, task: Task) -> str:
         f"Статус: {task.status_key}; приоритет: {task.priority}; теги: {', '.join(tags)}",
         *( [f"Репозиторий доработки: {task.repo_path} (worktree и ветка task/<код> — в нём)"]
            if task.repo_path else [] ),
-        f"\n## Постановка\n{task.description_md or '(описание пусто)'}",
+        f"\n## Постановка\n{_squeeze(task.description_md or '(описание пусто)', 60000)}",
         # «ПСИ устарел»: требования изменились после составления документа —
         # составителю нужна новая версия с разделом «Что изменилось» (УИТ 03.11)
         *( [f"\n⚠ ПСИ УСТАРЕЛ: требования изменились после составления документа. "
@@ -100,7 +100,7 @@ async def build_context_md(session: AsyncSession, task: Task) -> str:
         .where(TaskComment.task_id == task.id)
         .order_by(TaskComment.created_at.desc()).limit(8))).all()
     if comments:
-        lines = [f"- «{body[:300]}» — {name} ({'человек' if ut == 'human' else 'агент'})"
+        lines = [f"- «{body[:2000]}» — {name} ({'человек' if ut == 'human' else 'агент'})"
                  for body, name, ut in reversed(comments)]
         parts.append("\n## Комментарии (последние; человеческие — приоритетны)\n"
                      + "\n".join(lines))
