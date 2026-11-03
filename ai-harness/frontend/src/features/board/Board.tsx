@@ -246,10 +246,13 @@ export function Board({ tasks, reload, boardEdit }: { tasks: TaskCard[]; reload:
             {stories.map((story) => {
               const kids = tasks.filter((t) => t.storyCode === story.code)
               const closedKids = kids.filter((k) => ['done', 'canceled'].includes(k.statusKey)).length
+              // карточка самой истории живёт в её лейне: раньше история была
+              // только полосой-заголовком — перетащить её по статусам flow
+              // было нечем (жалоба владельца 03.11.2026, AH-138)
               return (
                 <div key={story.code} className="lane">
                   {storyBand(story, closedKids, kids.length)}
-                  {!collapsed[story.code] && <div className="lane-cells">{cellsHtml(story.code, kids)}</div>}
+                  {!collapsed[story.code] && <div className="lane-cells">{cellsHtml(story.code, [story, ...kids])}</div>}
                 </div>
               )
             })}

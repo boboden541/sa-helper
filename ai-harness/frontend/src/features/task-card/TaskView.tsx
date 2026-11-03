@@ -120,17 +120,6 @@ function TaskBody({ code }: { code: string }) {
 
   if (!card) return <div className="empty"><b>Загрузка…</b></div>
 
-  const approve = async () => {
-    const r = await api.transition(code, 'backlog')
-    if (!r.applied) toast(r.reason ?? 'отказ', 'bad')
-    reload()
-  }
-  const reject = async () => {
-    const r = await api.transition(code, 'canceled')
-    if (!r.applied) toast(r.reason ?? 'отказ', 'bad')
-    reload()
-  }
-
   const typeVisible = {
     developer: ['common_task', 'bug'].includes(card.type),
     reviewer: ['common_task', 'analyse_task'].includes(card.type),
@@ -141,18 +130,10 @@ function TaskBody({ code }: { code: string }) {
     <>
       <TaskHead code={code} card={card} liveRun={liveRun} reload={reload} />
 
-      {card.statusKey === 'pending' && (
-        <div className="callout warn">
-          <span className="ci">⏳</span>
-          <div className="body">
-            Задача-предложение ждёт модерации. Апрув переведёт в бэклог, отклонение — отменит.
-            <div className="actions">
-              <button className="btn primary" onClick={() => void approve()}>Одобрить</button>
-              <button className="btn danger" onClick={() => void reject()}>Отклонить</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* панель модерации «Одобрить/Отклонить» удалена (замечание владельца
+        03.11.2026): рудимент старой реализации — «Одобрить» вела в статус
+        backlog, которого в актуальных flow нет; переходы по статусам —
+        кнопки TransBlock из gate.allowed ниже */}
       {card.statusKey === 'blocked' && (
         <div className="callout bad">
           <span className="ci">⛔</span>
