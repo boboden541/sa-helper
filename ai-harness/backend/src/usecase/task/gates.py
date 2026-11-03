@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import sqlalchemy as sa
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from domain.transition.engine import ChecklistState, GateData
-from repository.models import (Checklist, ChecklistItem, Task, TaskArtifact,
-                               TaskRelation)
+from repository.models import Checklist, ChecklistItem, Task, TaskArtifact, TaskRelation
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 async def load_gate_data(session: AsyncSession, task: Task) -> GateData:

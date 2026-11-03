@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 import sqlalchemy as sa
-
 from repository.models import Checklist, ChecklistItem, Task, User
 from usecase.task.create_task import CreateTaskInput, create_task
 from usecase.task.transition import TransitionDenied, apply_transition

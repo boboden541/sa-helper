@@ -2,18 +2,24 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+from domain.model.validators import DomainError
+
+if TYPE_CHECKING:
+    from api.dto.task_dto import TaskCard
+
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from api.dto.task_dto import TaskCardOut, TaskCreateIn, TaskListOut, TaskPatchIn
-from api.deps import get_actor, get_session
-from domain.model.validators import DomainError
 from repository.models import User
+from sqlalchemy.ext.asyncio import AsyncSession
 from usecase.task import relations as relations_uc
 from usecase.task.create_task import CreateTaskInput, create_task
 from usecase.task.list_tasks import list_tasks
 from usecase.task.patch_task import ApiNotFound, patch_task
+
+from api.deps import get_actor, get_session
+from api.dto.task_dto import TaskCardOut, TaskCreateIn, TaskListOut, TaskPatchIn
 
 router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"])
 
@@ -98,7 +104,6 @@ async def patch_task_view(code: str, payload: TaskPatchIn,
 
 from api.middleware.errors import ApiError  # noqa: E402
 
-
 # ---------- Связи между задачами (БФТ: блок «Связанные») + привязка к истории ----------
 
 class RelationIn(BaseModel):
@@ -146,7 +151,6 @@ async def story_link(code: str, payload: StoryLinkIn,
     """Привязка/отвязка/перепривязка задачи к истории (решение владельца 26.10.2026).
     Пересчитывает зеркала обеих историй."""
     import sqlalchemy as sa
-
     from repository.models import Chronicle, Task, TaskType
 
     task = await _load_task_or_404(session, code)

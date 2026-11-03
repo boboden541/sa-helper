@@ -6,9 +6,8 @@
 
 from __future__ import annotations
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from repository.models import Task, User
+from sqlalchemy.ext.asyncio import AsyncSession
 
 STATUS_BY_MARK = {"-": "todo", "~": "in_progress", "x": "closed",
                   "+": "done", "!": "failed"}
@@ -40,7 +39,6 @@ async def put_checklist(session: AsyncSession, actor: User, task: Task,
     """Перезаписывает элементы чеклиста `kind` из текста; пишет событие в хронику.
     Возвращает число занятых строк (позиция последнего элемента + 1)."""
     import sqlalchemy as sa
-
     from repository.models import Checklist, ChecklistItem, Chronicle
 
     chk = (await session.execute(

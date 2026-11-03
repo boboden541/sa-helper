@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import sqlalchemy as sa
-
 from repository.models import Checklist, ChecklistItem, Task, TaskRelation, User
 from usecase.task.create_task import CreateTaskInput, create_task
 from usecase.task.transition import TransitionDenied, apply_transition
@@ -22,7 +21,7 @@ async def _status(session, code, status):
 
 
 async def _ensure_dev_checklist(session, code):
-    from repository.models import Checklist, ChecklistItem, Task
+    from repository.models import Task
 
     tid = (await session.execute(sa.select(Task.id).where(Task.code == code))).scalar_one()
     chk = Checklist(task_id=tid, kind="developer")
@@ -48,7 +47,6 @@ async def test_blocked_by_denies_human_and_agent(session, actor_id):
     await session.commit()
     await _ensure_dev_checklist(session, blocked.code)
 
-    from usecase.task.transition import TransitionDenied
     try:
         await apply_transition(session, actor, blocked.code, "in_progress")
         raise AssertionError("человека пустили при blocked by")
@@ -56,10 +54,9 @@ async def test_blocked_by_denies_human_and_agent(session, actor_id):
         assert "blocked by" in d.reason and blocker.code in d.reason
 
     # агент тоже
-    from domain.transition.engine import Subject
-    from usecase.task.gates import load_gate_data
+    from domain.transition.engine import Subject, check_edge
     from domain.transition.graph import load_graph
-    from domain.transition.engine import check_edge
+    from usecase.task.gates import load_gate_data
 
     task = (await session.execute(
         sa.select(Task).where(Task.code == blocked.code))).scalar_one()

@@ -6,9 +6,8 @@ import os
 
 import pytest
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import insert as pg_insert
-
 from repository.models import TaskType, User
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 os.environ.setdefault("AI_HARNESS_TOKEN_KEY", "")
 
@@ -44,10 +43,12 @@ async def test_token_never_in_dump(session, token_key):
 
 async def test_active_connection_unique_and_delete_guard(session, token_key):
     """AC-4.4.2.3: активное нельзя удалить до выбора другого; смена активного одна."""
-    from sqlalchemy.exc import IntegrityError
 
     from usecase.settings.connections import (
-        activate_connection, create_connection, delete_connection)
+        activate_connection,
+        create_connection,
+        delete_connection,
+    )
 
     c1 = await create_connection(session, {
         "name": "A", "protocol": "openai", "url": "https://x", "model": "m",
@@ -159,7 +160,12 @@ async def test_protected_when_auth_required(client, session):
 
 async def test_project_lifecycle(session, actor_id, tmp_path):
     from usecase.settings.projects import (
-        ProjectInput, create_project, delete_project, set_archived, update_project)
+        ProjectInput,
+        create_project,
+        delete_project,
+        set_archived,
+        update_project,
+    )
 
     target = tmp_path / "proj"
     target.mkdir()
@@ -238,9 +244,8 @@ async def test_alias_column_crud_and_delete_guard(client):
 
 
 async def test_matrix_get_roundtrip(client, session):
-    from sqlalchemy.dialects.postgresql import insert as pg_insert
-
     from repository.models import Assignment, TaskType, User
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
 
     agent = (await session.execute(
         sa.select(User).where(User.name == "Ревьюер-1"))).scalar_one_or_none()
@@ -278,7 +283,6 @@ async def test_task_type_wizard_creates_type_and_flow(client, session):
 async def test_agent_runner_options_roundtrip(session, actor_id, tmp_path):
     """Модель/инструменты/MCP/папка агентов сохраняются, очищаются и не задевают соседей."""
     from repository.models import AgentProfile
-
     from usecase.settings.agents import create_agent, update_agent
 
     folder = tmp_path / "claude"
@@ -304,7 +308,6 @@ async def test_agent_runner_options_roundtrip(session, actor_id, tmp_path):
 
 async def test_agent_runner_options_validation(session, actor_id, tmp_path):
     from domain.model.validators import DomainError
-
     from usecase.settings.agents import _clean_runner_fields
 
     with pytest.raises(DomainError, match="url"):

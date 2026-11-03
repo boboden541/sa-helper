@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import datetime as dt
 import uuid
 
 import sqlalchemy as sa
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from config import get_settings
 from domain.model.validators import DomainError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 def _crypto_key() -> bytes:
@@ -20,7 +18,7 @@ def _crypto_key() -> bytes:
             "Шифрование токенов не настроено: задайте AI_HARNESS_TOKEN_KEY в ai-harness/.env",
             tech=str(err))
 from infrastructure.crypto.aesgcm import decrypt_token, encrypt_token, token_mask
-from repository.models import Connection, ProviderPreset, User
+from repository.models import Connection, ProviderPreset
 
 REQUIRED = ("name", "url", "model", "token")
 

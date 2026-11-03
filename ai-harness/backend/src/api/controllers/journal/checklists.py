@@ -5,14 +5,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from api.deps import get_actor, get_session
-from api.middleware.errors import ApiError
 from repository.models import User
+from sqlalchemy.ext.asyncio import AsyncSession
 from usecase.journal import checklists as checklists_uc
 
 from api.controllers.journal._common import _400
+from api.deps import get_actor, get_session
+from api.middleware.errors import ApiError
 
 router = APIRouter()
 
@@ -25,7 +24,6 @@ async def checklist_get(code: str, kind: str,
                         session: AsyncSession = Depends(get_session),
                         actor: User = Depends(get_actor)):
     import sqlalchemy as sa
-
     from repository.models import Checklist, ChecklistItem, Task
 
     if kind not in ("developer", "reviewer", "tester", "psi"):
@@ -59,7 +57,6 @@ async def checklist_put(code: str, kind: str, payload: ChecklistPutIn,
                         actor: User = Depends(get_actor)):
     """Текстовый формат `- ~ x + !` и `#`–`#####` — парсинг на backend (ФТ-ah-9)."""
     import sqlalchemy as sa
-
     from repository.models import Task
 
     if kind not in ("developer", "reviewer", "tester", "psi"):

@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
+from domain.model.validators import DomainError
 from fastapi import APIRouter, Cookie, Depends, Response
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
+from usecase.auth.login import COOKIE_NAME, login, logout
 
 from api.deps import get_session
 from api.middleware.errors import ApiError
-from domain.model.validators import DomainError
-from repository.models import User
-from usecase.auth.login import COOKIE_NAME, login, logout
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 

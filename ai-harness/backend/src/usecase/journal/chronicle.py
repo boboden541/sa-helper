@@ -5,10 +5,9 @@ from __future__ import annotations
 import datetime as dt
 
 import sqlalchemy as sa
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from domain.model.validators import DomainError
 from repository.models import Chronicle, ChroniclePayload
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 async def append(session: AsyncSession, task_id, event_type: str, author_kind: str,

@@ -8,10 +8,9 @@
 from __future__ import annotations
 
 import sqlalchemy as sa
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.dialects.postgresql import insert as pg_insert
-
 from repository.models import Notification, Task
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.ext.asyncio import AsyncSession
 
 EVENT_KEYS = {
     "pending_moderation": "Задача ждёт модерации",

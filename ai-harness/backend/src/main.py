@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
+from api.middleware.errors import ApiError, api_error_handler, domain_error_handler
+from database import dispose_engine
+from domain.model.validators import DomainError
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
-from api.middleware.errors import ApiError, api_error_handler, domain_error_handler
-from domain.model.validators import DomainError
-from database import dispose_engine, get_sessionmaker
 
 
 @asynccontextmanager

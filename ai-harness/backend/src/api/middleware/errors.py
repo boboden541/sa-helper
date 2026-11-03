@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
+from domain.model.validators import DomainError
 from fastapi import Request
 from fastapi.responses import JSONResponse
-
-from domain.model.validators import DomainError
 
 
 class ApiError(Exception):

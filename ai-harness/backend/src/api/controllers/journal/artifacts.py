@@ -5,12 +5,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
+from repository.models import User
 from sqlalchemy.ext.asyncio import AsyncSession
+from usecase.task import artifacts as artifacts_uc
 
 from api.deps import get_actor, get_session
 from api.middleware.errors import ApiError
-from repository.models import User
-from usecase.task import artifacts as artifacts_uc
 
 router = APIRouter()
 
@@ -22,7 +22,6 @@ async def artifact_get(code: str, kind: str,
                        session: AsyncSession = Depends(get_session),
                        actor: User = Depends(get_actor)):
     import sqlalchemy as sa
-
     from repository.models import Task, TaskArtifact
 
     if kind not in ("dev_report", "review_report", "qa_report"):
@@ -47,7 +46,6 @@ async def artifact_add(code: str, kind: str, payload: ArtifactIn,
                        session: AsyncSession = Depends(get_session),
                        actor: User = Depends(get_actor)):
     import sqlalchemy as sa
-
     from repository.models import Task
 
     if kind not in ("dev_report", "review_report", "qa_report"):

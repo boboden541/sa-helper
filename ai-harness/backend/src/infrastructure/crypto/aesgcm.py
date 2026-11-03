@@ -6,12 +6,10 @@
 
 from __future__ import annotations
 
-import base64
 import os
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-
 from domain.model.validators import DomainError
 
 

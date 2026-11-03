@@ -4,13 +4,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from api.deps import get_actor, get_session
 from repository.models import User
+from sqlalchemy.ext.asyncio import AsyncSession
 from usecase.story import psi as psi_uc
 
 from api.controllers.journal._common import _400
+from api.deps import get_actor, get_session
 
 router = APIRouter()
 

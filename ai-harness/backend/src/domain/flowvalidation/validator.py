@@ -5,8 +5,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import re
+from dataclasses import dataclass, field
 
 KEY_RE = re.compile(r"^[a-z0-9_]+$")
 

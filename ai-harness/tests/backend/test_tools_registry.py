@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 import sqlalchemy as sa
-
 from repository.models import AppSetting
 
 KEY = "agents.tools_dir"
@@ -96,7 +95,6 @@ async def test_tools_api(client, session, tmp_path):
 
 async def test_tools_write_roundtrip(client, session, tmp_path):
     from domain.model.validators import DomainError
-
     from usecase.settings import tools as tools_uc
 
     saved = (await session.execute(sa.select(AppSetting.value).where(AppSetting.key == KEY))).scalar_one_or_none()
@@ -133,7 +131,6 @@ async def test_tools_write_roundtrip(client, session, tmp_path):
 
 async def test_agent_skills_assign(client, session, tmp_path):
     from repository.models import AgentProfile, ToolArtifact
-
     from usecase.settings.agents import create_agent, update_agent
 
     saved = (await session.execute(sa.select(AppSetting.value).where(AppSetting.key == KEY))).scalar_one_or_none()

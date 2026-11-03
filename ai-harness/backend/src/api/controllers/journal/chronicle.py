@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
+from repository.models import User
 from sqlalchemy.ext.asyncio import AsyncSession
+from usecase.journal import chronicle as chronicle_uc
+from usecase.journal import notifications as notif_uc
 
 from api.deps import get_actor, get_session
 from api.middleware.errors import ApiError
-from repository.models import User
-from usecase.journal import chronicle as chronicle_uc
-from usecase.journal import notifications as notif_uc
 
 router = APIRouter()
 
@@ -20,7 +20,6 @@ async def chronicle_view(code: str, type: str | None = None,
                          session: AsyncSession = Depends(get_session),
                          actor: User = Depends(get_actor)):
     import sqlalchemy as sa
-
     from repository.models import Task
 
     task = (await session.execute(
@@ -42,7 +41,6 @@ async def notifications_view(session: AsyncSession = Depends(get_session),
 async def comments_get(code: str, session: AsyncSession = Depends(get_session),
                        actor: User = Depends(get_actor)):
     import sqlalchemy as sa
-
     from repository.models import Task, TaskComment
 
     task = (await session.execute(sa.select(Task).where(Task.code == code.upper()))).scalar_one_or_none()
@@ -66,7 +64,6 @@ async def comments_add(code: str, payload: CommentIn,
                        session: AsyncSession = Depends(get_session),
                        actor: User = Depends(get_actor)):
     import sqlalchemy as sa
-
     from repository.models import Task, TaskComment
 
     if not payload.body.strip():

@@ -6,9 +6,10 @@ import subprocess
 from pathlib import Path
 
 import pytest
-
 from domain.model.validators import DomainError
 from usecase.task.create_task import CreateTaskInput, _validate_repo_path, create_task
+
+
 def _mkproject(session, path: Path, mnemonic: str):
     from repository.models import Project
 

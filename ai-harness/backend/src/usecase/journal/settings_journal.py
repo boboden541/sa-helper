@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from repository.models import SettingsJournal
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 async def record(session: AsyncSession, who_id, entity: str, summary: str,

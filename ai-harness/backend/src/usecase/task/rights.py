@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import sqlalchemy as sa
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from repository.models import Assignment
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 async def assigned_statuses(session: AsyncSession, user_id, task_type_id) -> frozenset[str]:

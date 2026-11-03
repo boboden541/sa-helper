@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import sqlalchemy as sa
-
 from usecase.task.create_task import CreateTaskInput, create_task
 from usecase.task.list_tasks import list_tasks
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 import sqlalchemy as sa
-
 from domain.model.validators import DomainError
 from usecase.task.create_task import CreateTaskInput, create_task
 from usecase.task.patch_task import patch_task

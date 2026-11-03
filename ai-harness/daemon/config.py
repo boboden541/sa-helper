@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import sqlalchemy as sa
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from repository.models import AppSetting
+from sqlalchemy.ext.asyncio import AsyncSession
 
 _DEFAULTS = {
     "daemon.tick_seconds": "30",

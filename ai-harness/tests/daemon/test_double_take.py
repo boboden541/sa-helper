@@ -5,10 +5,10 @@ from __future__ import annotations
 import asyncio
 
 import sqlalchemy as sa
+from repository.models import Assignment, Task, TaskType, User
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from daemon.runner.reservation import reserve_task
-from repository.models import Assignment, Task, TaskType, User
 
 
 def _maker(engine):

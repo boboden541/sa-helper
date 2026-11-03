@@ -5,9 +5,8 @@ from __future__ import annotations
 import datetime as dt
 
 import sqlalchemy as sa
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from repository.models import Task, User
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 async def snapshot(session: AsyncSession) -> dict:

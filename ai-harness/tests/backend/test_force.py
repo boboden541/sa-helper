@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import pytest
 import sqlalchemy as sa
-
 from repository.models import Chronicle, Task, User
 from usecase.task.create_task import CreateTaskInput, create_task
 from usecase.task.transition import TransitionDenied, apply_force
-from api.middleware.errors import ApiError
 
 
 def _inp(**kw):

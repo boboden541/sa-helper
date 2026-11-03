@@ -11,10 +11,9 @@ import re
 from pathlib import Path
 
 import sqlalchemy as sa
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from domain.model.validators import DomainError
 from repository.models import AppSetting, ToolArtifact
+from sqlalchemy.ext.asyncio import AsyncSession
 
 TOOLS_KEY = "agents.tools_dir"
 

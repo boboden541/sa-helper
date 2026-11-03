@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import datetime as dt
-
 import sqlalchemy as sa
+from repository.models import Assignment, Task, TaskRun, TaskType, User
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from daemon.runner.reservation import release_reservation, reserve_task
-from repository.models import Assignment, Task, TaskRun, TaskType, User
 
 
 def _maker(engine):

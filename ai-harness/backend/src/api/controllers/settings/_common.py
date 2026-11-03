@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from api.middleware.errors import ApiError
 from domain.model.validators import DomainError
+
+from api.middleware.errors import ApiError
 
 
 def _domain(fn):

@@ -3,13 +3,13 @@
 
 from __future__ import annotations
 
+from domain.model.validators import DomainError
 from fastapi import APIRouter, Depends
+from repository.models import User
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_actor, get_session
 from api.middleware.errors import ApiError
-from domain.model.validators import DomainError
-from repository.models import User
 
 router = APIRouter()
 

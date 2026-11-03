@@ -70,8 +70,8 @@ async def _seed_tasks(engine, n: int, code_from: int = 10) -> None:
 
 
 async def _search_p95(engine) -> float:
-    from usecase.task.list_tasks import list_tasks
     from sqlalchemy.ext.asyncio import async_sessionmaker
+    from usecase.task.list_tasks import list_tasks
 
     maker = async_sessionmaker(engine, expire_on_commit=False)
     latencies: list[float] = []
@@ -87,7 +87,6 @@ async def _search_p95(engine) -> float:
 
 async def _board_ms(engine) -> float:
     from sqlalchemy.ext.asyncio import async_sessionmaker
-
     from usecase.task.list_tasks import list_tasks
 
     maker = async_sessionmaker(engine, expire_on_commit=False)
@@ -100,11 +99,10 @@ async def _board_ms(engine) -> float:
 
 
 async def _dump_audits(engine) -> tuple[bool, bool, bool]:
-    from sqlalchemy.ext.asyncio import async_sessionmaker
-
-    from infrastructure.crypto.aesgcm import encrypt_token
     from config import get_settings
+    from infrastructure.crypto.aesgcm import encrypt_token
     from repository.models import Connection, User
+    from sqlalchemy.ext.asyncio import async_sessionmaker
 
     maker = async_sessionmaker(engine, expire_on_commit=False)
     async with maker() as s:

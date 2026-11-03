@@ -5,11 +5,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
+from repository.models import User
 from sqlalchemy.ext.asyncio import AsyncSession
+from usecase.settings import pipeline as pipeline_uc
 
 from api.deps import get_actor, get_session
-from repository.models import User
-from usecase.settings import pipeline as pipeline_uc
 
 router = APIRouter()
 
@@ -27,7 +27,6 @@ async def pipeline_status(session: AsyncSession = Depends(get_session),
 async def settings_journal(session: AsyncSession = Depends(get_session),
                            actor: User = Depends(get_actor)):
     import sqlalchemy as sa
-
     from repository.models import SettingsJournal
 
     rows = (await session.execute(
@@ -50,7 +49,6 @@ class PipelinePauseIn(BaseModel):
 async def pipeline_paused(session: AsyncSession = Depends(get_session),
                           actor: User = Depends(get_actor)):
     import sqlalchemy as sa
-
     from repository.models import AppSetting
 
     val = (await session.execute(

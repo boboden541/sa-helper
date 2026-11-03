@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import sqlalchemy as sa
-
 from repository.models import Chronicle, Task, User
 from usecase.story.mirror import apply_m4, recompute_story_mirroring
 from usecase.task.create_task import CreateTaskInput, create_task

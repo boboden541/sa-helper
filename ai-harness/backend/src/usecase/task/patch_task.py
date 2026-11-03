@@ -6,10 +6,9 @@ from dataclasses import dataclass
 from datetime import datetime
 
 import sqlalchemy as sa
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from domain.model.validators import DomainError, validate_description, validate_title
 from repository.models import Chronicle, Project, Task, User
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 @dataclass
@@ -79,7 +78,7 @@ async def patch_task(
         labels = validate_tags("by_human", fields["tags"])  # авторский гарантируется
         if "by_ai" in fields["tags"]:
             # агент-автор: by_human из запроса игнорируется, авторский тег восстанавливается
-            labels = sorted({l for l in labels if l != "by_human"} | {"by_ai"})
+            labels = sorted({x for x in labels if x != "by_human"} | {"by_ai"})
         current = (await session.execute(
             sa.select(Tag.label).join(TaskTag, TaskTag.tag_id == Tag.id)
             .where(TaskTag.task_id == task.id))).scalars().all()

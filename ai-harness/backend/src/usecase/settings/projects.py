@@ -9,10 +9,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import sqlalchemy as sa
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from domain.model.validators import DomainError
 from repository.models import DeadMnemonic, Project, Task
+from sqlalchemy.ext.asyncio import AsyncSession
 
 MNEMONIC_RE = re.compile(r"^[A-Z0-9]{2,10}$")
 
@@ -61,8 +60,8 @@ def prepare_path(path: str) -> str:
                               tech=init.stderr, field="path")
         head = git("rev-parse", "--verify", "HEAD")
         if head.returncode != 0:
-            cfg = git("config", "user.email", "harness@local")
-            cfg2 = git("config", "user.name", "AI Harness")
+            git("config", "user.email", "harness@local")  # noqa: F841 — для эффекта
+            git("config", "user.name", "AI Harness")  # noqa: F841 — для эффекта
             first = git("commit", "--allow-empty", "-m",
                         "Начальный коммит: рабочая директория проекта AI-Harness")
             if first.returncode != 0:

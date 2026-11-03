@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import base64
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[3]
 

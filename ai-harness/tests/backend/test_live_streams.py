@@ -6,9 +6,8 @@ from __future__ import annotations
 import datetime as dt
 
 import sqlalchemy as sa
-from sqlalchemy.ext.asyncio import async_sessionmaker
-
 from repository.models import Task, TaskRun, User
+from sqlalchemy.ext.asyncio import async_sessionmaker
 from usecase.journal.live import activity_snapshot, chronicle_after, task_activity
 
 

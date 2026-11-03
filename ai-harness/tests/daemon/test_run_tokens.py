@@ -4,13 +4,13 @@
 from __future__ import annotations
 
 import sqlalchemy as sa
+from repository.models import Assignment, TaskRun, TaskType, User
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from daemon.runner.agent_runner import RunReport
 from daemon.runner.reservation import reserve_task
 from daemon.scheduler.scheduler import Daemon
-from repository.models import Assignment, TaskRun, TaskType, User
 
 
 def _maker(engine):

@@ -7,11 +7,10 @@
 from __future__ import annotations
 
 import sqlalchemy as sa
-
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from domain.model.validators import DomainError
 from repository.models import Task, TaskRelation
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from usecase.task.patch_task import ApiNotFound
 
 

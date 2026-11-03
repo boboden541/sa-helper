@@ -4,10 +4,10 @@
 from __future__ import annotations
 
 import sqlalchemy as sa
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from domain.mirroring.rules import evaluate
 from repository.models import AppSetting, Task, TaskType
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from usecase.task.transition import TransitionDenied, apply_transition
 
 

@@ -6,7 +6,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-
 from infrastructure.git.worktree import (
     GitError,
     ensure_task_worktree,
@@ -47,7 +46,7 @@ async def test_merge_before_done(repo):
     subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t",
                     "commit", "-m", "work"], cwd=wt, check=True, capture_output=True)
     await merge_task_branch(str(repo), "AH-8", "main")
-    readme = (repo / "README.md").read_text(encoding="utf-8")
+    _readme = (repo / "README.md").read_text(encoding="utf-8")
     assert (repo / "feature.txt").exists()  # слияние попало в базовую
 
 

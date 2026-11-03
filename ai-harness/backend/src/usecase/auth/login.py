@@ -7,12 +7,11 @@ import hashlib
 import secrets
 
 import sqlalchemy as sa
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from config import get_settings
 from domain.model.validators import DomainError
 from infrastructure.crypto.argon2_hash import verify_password
 from repository.models import Session, User
+from sqlalchemy.ext.asyncio import AsyncSession
 
 COOKIE_NAME = "ai_harness_session"
 

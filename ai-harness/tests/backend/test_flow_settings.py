@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 import sqlalchemy as sa
-
 from domain.model.validators import DomainError
 from repository.models import Chronicle, SettingsJournal, Task, User
 from usecase.settings import flow as flow_uc

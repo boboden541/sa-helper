@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
-from fastapi import Depends, Request
-from sqlalchemy.ext.asyncio import AsyncSession
+from typing import TYPE_CHECKING
 
 from database import get_sessionmaker
+
+if TYPE_CHECKING:
+    from repository.models import User
+
+from fastapi import Depends, Request
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 async def get_session() -> AsyncSession:
@@ -20,7 +25,6 @@ async def _resolve_actor(request: Request, session: AsyncSession) -> "User | Non
     """Актор по куке; без входа и при auth.required=false — первый человек
     (dev-режим этапов 1–3); при auth.required и отсутствии сессии — 401."""
     import sqlalchemy as sa
-
     from repository.models import User
     from usecase.auth.login import COOKIE_NAME, auth_required, user_for_token
 

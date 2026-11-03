@@ -6,12 +6,11 @@ import uuid
 from dataclasses import dataclass, field
 
 import sqlalchemy as sa
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from domain.model.enums import AUTHOR_TAGS
 from domain.model.validators import DomainError, validate_description, validate_tags, validate_title
 from repository.models import Chronicle, Notification, Project, Tag, Task, TaskTag, TaskType, User
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 @dataclass

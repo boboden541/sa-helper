@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
+from domain.model.validators import DomainError
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
+from repository.models import User
 from sqlalchemy.ext.asyncio import AsyncSession
+from usecase.settings import connections as conn_uc
 
 from api.deps import get_actor, get_session
 from api.middleware.errors import ApiError
-from domain.model.validators import DomainError
-from repository.models import User
-from usecase.settings import connections as conn_uc
 
 router = APIRouter()
 
@@ -38,7 +38,6 @@ class ConnectionIn(BaseModel):
 async def connections_list(session: AsyncSession = Depends(get_session),
                            actor: User = Depends(get_actor)):
     import sqlalchemy as sa
-
     from repository.models import Connection
 
     rows = (await session.execute(

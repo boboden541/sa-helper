@@ -4,16 +4,15 @@
 from __future__ import annotations
 
 import sqlalchemy as sa
-
+from domain.model.validators import DomainError
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
+from repository.models import AgentProfile, TaskType, User
 from sqlalchemy.ext.asyncio import AsyncSession
+from usecase.settings import agents as agents_uc
 
 from api.deps import get_actor, get_session
 from api.middleware.errors import ApiError
-from domain.model.validators import DomainError
-from repository.models import AgentProfile, TaskType, User
-from usecase.settings import agents as agents_uc
 
 router = APIRouter()
 
@@ -65,7 +64,6 @@ async def agents_clone(agent_id: str, session: AsyncSession = Depends(get_sessio
     import uuid as uuid_mod
 
     import sqlalchemy as sa
-
     from repository.models import AgentProfile
 
     src_user = await session.get(User, uuid_mod.UUID(agent_id))
@@ -130,7 +128,6 @@ async def agents_tools_dir_get(session: AsyncSession = Depends(get_session),
     import os
 
     import sqlalchemy as sa
-
     from infrastructure.paths import host_to_container
     from repository.models import AppSetting
 
@@ -147,7 +144,6 @@ async def agents_tools_dir_set(payload: dict, session: AsyncSession = Depends(ge
     import os
 
     import sqlalchemy as sa
-
     from infrastructure.paths import host_to_container
     from repository.models import AppSetting
 
@@ -214,7 +210,6 @@ async def matrix_get(type_key: str, session: AsyncSession = Depends(get_session)
                      actor: User = Depends(get_actor)):
     """Матрица назначений: статусы актуальной версии flow → исполнители (ФТ-ah-63)."""
     import sqlalchemy as sa
-
     from repository.models import Assignment, TaskType, User
 
     ttype = (await session.execute(

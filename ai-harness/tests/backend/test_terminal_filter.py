@@ -12,7 +12,6 @@ async def _mk(client, title: str, type_: str = "common_task") -> str:
 
 async def _force_status(client, code: str, status: str) -> None:
     import sqlalchemy as sa
-
     from database import get_sessionmaker
 
     # прямой UPDATE: терминальные статусы недостижимы движком без гейтов
@@ -48,7 +47,6 @@ async def test_terminal_always_by_current_version(client, _test_db):
     версии flow типа задачи, даже если задача приколота к старой версии,
     где её статус был нетерминальным."""
     import sqlalchemy as sa
-
     from database import get_sessionmaker
 
     code = await _mk(client, "Задача в Готово")

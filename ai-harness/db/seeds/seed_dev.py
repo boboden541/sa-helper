@@ -15,9 +15,8 @@ import sqlalchemy as sa
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend" / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from database import dispose_engine, init_engine  # noqa: E402
 from config import get_settings  # noqa: E402
-from domain.model.validators import DomainError  # noqa: E402
+from database import dispose_engine, init_engine  # noqa: E402
 from repository.models import AppSetting, Project, User  # noqa: Optional import below
 
 
@@ -27,6 +26,7 @@ async def _one(session, model, **filters):
 
 async def seed() -> None:
     from repository.models import Connection  # noqa: F401
+
     from db.seeds.flow_seed import ensure_alias_columns, seed_builtin_flows
 
     init_engine(get_settings().database_url)
@@ -156,7 +156,6 @@ async def seed() -> None:
         await session.commit()
 
         # Пользователи (этап 1: dev-вход без пароля, Argon2id — этап 4)
-        from argon2 import PasswordHasher
 
         alexey = await _one(session, User, name="Алексей")
         if alexey is None:

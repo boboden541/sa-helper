@@ -14,13 +14,11 @@
 from __future__ import annotations
 
 import asyncio
-import datetime as dt
 import json
 import logging
 import os
 import shlex
 import shutil
-import subprocess
 
 import sqlalchemy as sa
 
@@ -252,6 +250,7 @@ def _build_tools(register_intent):
 async def _env_and_model(session, conn_row) -> tuple[dict, str] | None:
     """ANTHROPIC_* env для SDK; None — провайдер не anthropic-протокола."""
     from repository.models import Connection
+
     from usecase.settings.connections import get_decrypted_token
 
     if conn_row["protocol"] != "anthropic":
@@ -435,7 +434,7 @@ async def agent_reply(session, user, text: str, register_intent,
                     tools_used, stderr_lines[-3:])
         return None
     if feed:
-        block = "\n".join(f"> {l}" for l in feed[-20:])
+        block = "\n".join(f"> {line}" for line in feed[-20:])
         answer = f"{answer}\n\n---\n**Ход работы:**\n\n{block}"
     if session_id_seen:
         try:
@@ -493,7 +492,6 @@ async def _save_session_id(session, user, sid: str) -> None:
 
 async def _history_block(session, user, limit: int = 10) -> str:
     """Последние сообщения чата — контекст диалога для свежего запуска."""
-    from repository.models import ChatMessage
 
     rows = (await session.execute(sa.text(
         "SELECT role, body FROM chat_message WHERE user_id = :u "

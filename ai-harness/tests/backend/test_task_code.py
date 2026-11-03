@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
-
 from usecase.task.create_task import CreateTaskInput, create_task
 
 
@@ -30,7 +28,7 @@ async def test_codes_not_reused_after_delete(session, actor_id):
     from repository.models import Task, User
 
     actor = await session.get(User, actor_id)
-    c1 = await create_task(session, actor, _inp())
+    _c1 = await create_task(session, actor, _inp())
     c2 = await create_task(session, actor, _inp())
     task = (await session.execute(
         __import__("sqlalchemy").select(Task).where(Task.code == c2.code)
@@ -45,9 +43,8 @@ async def test_parallel_creation_no_duplicates(_test_db, actor_id):
     """AC-4.1.1.2: два конкурентных соединения не дают дублей кода
     (каждый create_task коммитит свою транзакцию; второй UPDATE ждёт блокировки
     строки проекта и видит инкрементированный счётчик)."""
-    from sqlalchemy.ext.asyncio import async_sessionmaker
-
     from repository.models import User
+    from sqlalchemy.ext.asyncio import async_sessionmaker
 
     maker = async_sessionmaker(_test_db, expire_on_commit=False)
     async with maker() as s1, maker() as s2:

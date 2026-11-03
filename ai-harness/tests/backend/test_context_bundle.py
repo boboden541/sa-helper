@@ -6,9 +6,8 @@
 from __future__ import annotations
 
 import sqlalchemy as sa
-from sqlalchemy.ext.asyncio import async_sessionmaker
-
 from repository.models import Task, TaskArtifact, TaskComment
+from sqlalchemy.ext.asyncio import async_sessionmaker
 from usecase.task.context_bundle import build_context_md
 from usecase.task.create_task import CreateTaskInput, create_task
 
@@ -26,7 +25,7 @@ async def _mk_progress(session, actor_id):
 
     await put_checklist(session, human, task, "developer",
                         "# План\n- подготовить окружение\nx закрытый пункт\n~ веду тесты")
-    agent = (await session.execute(sa.text(
+    _agent = (await session.execute(sa.text(
         "SELECT id FROM \"user\" WHERE name = 'Тестировщик'"))).scalar_one()
     session.add(TaskArtifact(task_id=task.id, kind="dev_report", version=1,
                              created_by=human.id,

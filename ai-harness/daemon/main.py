@@ -6,6 +6,7 @@ import asyncio
 import logging
 
 from database import get_sessionmaker
+
 from daemon.scheduler.scheduler import Daemon
 
 logging.basicConfig(level=logging.INFO,

@@ -8,13 +8,12 @@ import json
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from api.deps import get_actor, get_session
 from repository.models import User
+from sqlalchemy.ext.asyncio import AsyncSession
 from usecase.assistant import eve as eve_uc
 
 from api.controllers.journal._common import _400, log
+from api.deps import get_actor, get_session
 
 router = APIRouter()
 
@@ -44,11 +43,9 @@ async def assistant_message_stream(payload: MessageIn,
     с action/intent для интерфейса). Детерминированные ветки отвечают
     одним done без прогресса."""
     import asyncio
-
-    from fastapi.responses import StreamingResponse
-
     import uuid as uuid_mod
 
+    from fastapi.responses import StreamingResponse
     from usecase.assistant import eve_agent
 
     turn = uuid_mod.uuid4().hex
@@ -63,7 +60,7 @@ async def assistant_message_stream(payload: MessageIn,
             result = await eve_uc.handle_message(session, actor, payload.text,
                                                  payload.screenTaskCode, emit=emit,
                                                  turn_id=turn)
-        except Exception as err:  # noqa: BLE001 — ошибка уходит в чат
+        except Exception:  # noqa: BLE001 — ошибка уходит в чат
             log.warning("Eve stream failed", exc_info=True)
             result = {"reply": "Внутренняя ошибка — попробуйте ещё раз"}
         queue.put_nowait({"type": "done", **result})

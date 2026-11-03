@@ -18,8 +18,8 @@ import sqlalchemy as sa  # noqa: E402
 
 
 async def demo() -> None:
-    from database import dispose_engine, get_sessionmaker, init_engine
     from config import get_settings
+    from database import dispose_engine, get_sessionmaker, init_engine
     from repository.models import Task, User
     from usecase.task.create_task import CreateTaskInput, create_task
 

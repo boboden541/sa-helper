@@ -7,10 +7,8 @@
 from __future__ import annotations
 
 import sqlalchemy as sa
-
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from repository.models import User
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 async def status(session: AsyncSession) -> dict:

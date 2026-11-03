@@ -5,9 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import sqlalchemy as sa
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from repository.models import FlowStatus, FlowTransition
+from sqlalchemy.ext.asyncio import AsyncSession
 
 # Статусы, вход в которые закрывают жёсткие связи blocked_by (постановка, «Влияние связей»)
 ACTIVE_STATUSES = frozenset({"in_progress", "in_review", "in_testing"})

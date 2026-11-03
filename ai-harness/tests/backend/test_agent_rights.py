@@ -6,9 +6,8 @@ import contextlib
 
 import pytest
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import insert as pg_insert
-
 from repository.models import Assignment, Chronicle, Task, TaskType, User
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from usecase.task.create_task import CreateTaskInput, create_task
 from usecase.task.transition import TransitionDenied, apply_transition
 
@@ -111,7 +110,6 @@ async def _tid(session, code):
         sa.select(Task.id).where(Task.code == code))).scalar_one()
 
 
-import contextlib  # noqa: E402
 
 
 @contextlib.contextmanager

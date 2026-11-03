@@ -12,9 +12,8 @@ from __future__ import annotations
 import datetime as dt
 
 import sqlalchemy as sa
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from repository.models import Chronicle, Task, TaskRun, TaskRunLog, User
+from sqlalchemy.ext.asyncio import AsyncSession
 
 STALE_SECONDS = 120  # пульс потерян (§4.3.1)
 

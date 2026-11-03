@@ -2,10 +2,11 @@
 Печатает PASS/FAIL по каждому пункту; FAIL = любой не-OK ответ вне ожиданий.
 Запуск: python scripts/api-sweep.py"""
 from __future__ import annotations
+
 import json
 import sys
-import urllib.request
 import urllib.error
+import urllib.request
 import uuid
 
 BASE = "http://localhost:8088"
@@ -43,7 +44,7 @@ def main():
     st, r = call("POST", "/api/v1/connections", {"name": f"swp-{uniq}", "protocol": "anthropic",
         "url": "https://api.anthropic.com", "model": "claude-sonnet-5", "token": "sk-swp-" + uniq})
     check("connections create", st, 200)
-    cid = r.get("id")
+    _cid = r.get("id")
     st, r = call("POST", "/api/v1/connections", {"name": f"swp-{uniq}", "protocol": "openai",
         "url": "https://x", "model": "m", "token": "t"})
     check("connections duplicate name → 400", st, 400)
@@ -55,7 +56,7 @@ def main():
     st, r = call("POST", "/api/v1/projects", {"name": "Sweep", "mnemonic": f"SW{uniq[:2].upper()}",
         "path": "/tmp"})
     check("projects create", st, 200)
-    pid = r.get("id")
+    _pid = r.get("id")
     st, r = call("POST", "/api/v1/projects", {"name": "Дубль", "mnemonic": f"SW{uniq[:2].upper()}", "path": "/tmp"})
     check("projects duplicate mnemonic → 400", st, 400)
     # --- Задачи ---
@@ -117,7 +118,7 @@ def main():
     # --- Итог ---
     fails = [x for x in results if not x[0]]
     print(f"\nИТОГ: {len(results) - len(fails)}/{len(results)} PASS")
-    for ok, name, detail in fails:
+    for _ok, name, detail in fails:
         print("FAIL:", name, "—", detail)
     return 0 if not fails else 1
 

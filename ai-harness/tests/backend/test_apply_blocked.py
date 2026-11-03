@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import sqlalchemy as sa
-
 from repository.models import Chronicle, Task
 from usecase.task.transition import apply_blocked
 

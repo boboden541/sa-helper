@@ -5,15 +5,14 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from api.deps import get_actor, get_session
-from api.middleware.errors import ApiError
 from repository.models import User
+from sqlalchemy.ext.asyncio import AsyncSession
 from usecase.task import runs as runs_uc
 from usecase.task.queue_snapshot import snapshot
 
 from api.controllers.journal._common import _400
+from api.deps import get_actor, get_session
+from api.middleware.errors import ApiError
 
 router = APIRouter()
 
@@ -54,7 +53,6 @@ async def task_runs(code: str, session: AsyncSession = Depends(get_session),
                     actor: User = Depends(get_actor)):
     """История прогонов задачи (попытки, исходы, пульс) — панель «вкладка Агент»."""
     import sqlalchemy as sa
-
     from repository.models import Task, TaskRun
 
     task = (await session.execute(sa.select(Task).where(Task.code == code.upper()))).scalar_one_or_none()
@@ -74,7 +72,6 @@ async def run_log(run_id: str, after: int = 0, session: AsyncSession = Depends(g
                   actor: User = Depends(get_actor)):
     """Строки лога прогона с номером больше `after` (фолбэк-поллинг для панели)."""
     import sqlalchemy as sa
-
     from repository.models import TaskRunLog
 
     rows = (await session.execute(
@@ -99,7 +96,6 @@ async def task_interrupt(code: str, payload: InterruptIn,
     """Перехват задачи у агента человеком (ФТ-ah-32): прогон помечается прерванным,
     резерв снимается; демон на следующем тике убивает процесс агента."""
     import sqlalchemy as sa
-
     from repository.models import Task
 
     task = (await session.execute(sa.select(Task).where(Task.code == code.upper()))).scalar_one_or_none()
