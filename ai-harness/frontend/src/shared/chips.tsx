@@ -55,3 +55,13 @@ export function TagChip({ tag }: { tag: string }) {
     <span className={`tag ${tag === 'by_human' || tag === 'by_ai' ? 'sys' : ''}`}>#{tag}</span>
   )
 }
+
+// Крестик закрытия/удаления — дословно тот же svg, что прежняя строка xIcon
+// из shared/refs.tsx (fill у path не задаётся — как в оригинале).
+export function XIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12">
+      <path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" />
+    </svg>
+  )
+}

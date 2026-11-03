@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { TaskCard } from '../api/client'
 import { fmtTokens, type LiveTask } from '../shared/live'
-import { esc, prioBadge, stChip, tagHtml, typeChip } from '../shared/refs'
+import { PRIO, SC, S_LABEL, TYPE } from '../shared/refs'
 import { TaskCardView } from '../features/board/TaskCard'
 
 // Сравниваем DOM-дерево: строки могут отличаться самозакрытыми тегами и
@@ -19,6 +19,34 @@ const dom = (html: string): string => {
   el.innerHTML = html
   return el.innerHTML.replace(/>\s+</g, '><')
 }
+
+// Эталон: прежние HTML-хелперы чипов из shared/refs.tsx (удалены после
+// унификации — разметка дословная, чтобы пин продолжал работать).
+const esc = (s: string): string =>
+  (s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+function prioSvg(p: string): string {
+  const c = `fill="none" stroke="${PRIO[p]?.c ?? '#8792a3'}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"`
+  if (p === 'critical')
+    return `<svg width="13" height="13" viewBox="0 0 14 14"><path d="M3 12.5l4-4 4 4M3 7.5l4-4 4 4" ${c}/></svg>`
+  if (p === 'high')
+    return `<svg width="13" height="13" viewBox="0 0 14 14"><path d="M3 11.5l4-7 4 7" ${c}/></svg>`
+  if (p === 'low')
+    return `<svg width="13" height="13" viewBox="0 0 14 14"><path d="M3 2.5l4 7 4-7" ${c}/></svg>`
+  return `<svg width="13" height="13" viewBox="0 0 14 14"><path d="M3 5.5h8M3 8.5h8" ${c}/></svg>`
+}
+
+const prioBadge = (p: string, withLabel?: boolean): string =>
+  `<span class="prio ${p}" style="--pc:${PRIO[p]?.c ?? '#8792a3'}" title="Приоритет: ${PRIO[p]?.label ?? p}">${prioSvg(p)}${withLabel ? `<span>${PRIO[p]?.label ?? p}</span>` : ''}</span>`
+
+const typeChip = (t: string): string =>
+  `<span class="type-chip" style="--tc:${TYPE[t]?.c ?? '#8792a3'}">${TYPE[t]?.label ?? t}</span>`
+
+const stChip = (st: string): string =>
+  `<span class="st-chip" style="--st:${SC[st] ?? '#8792a3'}"><span class="sdot"></span>${S_LABEL[st] ?? st}</span>`
+
+const tagHtml = (x: string): string =>
+  `<span class="tag ${x === 'by_human' || x === 'by_ai' ? 'sys' : ''}">#${esc(x)}</span>`
 
 // Эталон: прежняя сборка карточки HTML-строкой (Board.tsx до рефакторинга).
 function legacyCardHtml(t: TaskCard, merged: boolean, live?: LiveTask): string {

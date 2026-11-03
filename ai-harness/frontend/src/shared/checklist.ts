@@ -20,7 +20,8 @@ export function parseChecklist(source: string): ChecklistLine[] {
     if (heading) {
       return { kind: 'heading' as const, level: heading[1].length, text: heading[2] }
     }
-    const item = line.match(/^\s*([~+x!\-])\s+(.*)$/)
+    // «-» в конце класса символов экранировать не нужно
+    const item = line.match(/^\s*([~+x!-])\s+(.*)$/)
     if (item) {
       return { kind: 'item' as const, text: item[2], status: SYMBOL_STATUS[item[1]] as ChecklistLine['status'] }
     }

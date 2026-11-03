@@ -85,6 +85,8 @@ export function RunLogPanel({ code }: { code: string }) {
   useEffect(() => {
     const t = setInterval(reloadRuns, 5000)
     return () => clearInterval(t)
+    // reloadRuns пересоздаётся каждым рендером — интервал привязан к code
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code])
 
   // активный прогон: SSE; ошибка/закрытие → поллинг раз в 2 с

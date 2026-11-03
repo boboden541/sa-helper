@@ -17,10 +17,6 @@ const RUNNER_LABELS: [string, string][] = [
   ['human', 'Человек'], ['agent', 'Агент'], ['auto', 'Автомат'], ['auto_or_agent', 'Автомат или агент'],
 ]
 
-function slugify(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/_{2,}/g, '_').replace(/^_|_$/g, '') || 'new_status'
-}
-
 function posFor(i: number): { x: number; y: number } {
   return { x: 30 + (i % 4) * 230, y: 30 + Math.floor(i / 4) * 140 }
 }
@@ -33,7 +29,8 @@ export function FlowEditor({ reload }: { reload: () => void }) {
   const [sel, setSel] = useState<{ kind: 'status' | 'edge'; id: string } | null>(null)
   const [dirty, setDirty] = useState(false)
   const [note, setNote] = useState<{ text: string; bad: boolean } | null>(null)
-  const [zoom, setZoom] = useState(1)
+  // масштаб зафиксирован (1): зум-контролов в редакторе пока нет
+  const [zoom] = useState(1)
   const [columns, setColumns] = useState<{ id: string; label: string }[]>([])
   const [newColName, setNewColName] = useState('')
   const [newColFor, setNewColFor] = useState<string | null>(null)

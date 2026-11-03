@@ -4,7 +4,7 @@
 
 import { useEffect, useState } from 'react'
 import { parseChecklist, serializeChecklist, type ChecklistLine } from '../../../shared/checklist'
-import { xIcon } from '../../../shared/refs'
+import { XIcon } from '../../../shared/chips'
 import { toast } from '../../../shared/toast'
 import { PENCIL } from './common'
 
@@ -78,7 +78,7 @@ export function ChecklistBlock({ code, kind, title }: { code: string; kind: stri
                 <span className={`cl-h${l.level ?? 1}`}>{'#'.repeat(l.level ?? 1)} {l.text}</span>
               )}
               <button className="cl-x" onClick={() => void save(lines.filter((_, i) => i !== idx))}>
-                <span dangerouslySetInnerHTML={{ __html: xIcon }} />
+                <span><XIcon /></span>
               </button>
             </div>
           ))}

@@ -15,7 +15,8 @@ import { PrioBadge, StChip } from '../../shared/chips'
 import { pushUndo } from '../../shared/undo'
 import { toast } from '../../shared/toast'
 import { ColmapPanel } from './ColmapPanel'
-import { STATUS_COLORS, TaskCardView } from './TaskCard'
+import { TaskCardView } from './TaskCard'
+import { STATUS_COLORS } from './dndColors'
 import type { LiveTask } from '../../shared/live'
 
 interface Column { id: string; label: string; color: string; position: number }
@@ -312,7 +313,8 @@ async function applyDrop(code: string, colId: string, columnLabel: string,
   const result = await api.transition(code, candidate)
   if (!result.applied) toast(`Переход не применён: ${result.reason}`, 'bad')
   else {
-    toast(`<b>${code}</b>: перевод в «${columnLabel}»`, 'ok')
+    // тост — структурированными данными: code из API больше не вклеивается в html
+    toast({ code, text: `: перевод в «${columnLabel}»` }, 'ok')
     pushUndo({
       label: `Перевод ${code}`,
       undo: async () => {

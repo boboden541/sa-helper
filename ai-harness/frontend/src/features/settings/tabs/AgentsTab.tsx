@@ -239,7 +239,7 @@ function AgCellPopover({ statusKey, people, entries, defaultMode, onApply }: {
           <div className="edit-actions">
             <button className="btn small primary" onClick={() => {
               onApply(Object.entries(picked).filter(([, on]) => on)
-                .map(([userId], i) => ({ userId, mode: defaultMode })))
+                .map(([userId]) => ({ userId, mode: defaultMode })))
               setOpen(false)
             }}>Применить</button>
             <button className="btn small" onClick={() => setOpen(false)}>Отмена</button>

@@ -7,8 +7,8 @@
 
 import { useEffect, useState } from 'react'
 import { api, type TaskCard } from '../../api/client'
-import { fmtTokens } from '../../shared/live'
-import { xIcon, S_LABEL } from '../../shared/refs'
+import { S_LABEL } from '../../shared/refs'
+import { XIcon } from '../../shared/chips'
 import { toast } from '../../shared/toast'
 import { TaskHead } from './parts/TaskHead'
 import { TransBlock } from './parts/TransBlock'
@@ -50,16 +50,12 @@ function TaskDrawer({ code }: { code: string }) {
           <span className="crumb">Проект · <b>{code}</b></span>
           <span className="sp" />
           <button className="btn small" onClick={() => { window.location.hash = `#${code}/page` }}>Полная страница</button>
-          <button className="icon-btn" aria-label="Закрыть" onClick={() => { window.location.hash = '#board' }}>{xIconHtml()}</button>
+          <button className="icon-btn" aria-label="Закрыть" onClick={() => { window.location.hash = '#board' }}><span><XIcon /></span></button>
         </div>
         <div className="drawer-body"><TaskBody code={code} /></div>
       </aside>
     </>
   )
-}
-
-function xIconHtml() {
-  return <span dangerouslySetInnerHTML={{ __html: xIcon }} />
 }
 
 function TaskFullPage({ code }: { code: string }) {
@@ -118,6 +114,8 @@ function TaskBody({ code }: { code: string }) {
     })
     es.onerror = () => { /* браузер переподключится сам */ }
     return () => es.close()
+    // reload пересоздаётся каждым рендером — SSE-поток живёт по code
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code])
 
   if (!card) return <div className="empty"><b>Загрузка…</b></div>

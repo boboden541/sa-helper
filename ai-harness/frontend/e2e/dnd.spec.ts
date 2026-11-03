@@ -1,14 +1,17 @@
 // DnD: перетаскивание карточки меняет статус (HTML5 drag, как в макете)
 import { expect, test } from '@playwright/test'
 
+// Адрес стека — как в playwright.config.ts (baseURL): docker :8088 или preview :4173
+const BASE = process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:8088'
+
 test('DnD: карточка из «На рассмотрении» в «Бэклог» меняет статус', async ({ page }) => {
   // самодостаточно: создаём задачу в pending через API
-  const res = await page.request.post('http://localhost:8088/api/v1/tasks', {
+  const res = await page.request.post(`${BASE}/api/v1/tasks`, {
     data: { projectId: 'AH', type: 'common_task', title: 'E2E DnD ' + Date.now(),
       priority: 'medium', authorTag: 'by_human' },
   })
   const { code } = await res.json()
-  await page.goto('http://localhost:8088/#board')
+  await page.goto(`${BASE}/#board`)
   const card = page.locator(`.lane-cells .card[data-code="${code}"]`)
   await expect(card).toBeVisible()
 
@@ -29,18 +32,18 @@ test('DnD: карточка из «На рассмотрении» в «Бэкл
   await page.waitForTimeout(200)
   await page.mouse.up()
   await expect.poll(async () => {
-    const r = await page.request.get(`http://localhost:8088/api/v1/tasks/${code}`)
+    const r = await page.request.get(`${BASE}/api/v1/tasks/${code}`)
     return (await r.json()).statusKey
   }, { timeout: 8000 }).toBe('todo')
 })
 
 test('DnD: запрещённая колонка не принимает карточку', async ({ page }) => {
-  const res = await page.request.post('http://localhost:8088/api/v1/tasks', {
+  const res = await page.request.post(`${BASE}/api/v1/tasks`, {
     data: { projectId: 'AH', type: 'common_task', title: 'E2E DnD deny ' + Date.now(),
       priority: 'medium', authorTag: 'by_human' },
   })
   const { code } = await res.json()
-  await page.goto('http://localhost:8088/#board')
+  await page.goto(`${BASE}/#board`)
   const card = page.locator(`.lane-cells .card[data-code="${code}"]`)
   await expect(card).toBeVisible()
   // pending → Готово запрещено (нет ребра); скролл обязателен — см. выше
@@ -49,7 +52,7 @@ test('DnD: запрещённая колонка не принимает кар�
   await done.scrollIntoViewIfNeeded()
   await card.dragTo(done)
   await expect.poll(async () => {
-    const r = await page.request.get(`http://localhost:8088/api/v1/tasks/${code}`)
+    const r = await page.request.get(`${BASE}/api/v1/tasks/${code}`)
     return (await r.json()).statusKey
   }, { timeout: 5000 }).toBe('pending')
 })

@@ -36,7 +36,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
     const err = new Error(body.message || `HTTP ${res.status}`) as Error & { tech?: string; status?: number }
-    err.tech = body.techDetail ?? body.techDetail
+    err.tech = body.techDetail
     err.status = res.status
     throw err
   }

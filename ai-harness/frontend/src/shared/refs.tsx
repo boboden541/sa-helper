@@ -1,4 +1,6 @@
-// Справочники и бейджи — дословный порт design_mockup/app.js:19-42, 518-525.
+// Справочники — дословный порт design_mockup/app.js:19-42, 518-525.
+// Прежние строковые хелперы чипов (stChip / prioBadge / typeChip / tagHtml / xIcon)
+// удалены: единая реализация — React-чипы в shared/chips.tsx, тот же DOM.
 
 export const TYPE: Record<string, { label: string; c: string }> = {
   story: { label: 'История', c: '#7d4fd1' },
@@ -38,33 +40,3 @@ export const PRIO: Record<string, { label: string; c: string; lvl: number }> = {
   high: { label: 'Высокий', c: '#cf4436', lvl: 3 },
   critical: { label: 'Критический', c: '#cf4436', lvl: 4 },
 }
-
-export function esc(s: string): string {
-  return (s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-
-function prioSvg(p: string): string {
-  const c = `fill="none" stroke="${PRIO[p]?.c ?? '#8792a3'}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"`
-  if (p === 'critical')
-    return `<svg width="13" height="13" viewBox="0 0 14 14"><path d="M3 12.5l4-4 4 4M3 7.5l4-4 4 4" ${c}/></svg>`
-  if (p === 'high')
-    return `<svg width="13" height="13" viewBox="0 0 14 14"><path d="M3 11.5l4-7 4 7" ${c}/></svg>`
-  if (p === 'low')
-    return `<svg width="13" height="13" viewBox="0 0 14 14"><path d="M3 2.5l4 7 4-7" ${c}/></svg>`
-  return `<svg width="13" height="13" viewBox="0 0 14 14"><path d="M3 5.5h8M3 8.5h8" ${c}/></svg>`
-}
-
-export const prioBadge = (p: string, withLabel?: boolean): string =>
-  `<span class="prio ${p}" style="--pc:${PRIO[p]?.c ?? '#8792a3'}" title="Приоритет: ${PRIO[p]?.label ?? p}">${prioSvg(p)}${withLabel ? `<span>${PRIO[p]?.label ?? p}</span>` : ''}</span>`
-
-export const typeChip = (t: string): string =>
-  `<span class="type-chip" style="--tc:${TYPE[t]?.c ?? '#8792a3'}">${TYPE[t]?.label ?? t}</span>`
-
-export const stChip = (st: string): string =>
-  `<span class="st-chip" style="--st:${SC[st] ?? '#8792a3'}"><span class="sdot"></span>${S_LABEL[st] ?? st}</span>`
-
-export const tagHtml = (x: string): string =>
-  `<span class="tag ${x === 'by_human' || x === 'by_ai' ? 'sys' : ''}">#${esc(x)}</span>`
-
-export const xIcon =
-  '<svg width="12" height="12" viewBox="0 0 12 12"><path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>'

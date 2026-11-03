@@ -2,7 +2,6 @@
 // и markdown-ответы (решение владельца 28.10.2026).
 
 import { useEffect, useRef, useState } from 'react'
-import { api } from '../../api/client'
 import { renderMarkdown } from '../../shared/markdown'
 
 interface Msg { role: 'user' | 'eve'; text: string; intent?: { kind: string; task: string; to: string } }

@@ -1,6 +1,7 @@
 // Разбивка расхода токенов (фича 30.10.2026): клик по сумме раскрывает
 // блок «вход / выход / кэш». Сумма не меняется — раскрывается состав.
-import { useState } from 'react'
+// Переключение у каждого места своё (карточка/список/шапка), хук useTokToggle
+// удалён как неиспользуемый.
 
 import { fmtTokens, type LiveTask } from './live'
 
@@ -19,11 +20,4 @@ export function partsOf(live: LiveTask | null | undefined,
                         input = 0, output = 0, cache = 0): [number, number, number] {
   if (live && live.total) return [live.input, live.output, live.cache]
   return [input, output, cache]
-}
-
-/** Клик-переключатель разбивки: оборачивает сумму, возвращает [элемент, блок]. */
-export function useTokToggle() {
-  const [open, setOpen] = useState(false)
-  const toggle = (e: React.MouseEvent) => { e.stopPropagation(); setOpen((v) => !v) }
-  return [open, toggle] as const
 }

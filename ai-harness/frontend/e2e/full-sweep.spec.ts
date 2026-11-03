@@ -3,6 +3,10 @@
 
 import { expect, test } from '@playwright/test'
 
+// Адрес стека — как в playwright.config.ts (baseURL): по умолчанию DOCKER :8088,
+// USE_PREVIEW=1 переключает на preview :4173.
+const BASE = process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:8088'
+
 const badResponses: { url: string; status: number }[] = []
 
 test.beforeEach(async ({ page }) => {
@@ -10,10 +14,10 @@ test.beforeEach(async ({ page }) => {
   page.on('response', (r) => {
     if (r.url().includes('/api/') && r.status() >= 400) {
       // 401 при проверке невалидного токена — ожидаемый сценарий двухслойной ошибки
-      badResponses.push({ url: r.url().replace('http://localhost:8088', ''), status: r.status() })
+      badResponses.push({ url: r.url().replace(BASE, ''), status: r.status() })
     }
   })
-  await page.goto('http://localhost:8088/#board')
+  await page.goto('/#board')
   await page.waitForSelector('.card', { timeout: 10000 })
 })
 
@@ -96,8 +100,9 @@ test('08 Карточка: форс-переход без причины нев�
   const created = await api('/api/v1/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ projectId: 'AH', type: 'common_task', title: 'E2E форс ' + Date.now(),
       priority: 'medium', authorTag: 'by_human' }) })
-  const code = created.code ?? created.code
-  await page.goto(`http://localhost:8088/#${code}`)
+  // опечатка (created.code ?? created.code): TaskOut отвечает только полем code
+  const code = created.code as string
+  await page.goto(`/#${code}`)
   await page.waitForSelector('.drawer.show .force')
   await page.locator('.drawer.show .force summary').click()
   await expect(page.locator('.drawer.show .force .fr button')).toBeDisabled()
@@ -137,7 +142,7 @@ test('11 Eve: фраза → намерение → «да» → переход 
 })
 
 test('12 Настройки Status-flow: граф (fs-card), переключение на таблицу (6 колонок)', async ({ page }) => {
-  await page.goto('http://localhost:8088/#settings/flow')
+  await page.goto('/#settings/flow')
   await page.waitForSelector('.set-tabs')
 
   await expect(page.locator('.fs-card').first()).toBeVisible()
@@ -152,7 +157,7 @@ test('12 Настройки Status-flow: граф (fs-card), переключе�
 })
 
 test('13 Status-flow: поповер добавления перехода с «Кто запускает»', async ({ page }) => {
-  await page.goto('http://localhost:8088/#settings/flow')
+  await page.goto('/#settings/flow')
   await page.waitForSelector('.set-tabs')
 
   await page.locator('.mode-tabs button', { hasText: 'Таблица' }).click()
@@ -164,7 +169,7 @@ test('13 Status-flow: поповер добавления перехода с «
 })
 
 test('14 Настройки Проекты: создание, архив, удаление — полный цикл', async ({ page }) => {
-  await page.goto('http://localhost:8088/#settings/projects')
+  await page.goto('/#settings/projects')
   await page.waitForSelector('.set-tabs')
 
   await page.locator('button', { hasText: '＋ Проект' }).click()
@@ -183,7 +188,7 @@ test('14 Настройки Проекты: создание, архив, уда
 })
 
 test('15 Провайдеры: пресеты подставляют URL; check невалидного токена — двухслойная ошибка', async ({ page }) => {
-  await page.goto('http://localhost:8088/#settings/providers')
+  await page.goto('/#settings/providers')
   await page.waitForSelector('.prov-form')
 
   const presetSelect = page.locator('.prov-form select').first()
@@ -199,7 +204,7 @@ test('15 Провайдеры: пресеты подставляют URL; check 
 })
 
 test('16 Провайдеры: сохранение подключения с валидным токеном', async ({ page }) => {
-  await page.goto('http://localhost:8088/#settings/providers')
+  await page.goto('/#settings/providers')
   await page.waitForSelector('.prov-form')
 
   const uniq = String(Date.now()).slice(-6)
@@ -215,7 +220,7 @@ test('16 Провайдеры: сохранение подключения с в
 })
 
 test('17 Агенты: сетка 7 предустановленных, клонирование', async ({ page }) => {
-  await page.goto('http://localhost:8088/#settings/agents')
+  await page.goto('/#settings/agents')
   await page.waitForSelector('.agents-grid')
 
   await expect(page.locator('.agent-card').nth(6)).toBeVisible()
@@ -224,7 +229,7 @@ test('17 Агенты: сетка 7 предустановленных, клон
 })
 
 test('18 Матрица: чекбоксы-поповер, человек на backlog → 200', async ({ page }) => {
-  await page.goto('http://localhost:8088/#settings/agents')
+  await page.goto('/#settings/agents')
   await page.waitForSelector('table.mx')
 
   await page.locator('.q-sec', { hasText: 'Матрица' }).waitFor()
@@ -238,27 +243,27 @@ test('18 Матрица: чекбоксы-поповер, человек на ba
 })
 
 test('19 Очередь и Журнал: рендерятся', async ({ page }) => {
-  await page.goto('http://localhost:8088/#settings/queue')
+  await page.goto('/#settings/queue')
   await page.waitForSelector('.q-sec')
 
   await expect(page.locator('.set-body .q-sec').first()).toBeVisible()
-  await page.goto('http://localhost:8088/#settings/journal')
+  await page.goto('/#settings/journal')
   await page.waitForSelector('.set-body')
   await expect(page.locator('.set-tab.active')).toContainText('Журнал')
 })
 
 test('20 Deep links и темы: #list, #dark, #settings/flow, #eve', async ({ page }) => {
-  await page.goto('http://localhost:8088/#list')
+  await page.goto('/#list')
   await expect(page.locator('table.tasks')).toBeVisible()
-  await page.goto('http://localhost:8088/#dark')
+  await page.goto('/#dark')
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
-  await page.goto('http://localhost:8088/#settings/flow')
+  await page.goto('/#settings/flow')
   await expect(page.locator('.set-tab.active')).toContainText('Status-flow')
 })
 
 test('21 Полный прогон без 5xx от backend', async ({ page }) => {
   for (const tab of ['flow', 'projects', 'providers', 'agents', 'queue', 'journal']) {
-    await page.goto(`http://localhost:8088/#settings/${tab}`)
+    await page.goto(`/#settings/${tab}`)
     await page.waitForSelector('.set-body')
     await page.waitForTimeout(400)
   }
@@ -268,6 +273,6 @@ test('21 Полный прогон без 5xx от backend', async ({ page }) =>
 async function api(path: string, init?: RequestInit): Promise<Record<string, unknown>> {
   // init обязателен: сценарий 08 делает POST создания — раньше второй аргумент
   // отбрасывался, шел GET списка, и задача искалась как #undefined
-  const res = await fetch('http://localhost:8088' + path, init)
+  const res = await fetch(BASE + path, init)
   return res.json()
 }

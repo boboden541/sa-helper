@@ -4,7 +4,8 @@
 
 import { useState } from 'react'
 import { api, type TaskCard } from '../../../api/client'
-import { S_LABEL, xIcon } from '../../../shared/refs'
+import { S_LABEL } from '../../../shared/refs'
+import { XIcon } from '../../../shared/chips'
 import { toast } from '../../../shared/toast'
 
 export function TransBlock({ code, card, L, reload }: {
@@ -23,7 +24,7 @@ export function TransBlock({ code, card, L, reload }: {
         {card.gate?.allowed.map((to) => (
           <button key={to} className="btn" onClick={async () => {
             const r = await api.transition(code, to)
-            if (!r.applied) toast(r.reason ?? 'отказ', 'bad'); else toast(`<b>${code}</b> → ${L(to)}`, 'ok')
+            if (!r.applied) toast(r.reason ?? 'отказ', 'bad'); else toast({ code, text: ` → ${L(to)}` }, 'ok')
             reload()
           }}>{L(to)}</button>
         ))}
@@ -31,7 +32,7 @@ export function TransBlock({ code, card, L, reload }: {
       {card.gate && card.gate.denied.length > 0 && (
         <div className="trans-reasons">
           {card.gate.denied.map((d) => (
-            <div key={d.to}><span dangerouslySetInnerHTML={{ __html: xIcon }} />
+            <div key={d.to}><span><XIcon /></span>
               {L(d.to)} — {d.reason}</div>
           ))}
         </div>
@@ -49,7 +50,7 @@ export function TransBlock({ code, card, L, reload }: {
             <button className="btn danger" disabled={!forceReason.trim() || !forceTo}
               onClick={async () => {
                 await api.force(code, forceTo, forceReason)
-                toast(`<b>${code}</b>: форс → ${L(forceTo)}`, 'auto')
+                toast({ code, text: `: форс → ${L(forceTo)}` }, 'auto')
                 setForceReason(''); setForceTo(''); reload()
               }}>Форс-переход</button>
             <span className="note">Пишется в хроники как «форс · ручное вмешательство»</span>

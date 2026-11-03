@@ -5,7 +5,7 @@
 import { useEffect, useState } from 'react'
 import { api, type TaskCard } from '../../../api/client'
 import { fmtTokens } from '../../../shared/live'
-import { prioBadge, stChip, tagHtml, typeChip } from '../../../shared/refs'
+import { PrioBadge, StChip, TagChip, TypeChip } from '../../../shared/chips'
 import { TokSplit } from '../../../shared/tokens'
 import { toast } from '../../../shared/toast'
 import { PENCIL, type LiveRun } from './common'
@@ -47,14 +47,14 @@ export function TaskHead({ code, card, liveRun, reload }: {
             </h2>}
       </div>
       <div className="meta-row">
-        <span dangerouslySetInnerHTML={{ __html: stChip(card.statusKey) }} />
+        <StChip st={card.statusKey} />
         <span className="pop">
           <button className="meta-item" onClick={(e) => {
             const menu = e.currentTarget.parentElement?.querySelector('.prio-menu') as HTMLElement
             if (menu) menu.hidden = !menu.hidden
           }} style={{ cursor: 'pointer' }}>
             <span className="lbl">Приоритет</span>
-            <span dangerouslySetInnerHTML={{ __html: prioBadge(card.priority, true) }} />
+            <PrioBadge p={card.priority} withLabel />
           </button>
           <div className="prio-menu" hidden>
             {(['low', 'medium', 'high', 'critical'] as const).map((p) => (
@@ -66,7 +66,7 @@ export function TaskHead({ code, card, liveRun, reload }: {
                 toast(`Приоритет → ${p}`, 'ok')
                 reload()
               }}>
-                <span dangerouslySetInnerHTML={{ __html: prioBadge(p, true) }} />
+                <PrioBadge p={p} withLabel />
                 {card.priority === p && <span className="d">✓</span>}
               </button>
             ))}
@@ -99,7 +99,7 @@ export function TaskHead({ code, card, liveRun, reload }: {
         )}
         <span className="meta-item"><span className="lbl">Создана</span> <time>{card.createdAt?.slice(0, 16).replace('T', ' ')}</time></span>
         <span className="meta-item"><span className="lbl">Обновлена</span> <time>{card.updatedAt?.slice(0, 16).replace('T', ' ')}</time></span>
-        <span className="meta-item" dangerouslySetInnerHTML={{ __html: typeChip(card.type) }} />
+        <span className="meta-item"><TypeChip t={card.type} /></span>
         {liveRun
           ? <span className="meta-item live-run" title="Агент работает прямо сейчас (живой поток)">
               <span className={`dot ${liveRun.stale ? '' : 'pulse'}`} style={{ background: liveRun.stale ? '#c07d1e' : '#25935b' }} />
@@ -119,7 +119,7 @@ export function TaskHead({ code, card, liveRun, reload }: {
         </div>
       )}
       <div className="card-tags mt8">
-        {(card.tags ?? []).map((t) => <span key={t} dangerouslySetInnerHTML={{ __html: tagHtml(t) }} />)}
+        {(card.tags ?? []).map((t) => <TagChip key={t} tag={t} />)}
         {!tagsEditing && (
           <button className="pencil show" title="Редактировать теги"
             dangerouslySetInnerHTML={{ __html: PENCIL }} onClick={() => { setTagsDraft([...(card.tags ?? [])]); setTagsEditing(true) }} />

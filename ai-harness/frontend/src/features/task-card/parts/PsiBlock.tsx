@@ -25,7 +25,6 @@ export function PsiBlock({ code, reload, psiPath }: { code: string; reload: () =
       <div className="blk-h"><h3>ПСИ · приёмо-сдаточные испытания</h3></div>
       <div className="psi-doc">
         <div className="psi-head"><b>ПСИ</b> · пунктов: {doc.items.filter((i) => i.kind === 'item').length} · протоколов: {versions}</div>
-        {doc.items.filter((i) => i.kind === 'heading').length > 0 && null}
         {doc.items.filter((i) => i.kind === 'item').map((i) => (
           <div key={i.position} className={`psi-item ${runMode ? 'run' : ''}`}>
             <span className="n num">{i.position}.</span>
@@ -47,7 +46,7 @@ export function PsiBlock({ code, reload, psiPath }: { code: string; reload: () =
               )}
               {!runMode && i.actual && <span className={`fact ${i.status === 'failed' ? '' : 'ok'}`}>Факт: {i.actual}</span>}
             </span>
-            <span className={`badge ${''}`} style={{ ['--bc' as string]: i.status === 'failed' ? '#cf4436' : i.status === 'done' ? '#25935b' : '#8792a3' }}>
+            <span className="badge" style={{ ['--bc' as string]: i.status === 'failed' ? '#cf4436' : i.status === 'done' ? '#25935b' : '#8792a3' }}>
               {i.status === 'done' ? 'пройден' : i.status === 'failed' ? 'не пройден' : 'не прогонялся'}
             </span>
           </div>

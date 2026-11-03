@@ -18,7 +18,6 @@ export interface LiveTask {
 type Listener = () => void
 const listeners = new Set<Listener>()
 let snapshot: Record<string, LiveTask> = {}
-let connected = false
 
 function apply(tasks: LiveTask[]) {
   const next: Record<string, LiveTask> = {}
@@ -28,7 +27,6 @@ function apply(tasks: LiveTask[]) {
 }
 
 function startPolling() {
-  connected = false
   listeners.forEach((fn) => fn())
   const tick = () => {
     void fetch('/api/v1/queue', { credentials: 'same-origin' })
@@ -50,7 +48,7 @@ function start() {
   started = true
   const connect = () => {
     const es = new EventSource('/api/v1/activity/stream')
-    es.onopen = () => { connected = true; listeners.forEach((fn) => fn()) }
+    es.onopen = () => { listeners.forEach((fn) => fn()) }
     es.onmessage = (e) => {
       try {
         apply((JSON.parse(e.data) as { tasks: LiveTask[] }).tasks)

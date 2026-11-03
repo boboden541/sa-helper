@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from 'react'
 import { api } from '../../../api/client'
-import { xIcon } from '../../../shared/refs'
+import { XIcon } from '../../../shared/chips'
 import { toast } from '../../../shared/toast'
 
 export function RelationsBlock({ code, relations, reload }: {
@@ -40,7 +40,7 @@ export function RelationsBlock({ code, relations, reload }: {
           <button className="cl-x" title="Убрать связь" onClick={(e) => {
             e.stopPropagation()
             void api.delRelation(code, r.id).then(reload)
-          }}><span dangerouslySetInnerHTML={{ __html: xIcon }} /></button>
+          }}><span><XIcon /></span></button>
         </div>
       ))}
       {!relations?.length && !adding && (

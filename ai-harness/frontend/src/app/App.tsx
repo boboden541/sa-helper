@@ -41,7 +41,7 @@ export function App() {
     }
     setCmdOpen((v) => !v)
   }
-  const runCommand = (name: string, description?: string | null) => {
+  const runCommand = (name: string) => {
     setCmdOpen(false)
     void api.toolContent('command', name).then((t) => {
       setCreatePrefill({ title: name, descriptionMd: t.content })
@@ -150,7 +150,7 @@ export function App() {
           <div className="proj-drop" style={{ right: 0 }}>
             {cmds.length === 0 && <div className="muted" style={{ fontSize: 12 }}>Реестр пуст — просканируйте папку в «Настройки → Инструменты»</div>}
             {cmds.map((c) => (
-              <div key={c.name} className="rel" onClick={() => runCommand(c.name, c.description)}>
+              <div key={c.name} className="rel" onClick={() => runCommand(c.name)}>
                 <span className="code">/{c.name}</span>
                 <span className="rt">{(c.description ?? '').slice(0, 70)}</span>
               </div>
@@ -291,7 +291,7 @@ export function App() {
       )}
       <div className="toasts">
         {currentToasts().map((t) => (
-          <div key={t.id} className={`toast ${t.kind}`} dangerouslySetInnerHTML={{ __html: t.html }} />
+          <div key={t.id} className={`toast ${t.kind}`}>{t.code && <b>{t.code}</b>}{t.text}</div>
         ))}
       </div>
     </div>

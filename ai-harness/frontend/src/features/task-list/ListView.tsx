@@ -1,9 +1,10 @@
-// Список — table.tasks из макета (code, tt, type-chip, st-chip, prioBadge, who)
+// Список — table.tasks из макета (code, tt, TypeChip, StChip, PrioBadge, who):
+// чипы — React-компоненты из shared/chips.tsx, тот же DOM, что у макетных строк
 
 import { useSyncExternalStore, useState } from 'react'
 import { TokSplit, partsOf } from '../../shared/tokens'
 import { api, type TaskCard } from '../../api/client'
-import { prioBadge, stChip, tagHtml, typeChip } from '../../shared/refs'
+import { PrioBadge, StChip, TagChip, TypeChip } from '../../shared/chips'
 import { currentLive, fmtTokens, subscribeLive } from '../../shared/live'
 
 export function ListView({ tasks }: { tasks: TaskCard[] }) {
@@ -38,11 +39,11 @@ export function ListView({ tasks }: { tasks: TaskCard[] }) {
                   </span>
                 ) : null}
               </td>
-              <td dangerouslySetInnerHTML={{ __html: typeChip(t.type) }} />
-              <td dangerouslySetInnerHTML={{ __html: stChip(t.statusKey) }} />
-              <td dangerouslySetInnerHTML={{ __html: prioBadge(t.priority, true) }} />
+              <td><TypeChip t={t.type} /></td>
+              <td><StChip st={t.statusKey} /></td>
+              <td><PrioBadge p={t.priority} withLabel /></td>
               <td><span className="who">{(t.tags ?? []).map((x) => (
-                <span key={x} dangerouslySetInnerHTML={{ __html: tagHtml(x) }} />
+                <TagChip key={x} tag={x} />
               ))}</span></td>
             </tr>
           ))}
