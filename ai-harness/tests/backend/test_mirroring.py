@@ -140,7 +140,6 @@ async def test_m2_from_blocked_requires_m5(session, actor_id):
     blocked» каждый тик — blocked → qa ready → in testing → blocked, 1300
     записей в хронике за ночь. Гейт: из blocked M2 поднимает историю только
     когда блокер был «детский» (M5), т.е. blocked_rule == 'M5'."""
-    from repository.models import Task as _T
 
     actor = await session.get(User, actor_id)
     story = await _story(session, actor)

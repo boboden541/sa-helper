@@ -1,0 +1,27 @@
+#!/bin/sh
+# Предпуш-барьер (решение владельца 03.11.2026): пуш невозможен, пока
+# линтеры или тесты красные. Прогон зеркалит CI (.github/workflows/ci.yml);
+# e2e Playwright не включён — требует поднятого docker-стека.
+# Работает и на Windows (Git Bash): путь к python берётся из .venv обеих раскладок.
+set -e
+cd "$(git rev-parse --show-toplevel)"
+
+ROOT="$(pwd)"
+PY="$ROOT/ai-harness/.venv/bin/python"
+[ -x "$PY" ] || PY="$ROOT/ai-harness/.venv/Scripts/python.exe"
+[ -x "$PY" ] || PY="python3"
+
+echo "==> ruff (ai-harness)"
+"$PY" -m ruff check ai-harness
+
+echo "==> pytest (ai-harness/tests)"
+cd "$ROOT/ai-harness" && "$PY" -m pytest tests -q
+cd "$ROOT"
+
+echo "==> tsc + eslint + vitest (frontend)"
+cd ai-harness/frontend
+npx tsc -b
+npx eslint .
+npx vitest run
+
+echo "OK — проверки пройдены, пуш разрешён"

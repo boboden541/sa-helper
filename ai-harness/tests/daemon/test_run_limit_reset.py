@@ -8,9 +8,9 @@
 
 import sqlalchemy as sa
 from repository.models import Task, User
+from usecase.task.create_task import CreateTaskInput, create_task
 
 from tests.daemon.test_heartbeat_retry import _ready_task
-from usecase.task.create_task import CreateTaskInput, create_task
 
 
 def _inp(**kw):
@@ -99,9 +99,8 @@ async def test_budget_counts_real_runs_only(_test_db):
 
 async def test_budget_respects_runs_reset_at(_test_db):
     """Прогоны до runs_reset_at (выход из blocked) в бюджет не входят."""
-    from tests.daemon.test_heartbeat_retry import _maker
-
     from daemon.scheduler.scheduler import Daemon
+    from tests.daemon.test_heartbeat_retry import _maker
 
     agent_id, code = await _ready_task(_test_db)
     maker = _maker(_test_db)
@@ -133,9 +132,8 @@ async def test_stale_psi_plan_skips_retry_pause(_test_db):
     """План ПСИ устарел (эталон v2 > заверка v1) на истории в in_testing
     снимает паузу прогонов: составитель запускается на следующем тике,
     а не через 15 минут (версионирование эталона, 03.11.2026)."""
-    from tests.daemon.test_heartbeat_retry import _maker
-
     from daemon.scheduler.scheduler import Daemon
+    from tests.daemon.test_heartbeat_retry import _maker
 
     async with _maker(_test_db)() as s:
         await s.execute(sa.text(
