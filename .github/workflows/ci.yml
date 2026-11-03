@@ -4,11 +4,14 @@
 # docker-стек (postgres + backend + frontend на :8088) и установленные браузеры
 # (npx playwright install) — это отдельная инфраструктура, поэтому сквозной
 # прогон остаётся локальным (python scripts/dev.py + playwright).
+#
+# Триггер — ЛЮБОЙ пуш (не только main): защита ветки main (ruleset, required
+# checks) требует, чтобы проверки коммита уже прошли ДО пула в main; рабочий
+# процесс — пуш в harness_v2 (CI зелёный) → тот же SHA в main принимается.
 name: CI
 
 on:
   push:
-    branches: [main]
   pull_request:
 
 concurrency:
@@ -61,13 +64,16 @@ jobs:
         run: ruff check ai-harness
 
       # Тесты сами создают тестовую БД, накатывают миграции и заливают сид
-      # (tests/conftest.py, фикстура _test_db)
+      # (tests/conftest.py, фикстура _test_db). ОБЯЗАТЕЛЬНО из ai-harness/:
+      # rootdir по pyproject.toml, иначе импорты разваливаются (дефект
+      # первых CI-прогонов; та же грабля в pre-push хуке)
       - name: Тесты (pytest)
+        working-directory: ai-harness
         env:
           # Дефолт conftest'а смотрит на локальный docker compose (5433) —
           # в CI сервис постгреса тоже опубликован на 5433
           TEST_DATABASE_URL: postgresql+asyncpg://harness:harness@localhost:5433/ai_harness_test
-        run: pytest ai-harness/tests -q
+        run: pytest tests -q
 
   frontend:
     name: Frontend — tsc + eslint + vitest
