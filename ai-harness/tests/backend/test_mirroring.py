@@ -132,3 +132,45 @@ async def test_m4_cycle_limit(session, actor_id):
     assert story.status_key == "blocked"
     assert "цикл не сходится" in story.blocked_reason.lower()
     assert story.m4_count == 5
+
+
+async def test_m2_from_blocked_requires_m5(session, actor_id):
+    """Инцидент VITRINA-1 (ночь 02→03.11.2026): история, заблокированная по
+    своей вине (RUN_LIMIT/исчерпание попыток), воскресала правилом M2 «из
+    blocked» каждый тик — blocked → qa ready → in testing → blocked, 1300
+    записей в хронике за ночь. Гейт: из blocked M2 поднимает историю только
+    когда блокер был «детский» (M5), т.е. blocked_rule == 'M5'."""
+    from repository.models import Task as _T
+
+    actor = await session.get(User, actor_id)
+    story = await _story(session, actor)
+    child = await create_task(session, actor, _inp(story_code=story.code))
+    await _status(session, child.code, "done")
+    await recompute_story_mirroring(session, story)  # M1? нет: ребёнок done, история todo → None
+    story = await _refresh(session, story)
+    await session.execute(sa.update(Task).where(Task.id == story.id)
+                          .values(status_key="blocked", blocked_rule="RUN_LIMIT",
+                                  blocked_reason="исчерпан лимит прогонов"))
+    await session.commit()
+    story = await _refresh(session, story)
+
+    assert await recompute_story_mirroring(session, story) is None, \
+        "самоблок не воскресает M2"
+    story = await _refresh(session, story)
+    assert story.status_key == "blocked", "история остаётся в blocked"
+
+    # M1 из blocked по-прежнему работает: ребёнок в работе → in_progress
+    await _status(session, child.code, "in_progress")
+    rule = await recompute_story_mirroring(session, story)
+    story = await _refresh(session, story)
+    assert rule == "M1" and story.status_key == "in_progress"
+
+    # легитимный путь M2-из-blocked: блокер был M5, дети закрыты → qa_ready
+    story = await _refresh(session, story)
+    await session.execute(sa.update(Task).where(Task.id == story.id)
+                          .values(status_key="blocked", blocked_rule="M5"))
+    await session.commit()
+    await _status(session, child.code, "done")
+    rule = await recompute_story_mirroring(session, story)
+    story = await _refresh(session, story)
+    assert rule == "M2" and story.status_key == "qa_ready"

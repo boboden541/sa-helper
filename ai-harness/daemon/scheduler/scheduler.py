@@ -358,13 +358,23 @@ class Daemon:
         # счётчик прогонов задачи в целом: retry_count сбрасывается переходами,
         # поэтому цикл «разработка↔ревью» легально сжигал сотни прогонов
         # (VITRINA-35: 130). Пакетно, одним group-by.
+        # Инцидент VITRINA-1 (03.11.2026): считаем только «настоящие» прогоны —
+        # плановые смены сессии (soft_turns) и обрывы «задача ушла со статуса»
+        # (stale_status) не тратят бюджет; прогоны до последнего выхода из
+        # blocked (runs_reset_at — «человек разобрался») не считаются.
+        from repository.models import Task as _T
         from repository.models import TaskRun as _TR
 
         run_counts: dict = {}
         if rows:
             rc = (await session.execute(
                 sa.select(_TR.task_id, sa.func.count())
-                .where(_TR.task_id.in_([row.Task.id for row in rows]))
+                .join(_T, _T.id == _TR.task_id)
+                .where(_TR.task_id.in_([row.Task.id for row in rows]),
+                       sa.or_(_TR.reason_code.is_(None),
+                              _TR.reason_code.notin_(("soft_turns", "stale_status"))),
+                       sa.or_(_T.runs_reset_at.is_(None),
+                              _TR.started_at > _T.runs_reset_at))
                 .group_by(_TR.task_id))).all()
             run_counts = {str(tid): n for tid, n in rc}
 
@@ -457,7 +467,9 @@ class Daemon:
                     session, task, None,
                     f"Требуется участие человека: исчерпан лимит прогонов задачи "
                     f"({total_runs} из daemon.max_runs_per_task={max_n}) — цикл "
-                    f"разработки не сходится; проверьте ревью/тесты или поднимите лимит",
+                    f"разработки не сходится; проверьте ревью/тесты или поднимите лимит. "
+                    f"Верните задачу в нужный статус вручную — счётчик прогонов "
+                    f"сбросится автоматически",
                     subject_kind="auto", rule_code="RUN_LIMIT")
                 await raise_event(session, task.code, "cycle_not_converging",
                                   f"Задача {task.code}: {total_runs} прогонов — цикл не сходится")
@@ -484,6 +496,7 @@ class Daemon:
                     .params(tid=str(task.id)))).scalars().all()
                 cause_txt = ("; последние сбои: " + " | ".join(causes)) if causes else ""
                 task.status_key = "blocked"
+                task.blocked_rule = "AUTO_BLOCK"
                 task.blocked_reason = (
                     "Требуется участие человека: исчерпаны попытки "
                     f"({task.retry_count} из {max_attempts}) на статусе «{former}»."

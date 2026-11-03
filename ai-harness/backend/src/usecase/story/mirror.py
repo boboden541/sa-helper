@@ -21,7 +21,7 @@ async def recompute_story_mirroring(session: AsyncSession, story: Task) -> str |
     children = (await session.execute(
         sa.select(Task.status_key).where(Task.story_id == story.id)
     )).scalars().all()
-    rule = evaluate(story.status_key, list(children))
+    rule = evaluate(story.status_key, list(children), story.blocked_rule)
     if rule is None:
         return None
     rule_code, to_status = rule
@@ -44,6 +44,7 @@ async def apply_m4(session: AsyncSession, story: Task) -> None:
     story.m4_count += 1
     if story.m4_count >= limit:
         story.status_key = "blocked"
+        story.blocked_rule = "M4"
         story.blocked_reason = (
             f"Цикл не сходится: {story.m4_count} циклов доработки (лимит {limit}) — "
             "нужно участие человека")

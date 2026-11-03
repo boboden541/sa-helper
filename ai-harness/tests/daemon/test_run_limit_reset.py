@@ -1,0 +1,129 @@
+"""Сброс счётчика прогонов при выходе из blocked + семантика бюджета
+(инцидент VITRINA-1, ночь 02→03.11.2026).
+
+До фикса: 40 прогонов ПСИ-составителя (17 — плановые смены сессии) упирались
+в daemon.max_runs_per_task, задача блокировалась, а ручной выход из blocked
+не сбрасывал счётчик — вернуть задачу в работу было невозможно.
+"""
+
+import sqlalchemy as sa
+from repository.models import Task, User
+
+from tests.daemon.test_heartbeat_retry import _ready_task
+from usecase.task.create_task import CreateTaskInput, create_task
+
+
+def _inp(**kw):
+    base = dict(project_mnemonic="AH", type_key="story", title="Лимит прогонов",
+                priority="high", author_tag="by_human")
+    base.update(kw)
+    return CreateTaskInput(**base)
+
+
+async def _blocked_story(session, actor, holder: dict):
+    s = await create_task(session, actor, _inp())
+    holder["code"] = s.code
+    await session.execute(sa.update(Task).where(Task.code == s.code).values(
+        status_key="blocked", blocked_rule="RUN_LIMIT",
+        blocked_reason="исчерпан лимит прогонов", runs_reset_at=None))
+    await session.commit()
+
+
+async def test_human_leave_blocked_resets_budget(session, actor_id):
+    """Выход из blocked (человек) чистит blocked_reason/rule и ставит
+    runs_reset_at — бюджет daemon.max_runs_per_task начинается с нуля."""
+    actor = await session.get(User, actor_id)
+    holder: dict = {}
+    await _blocked_story(session, actor, holder)
+    from usecase.task.transition import apply_transition
+
+    await apply_transition(session, actor, holder["code"], "qa_ready")
+    task = (await session.execute(
+        sa.select(Task).where(Task.code == holder["code"]))).scalar_one()
+    assert task.status_key == "qa_ready"
+    assert task.blocked_reason is None and task.blocked_rule is None
+    assert task.runs_reset_at is not None, "бюджет прогонов сброшен"
+
+
+async def test_force_leave_blocked_resets_budget(session, actor_id):
+    actor = await session.get(User, actor_id)
+    holder: dict = {}
+    await _blocked_story(session, actor, holder)
+    from usecase.task.transition import apply_force
+
+    await apply_force(session, actor, holder["code"], "in_progress",
+                      "разобрался, возвращаю в работу")
+    task = (await session.execute(
+        sa.select(Task).where(Task.code == holder["code"]))).scalar_one()
+    assert task.status_key == "in_progress"
+    assert task.runs_reset_at is not None, "форс тоже сбрасывает бюджет"
+
+
+async def test_budget_counts_real_runs_only(_test_db):
+    """daemon.max_runs_per_task: плановые смены сессии (soft_turns) и обрывы
+    «задача ушла со статуса» (stale_status) бюджет не тратят; прогоны до
+    последнего выхода из blocked (runs_reset_at) не считаются."""
+    from tests.daemon.test_heartbeat_retry import _maker
+
+    agent_id, code = await _ready_task(_test_db)
+    maker = _maker(_test_db)
+    async with maker() as s:
+        task_id = (await s.execute(
+            sa.text("SELECT id FROM task WHERE code = :c"), {"c": code})).scalar_one()
+        await s.execute(sa.text(
+            "INSERT INTO task_run (id, task_id, agent_id, status_key, attempt_no, "
+            "finished_at, outcome, reason_code, started_at) "
+            "SELECT gen_random_uuid(), :t, :a, 'in_progress', 1, "
+            "now() - interval '2 hours', 'failed', 'soft_turns', now() - interval '2 hours'"),
+            {"t": str(task_id), "a": str(agent_id)})
+        await s.execute(sa.text(
+            "INSERT INTO task_run (id, task_id, agent_id, status_key, attempt_no, "
+            "finished_at, outcome, reason_code, started_at) "
+            "SELECT gen_random_uuid(), :t, :a, 'in_progress', 2, "
+            "now() - interval '2 hours', 'failed', 'denied_gate', now() - interval '2 hours'"),
+            {"t": str(task_id), "a": str(agent_id)})
+        await s.commit()
+        total = (await s.execute(sa.text(
+            "SELECT count(*) FROM task_run WHERE task_id = :t"), {"t": str(task_id)})).scalar_one()
+        assert total == 2, "самопроверка сидов"
+    from daemon.scheduler.scheduler import Daemon
+
+    daemon = Daemon(maker, runner=None)
+    cfg = {"daemon.max_runs_per_task": "2", "daemon.max_attempts": "3",
+           "daemon.max_parallel": "4", "daemon.timeout_start_seconds": "300",
+           "daemon.timeout_work_seconds": "1800", "daemon.retry_pauses_minutes": "1,5,15"}
+    async with maker() as s:
+        launched = await daemon._launch_ready(s, cfg)
+    assert launched == 1, ("счётчик sees только denied_gate (1 из 2): запуск есть; без фильтра soft_turns счёт был бы 2 из 2 — blocked")
+
+
+async def test_budget_respects_runs_reset_at(_test_db):
+    """Прогоны до runs_reset_at (выход из blocked) в бюджет не входят."""
+    from tests.daemon.test_heartbeat_retry import _maker
+
+    from daemon.scheduler.scheduler import Daemon
+
+    agent_id, code = await _ready_task(_test_db)
+    maker = _maker(_test_db)
+    async with maker() as s:
+        await s.execute(sa.text(
+            "UPDATE task SET runs_reset_at = now() - interval '1 hour' "
+            "WHERE code = :c"), {"c": code})
+        await s.execute(sa.text(
+            "INSERT INTO task_run (id, task_id, agent_id, status_key, attempt_no, "
+            "finished_at, outcome, reason_code, started_at) "
+            "SELECT gen_random_uuid(), id, :a, 'in_progress', 1, "
+            "now() - interval '2 hours', 'failed', 'denied_gate', "
+            "now() - interval '2 hours' FROM task WHERE code = :c"), {"a": str(agent_id), "c": code})
+        await s.commit()
+    daemon = Daemon(maker, runner=None)
+    cfg = {"daemon.max_runs_per_task": "1", "daemon.max_attempts": "3",
+           "daemon.max_parallel": "4", "daemon.timeout_start_seconds": "300",
+           "daemon.timeout_work_seconds": "1800", "daemon.retry_pauses_minutes": "1,5,15"}
+    async with maker() as s:
+        launched = await daemon._launch_ready(s, cfg)
+    assert launched == 1, "прогон до runs_reset_at не входит в бюджет — запуск есть"
+    import asyncio
+    for t in daemon._active.values():
+        t.cancel()
+    await asyncio.gather(*daemon._active.values(), return_exceptions=True)

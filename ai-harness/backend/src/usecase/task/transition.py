@@ -88,9 +88,19 @@ async def apply_transition(session: AsyncSession, actor: User | None, code: str,
                                code=decision.code)
 
     prev_label = graph.statuses[task.status_key].label
+    prev_key = task.status_key
     task.status_key = to
     task.retry_count = 0  # счётчик попыток сбрасывается при входе в статус (ФТ-ah-33)
     task.updated_at = dt.datetime.now(dt.timezone.utc)
+    if to == "blocked" and rule_code:
+        task.blocked_rule = rule_code[:16]  # источник блокера — гейт M2 зеркала
+    elif prev_key == "blocked":
+        # выход из blocked (человек/автомат): блокер снят — чистим причину и
+        # сбрасываем бюджет прогонов: «человек разобрался», счётчик с нуля
+        # (инцидент VITRINA-1: без сброса RUN_LIMIT не давал вернуть задачу)
+        task.blocked_reason = None
+        task.blocked_rule = None
+        task.runs_reset_at = task.updated_at
     if task.reserved_by is not None:
         # перехват человеком/перевод: резерв снимается, агент прервёт работу (ФТ-ah-32)
         task.reserved_by = None
@@ -145,6 +155,7 @@ async def apply_blocked(session: AsyncSession, task: Task, actor: User | None,
                                           subject_kind=subject_kind,
                                           rule_code=rule_code)
     task.status_key = "blocked"
+    task.blocked_rule = rule_code[:16] if rule_code else None
     task.updated_at = dt.datetime.now(dt.timezone.utc)
     task.blocked_reason = reason[:500]
     denial = decision and not decision.allowed
@@ -234,10 +245,17 @@ async def apply_force(session: AsyncSession, actor: User, code: str, to: str,
     if not decision.allowed:
         raise TransitionDenied(decision.reason, status_code=403 if subject.kind in ("agent", "auto") else 400)
 
-    prev_label = graph.statuses[task.status_key].label
+    prev_key = task.status_key
+    prev_label = graph.statuses[prev_key].label
     task.status_key = to
     task.retry_count = 0
     task.updated_at = dt.datetime.now(dt.timezone.utc)
+    if prev_key == "blocked":
+        # форс-выход из blocked: тот же контракт, что у apply_transition —
+        # человек разобрался, счётчик прогонов с нуля (инцидент VITRINA-1)
+        task.blocked_reason = None
+        task.blocked_rule = None
+        task.runs_reset_at = task.updated_at
     task.reserved_by = None
     task.reserved_at = None
     task.heartbeat_at = None
@@ -269,6 +287,7 @@ async def _record_denial(session: AsyncSession, task: Task, actor: User | None,
     if denials >= 2:
         task.status_key = "blocked"
         task.blocked_reason = "Повторные нарушения прав агента"
+        task.blocked_rule = "DENY"
         session.add(Chronicle(
             task_id=task.id, event_type="transition", author_kind="auto",
             rule_code="DENY",

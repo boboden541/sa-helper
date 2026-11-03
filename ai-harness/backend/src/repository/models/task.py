@@ -52,6 +52,13 @@ class Task(Base):
     rework_count: Mapped[int] = mapped_column(SmallInteger, default=0)
     m4_count: Mapped[int] = mapped_column(SmallInteger, default=0)
     blocked_reason: Mapped[str | None] = mapped_column(Text)
+    # правило, которым задача вошла в blocked (M4/M5/RUN_LIMIT/AUTO_BLOCK…):
+    # зеркалу M2 нужен источник блокера — из blocked историю поднимает только
+    # «детский» M5 (инцидент VITRINA-1: самоблок не воскресает сам)
+    blocked_rule: Mapped[str | None] = mapped_column(String(16))
+    # момент последнего выхода из blocked (человек разобрался): счётчик
+    # daemon.max_runs_per_task считается по прогонам позже этого момента
+    runs_reset_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Checklist(Base):
