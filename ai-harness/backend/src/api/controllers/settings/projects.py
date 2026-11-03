@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
+from domain.model.validators import DomainError
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
+from repository.models import Project, User
 from sqlalchemy.ext.asyncio import AsyncSession
+from usecase.settings import projects as projects_uc
 
 from api.deps import get_actor, get_session
 from api.middleware.errors import ApiError
-from domain.model.validators import DomainError
-from repository.models import Project, User
-from usecase.settings import projects as projects_uc
 
 router = APIRouter()
 
@@ -30,24 +30,20 @@ class ProjectIn(BaseModel):
 async def projects_list(session: AsyncSession = Depends(get_session),
                         actor: User = Depends(get_actor)):
     import sqlalchemy as sa
-
     from repository.models import Task
 
     rows = (await session.execute(sa.select(Project).order_by(Project.mnemonic))).scalars().all()
     # открытые задачи: все типы, статусы не терминальные по flow-версии самой
     # задачи (решение владельца 28.10.2026 — жёсткий список done/canceled
     # ломал счётчик при кастомных статусных моделях)
-    from repository.models import FlowStatus, FlowVersion
+    from repository.flow_queries import current_flow_version_sq
+    from repository.models import FlowStatus
 
     fs = FlowStatus.__table__
-    fvw = FlowVersion.__table__
     counts = dict((await session.execute(
         sa.select(Project.mnemonic, sa.func.count(Task.id))
         .join(Task, Task.project_id == Project.id)
-        .outerjoin(fvw, sa.and_(fvw.c.task_type_id == Task.task_type_id,
-                                fvw.c.is_current.is_(True),
-                                fvw.c.is_published.is_(True)))
-        .outerjoin(fs, sa.and_(fs.c.flow_version_id == fvw.c.id,
+        .outerjoin(fs, sa.and_(fs.c.flow_version_id == current_flow_version_sq(Task.task_type_id),
                                fs.c.status_key == Task.status_key))
         .where(sa.or_(fs.c.is_terminal.is_(None), fs.c.is_terminal.is_(False)))
         .group_by(Project.mnemonic))).all())
@@ -116,7 +112,6 @@ async def project_repos(key: str, session: AsyncSession = Depends(get_session),
     """Git-репозитории внутри папки проекта (мультирепозиторий, решение
     владельца 29.10.2026). Корень-репозиторий (если проект — одиночный репо)
     возвращается первым с repoPath=null."""
-    import os
     import uuid as uuid_mod
     from pathlib import Path
 

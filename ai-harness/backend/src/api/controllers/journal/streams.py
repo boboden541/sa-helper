@@ -6,9 +6,9 @@ from __future__ import annotations
 import json
 
 from fastapi import APIRouter, Depends
+from repository.models import User
 
 from api.deps import actor_snapshot
-from repository.models import User
 
 router = APIRouter()
 
@@ -22,11 +22,9 @@ async def activity_stream(actor: User = Depends(actor_snapshot)):
     EventSource переподключается сам."""
     import asyncio
 
-    from fastapi.responses import StreamingResponse
-
-    from usecase.journal.live import activity_snapshot
-
     from database import get_sessionmaker
+    from fastapi.responses import StreamingResponse
+    from usecase.journal.live import activity_snapshot
 
     async def gen():
         last = ""
@@ -54,9 +52,7 @@ async def task_live_stream(code: str, actor: User = Depends(actor_snapshot)):
     import datetime as dt
 
     import sqlalchemy as sa
-
     from fastapi.responses import StreamingResponse
-
     from repository.models import Task
     from usecase.journal.live import chronicle_after, log_after, task_activity
 
@@ -109,9 +105,7 @@ async def run_log_stream(code: str, actor: User = Depends(actor_snapshot)):
     import asyncio
 
     import sqlalchemy as sa
-
     from fastapi.responses import StreamingResponse
-
     from repository.models import Task, TaskRun, TaskRunLog
 
     async def gen():
@@ -119,7 +113,9 @@ async def run_log_stream(code: str, actor: User = Depends(actor_snapshot)):
 
         last = 0
         idle = 0
-        while True:
+        for _ in range(1200):  # ~20 мин по 1 с — поток закрывается, EventSource
+            # переподключается сам; без предела while True держал фоновый поллинг
+            # БД бесконечно (анализ 03.11.2026, линейный рост числа фоновых запросов)
             async with get_sessionmaker()() as s:
                 task = (await s.execute(
                     sa.select(Task).where(Task.code == code.upper()))).scalar_one_or_none()
@@ -139,7 +135,6 @@ async def run_log_stream(code: str, actor: User = Depends(actor_snapshot)):
                     await asyncio.sleep(2.0)
                     continue
                 idle = 0
-                run_id = str(run.id)
                 rows = (await s.execute(
                     sa.select(TaskRunLog)
                     .where(TaskRunLog.run_id == run.id, TaskRunLog.seq > last)
@@ -150,6 +145,7 @@ async def run_log_stream(code: str, actor: User = Depends(actor_snapshot)):
                                "data": r.data, "at": r.created_at.isoformat()}
                     yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
             await asyncio.sleep(1.0)
+        yield "event: end\ndata: cycle\n\n"
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"X-Accel-Buffering": "no",

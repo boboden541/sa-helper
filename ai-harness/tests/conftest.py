@@ -51,6 +51,7 @@ async def _test_db():
     await asyncio.to_thread(command.upgrade, alembic_cfg, "head")
 
     from database import dispose_engine
+
     from db.seeds.seed_dev import seed
 
     await seed()  # DATABASE_URL указывает на тестовую БД
@@ -70,18 +71,25 @@ async def engine(_test_db):
     return _test_db
 
 
+# Единый список операционных таблиц для изоляции тестов. Один источник правды:
+# раньше список дублировался в session- и client-фикстурах и уже расходился
+# (в session не попадал task_run_log — анализ 03.11.2026).
+# НОВАЯ ТАБЛИЦА = добавить сюда (одно место).
+_TRUNCATE = (
+    "TRUNCATE task, task_tag, tag, chronicle, chronicle_payload, notification, "
+    "task_run, task_run_log, task_relation, checklist, checklist_item, task_comment, "
+    "task_assignee, task_artifact, task_branch, psi_document, psi_run, psi_run_item, "
+    "eve_intent, assignment, dead_mnemonic RESTART IDENTITY CASCADE"
+)
+
+
 @pytest.fixture
 async def session(_test_db):
     """Сессия на тест; между тестами — TRUNCATE операционных таблиц (справочники живут)."""
     maker = async_sessionmaker(_test_db, expire_on_commit=False)
     async with maker() as s:
         yield s
-    await s.execute(sa.text(
-        "TRUNCATE task, task_tag, tag, chronicle, chronicle_payload, notification, "
-        "task_run, task_relation, checklist, checklist_item, task_comment, "
-        "task_assignee, task_artifact, task_branch, psi_document, psi_run, psi_run_item, "
-        "assignment, dead_mnemonic RESTART IDENTITY CASCADE"
-    ))
+    await s.execute(sa.text(_TRUNCATE))
     await s.execute(sa.text("UPDATE project SET next_number = 1"))
     await s.commit()
 
@@ -92,19 +100,13 @@ async def client(_test_db):
     После теста чистим операционные таблицы — как session-фикстура, иначе
     остатки client-тестов ломают тесты порядка очереди ниже по алфавиту."""
     from httpx import ASGITransport, AsyncClient
-
     from main import app
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
     async with async_sessionmaker(_test_db, expire_on_commit=False)() as s:
-        await s.execute(sa.text(
-            "TRUNCATE task, task_tag, tag, chronicle, chronicle_payload, notification, "
-            "task_run, task_run_log, task_relation, checklist, checklist_item, task_comment, "
-            "task_assignee, task_artifact, task_branch, psi_document, psi_run, psi_run_item, "
-            "assignment, dead_mnemonic RESTART IDENTITY CASCADE"
-        ))
+        await s.execute(sa.text(_TRUNCATE))
         await s.execute(sa.text("UPDATE project SET next_number = 1"))
         await s.commit()
 

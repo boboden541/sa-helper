@@ -25,4 +25,6 @@ RUN pip install --no-cache-dir . && pip install --no-cache-dir 'claude-agent-sdk
 
 # демон запускается той же библиотекой домена (python -m daemon.main)
 EXPOSE 8000
-CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--app-dir", "/app/backend/src"]
+# --workers 1 обязателен: кэш графов — в процессе backend (интенты Eve уже
+# в БД; решение владельца 03.11.2026 — масштабирование ограничено этим)
+CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--app-dir", "/app/backend/src", "--workers", "1"]

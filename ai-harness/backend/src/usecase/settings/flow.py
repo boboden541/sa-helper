@@ -2,21 +2,25 @@
 
 from __future__ import annotations
 
-import uuid
-
 import sqlalchemy as sa
 import yaml
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from domain.flowvalidation.validator import FlowDraft, validate_draft
 from domain.model.validators import DomainError
 from domain.transition.graph import invalidate_cache
 from repository.models import (
-    Chronicle, FlowPreset, FlowStatus, FlowTransition, FlowVersion, Notification,
-    Task, TaskType, User,
+    Chronicle,
+    FlowPreset,
+    FlowStatus,
+    FlowTransition,
+    FlowVersion,
+    Notification,
+    Task,
+    TaskType,
+    User,
 )
-from usecase.journal.settings_journal import record_and_commit
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from usecase.journal.settings_journal import record_and_commit
 
 
 async def _type_by_key(session: AsyncSession, type_key: str) -> TaskType:
@@ -245,9 +249,84 @@ async def reset_builtin(session: AsyncSession, type_key: str, who: User,
     definition = yaml.safe_load(path.read_text(encoding="utf-8"))
     await get_draft(session, type_key)  # гарантирует наличие черновой механики версий
     ttype = await _type_by_key(session, type_key)
-    draft = (await session.execute(
+    draft = (await session.execute(  # noqa: F841 — используется гейтом ниже
         sa.select(FlowVersion).where(
             FlowVersion.task_type_id == ttype.id,
             FlowVersion.is_published.is_(False)))).scalar_one()
     await save_draft(session, type_key, definition)
     return await publish(session, type_key, who, migrations=migrations)
+
+
+# ---------- вынесено из контроллера (анализ 03.11.2026: бизнес-логика в usecase) ----------
+
+async def create_task_type(session, actor, key: str, label: str, clone_from: str) -> dict:
+    """Мастер «+ тип задачи»: тип + flow из пресета-основы (ФТ-ah-57)."""
+    import re
+
+    import yaml
+
+    from db.seeds.flow_seed import PRESETS_DIR, publish_preset
+
+    if not re.match(r"^[a-z0-9_]+$", key or ""):
+        raise DomainError("Ключ типа: строчные латиница, цифры, _", field="key")
+    if (await session.execute(sa.select(sa.func.count()).select_from(TaskType)
+                              .where(TaskType.key == key))).scalar_one():
+        raise DomainError(f"Тип {key!r} уже существует", field="key")
+    base = (await session.execute(sa.select(TaskType)
+            .where(TaskType.key == clone_from))).scalar_one_or_none()
+    if base is None:
+        raise DomainError(f"Пресет-основа {clone_from!r} не найдена", field="cloneFrom")
+    preset_path = PRESETS_DIR / f"{clone_from}.yaml"
+    if not preset_path.exists():
+        raise DomainError("Встроенный пресет-основа не найден", field="cloneFrom")
+    ttype = TaskType(key=key, label=label.strip()[:64] or key, is_builtin=False)
+    session.add(ttype)
+    await session.flush()
+    definition = yaml.safe_load(preset_path.read_text(encoding="utf-8"))
+    await publish_preset(session, ttype, definition, actor)
+    return {"key": ttype.key, "label": ttype.label}
+
+
+async def assign_status_alias(session, actor, type_key: str, status_key: str,
+                              alias_column_id: str | None) -> dict:
+    """Назначение статуса колонке доски (colmap-панель, ФТ-ah-67)."""
+    fv = await get_current(session, type_key)
+    st = (await session.execute(sa.select(FlowStatus).where(
+        FlowStatus.flow_version_id == fv.id,
+        FlowStatus.status_key == status_key))).scalar_one_or_none()
+    if st is None:
+        raise DomainError(f"Статус {status_key!r} не найден", field="statusKey")
+    old_col = str(st.alias_column_id or "")
+    new_col = alias_column_id or ""
+    if old_col == new_col:
+        return {"ok": True, "changed": False}
+    st.alias_column_id = alias_column_id or None
+    from domain.transition.graph import invalidate_cache
+
+    invalidate_cache()
+    from usecase.journal.settings_journal import record_and_commit
+
+    await record_and_commit(session, actor.id, "board",
+                            f"Статус «{st.label}» → колонка",
+                            [{"field": "alias", "old": old_col[:8], "new": new_col[:8]}])
+    return {"ok": True, "changed": True}
+
+
+async def all_statuses_by_type(session) -> list[dict]:
+    """Все статусы всех типов с alias-привязками — для colmap-панели."""
+    types = (await session.execute(sa.select(TaskType).order_by(TaskType.id))).scalars().all()
+    out: list[dict] = []
+    for tt in types:
+        fv = (await session.execute(sa.select(FlowVersion).where(
+            FlowVersion.task_type_id == tt.id,
+            FlowVersion.is_current.is_(True),
+            FlowVersion.is_published.is_(True)))).scalar_one_or_none()
+        if fv is None:
+            continue
+        sts = (await session.execute(sa.select(FlowStatus).where(
+            FlowStatus.flow_version_id == fv.id).order_by(FlowStatus.id))).scalars().all()
+        out.append({"type": tt.key, "typeLabel": tt.label,
+                    "statuses": [{"key": s.status_key, "label": s.label,
+                                  "terminal": bool(s.is_terminal),
+                                  "aliasColumnId": str(s.alias_column_id or "")} for s in sts]})
+    return out

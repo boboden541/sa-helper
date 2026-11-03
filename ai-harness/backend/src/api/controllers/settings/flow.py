@@ -3,15 +3,15 @@ alias-колонки, привязка статусов (расщепление 
 
 from __future__ import annotations
 
+from domain.model.validators import DomainError
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
+from repository.models import User
 from sqlalchemy.ext.asyncio import AsyncSession
+from usecase.settings import flow as flow_uc
 
 from api.deps import get_actor, get_session
 from api.middleware.errors import ApiError
-from domain.model.validators import DomainError
-from repository.models import TaskType, User
-from usecase.settings import flow as flow_uc
 
 router = APIRouter()
 
@@ -31,7 +31,6 @@ class PublishIn(BaseModel):
 async def get_flow(type_key: str, session: AsyncSession = Depends(get_session),
                    actor: User = Depends(get_actor)):
     import sqlalchemy as sa
-
     from repository.models import FlowStatus, FlowTransition
 
     try:
@@ -72,7 +71,6 @@ async def flow_validate(type_key: str, session: AsyncSession = Depends(get_sessi
                         actor: User = Depends(get_actor)):
     """Предварительная валидация рабочей копии без публикации (publish-panel, AC 3.7)."""
     import sqlalchemy as sa
-
     from domain.flowvalidation.validator import FlowDraft, validate_draft
     from repository.models import FlowStatus, FlowTransition
 
@@ -153,39 +151,15 @@ async def task_types_create(payload: TaskTypeIn,
                             session: AsyncSession = Depends(get_session),
                             actor: User = Depends(get_actor)):
     """Мастер «+ тип задачи»: тип + flow из пресета-основы, без программирования (ФТ-ah-57)."""
-    import re
+    from usecase.settings import flow as flow_uc
 
-    import sqlalchemy as sa
-    import yaml
-
-    from db.seeds.flow_seed import PRESETS_DIR, publish_preset
-    from domain.model.validators import DomainError
-    from repository.models import TaskType
-
-    if not re.match(r"^[a-z0-9_]+$", payload.key or ""):
-        raise ApiError(400, "Ключ типа: строчные латиница, цифры, _")
-    if (await session.execute(sa.select(sa.func.count()).select_from(TaskType)
-                              .where(TaskType.key == payload.key))).scalar_one():
-        raise ApiError(400, f"Тип {payload.key!r} уже существует")
-    base = (await session.execute(sa.select(TaskType)
-            .where(TaskType.key == payload.clone_from))).scalar_one_or_none()
-    if base is None:
-        raise ApiError(400, f"Пресет-основа {payload.clone_from!r} не найдена")
-    preset_path = PRESETS_DIR / f"{payload.clone_from}.yaml"
-    if not preset_path.exists():
-        raise ApiError(400, "Встроенный пресет-основа не найден")
-
-    ttype = TaskType(key=payload.key, label=payload.label.strip()[:64] or payload.key,
-                     is_builtin=False)
-    session.add(ttype)
-    await session.flush()
-    definition = yaml.safe_load(preset_path.read_text(encoding="utf-8"))
     try:
-        await publish_preset(session, ttype, definition, actor)
+        out = await flow_uc.create_task_type(session, actor, payload.key,
+                                             payload.label, payload.clone_from)
+        await session.commit()
+        return out
     except DomainError as err:
-        raise ApiError(400, err.message)
-    await session.commit()  # publish_preset только готовит изменения — фиксируем здесь
-    return {"key": ttype.key, "label": ttype.label}
+        raise ApiError(400, err.message) from err
 
 
 # ---------- alias-колонки ----------
@@ -194,7 +168,6 @@ async def task_types_create(payload: TaskTypeIn,
 async def alias_columns(session: AsyncSession = Depends(get_session),
                         actor: User = Depends(get_actor)):
     import sqlalchemy as sa
-
     from repository.models import AliasColumn
 
     cols = (await session.execute(
@@ -216,7 +189,6 @@ async def alias_columns_create(payload: AliasColumnIn,
                                actor: User = Depends(get_actor)):
     """Создание alias-колонки (режим правки доски / редактор flow, ФТ-ah-66)."""
     import sqlalchemy as sa
-
     from repository.models import AliasColumn
     from usecase.journal.settings_journal import record_and_commit
 
@@ -238,8 +210,6 @@ async def alias_columns_update(column_id: str, payload: AliasColumnIn,
                                actor: User = Depends(get_actor)):
     """Переименование/цвет/порядок колонки; изменения — в журнал настроек (ФТ-ah-66)."""
     import uuid as uuid_mod
-
-    import sqlalchemy as sa
 
     from repository.models import AliasColumn
     from usecase.journal.settings_journal import record_and_commit
@@ -271,7 +241,6 @@ async def alias_columns_delete(column_id: str,
     import uuid as uuid_mod
 
     import sqlalchemy as sa
-
     from repository.models import AliasColumn, FlowStatus
     from usecase.journal.settings_journal import record_and_commit
 
@@ -299,57 +268,18 @@ class StatusAliasIn(BaseModel):
 async def flow_status_alias(type_key: str, payload: StatusAliasIn,
                             session: AsyncSession = Depends(get_session),
                             actor: User = Depends(get_actor)):
-    """Назначение статуса колонке в текущей версии (colmap-панель, ФТ-ah-67)."""
-    import sqlalchemy as sa
+    from usecase.settings import flow as flow_uc
 
-    from repository.models import FlowStatus, FlowVersion
-    from usecase.journal.settings_journal import record_and_commit
-
-    ttype = (await session.execute(sa.select(TaskType).where(TaskType.key == type_key))).scalar_one_or_none()
-    if ttype is None:
-        raise ApiError(400, f"Тип {type_key} не найден")
-    fv = (await session.execute(sa.select(FlowVersion).where(
-        FlowVersion.task_type_id == ttype.id, FlowVersion.is_current.is_(True),
-        FlowVersion.is_published.is_(True)))).scalar_one_or_none()
-    if fv is None:
-        raise ApiError(400, "Нет опубликованной версии flow")
-    st = (await session.execute(sa.select(FlowStatus).where(
-        FlowStatus.flow_version_id == fv.id, FlowStatus.status_key == payload.statusKey))).scalar_one_or_none()
-    if st is None:
-        raise ApiError(400, f"Статус {payload.statusKey!r} не найден")
-    old_col = str(st.alias_column_id or "")
-    new_col = payload.aliasColumnId or ""
-    if old_col == new_col:
-        return {"ok": True, "changed": False}
-    st.alias_column_id = payload.aliasColumnId or None
-    from domain.transition.graph import invalidate_cache
-    invalidate_cache()
-    await record_and_commit(session, actor.id, "board",
-                            f"Статус «{st.label}» → колонка",
-                            [{"field": "alias", "old": old_col[:8], "new": new_col[:8]}])
-    return {"ok": True, "changed": True}
+    try:
+        return await flow_uc.assign_status_alias(session, actor, type_key,
+                                                 payload.statusKey, payload.aliasColumnId)
+    except DomainError as err:
+        raise ApiError(400, err.message) from err
 
 
 @router.get("/all-statuses")
 async def flow_all_statuses(session: AsyncSession = Depends(get_session),
                             actor: User = Depends(get_actor)):
-    """Все статусы всех типов с alias-привязками — для colmap-панели."""
-    import sqlalchemy as sa
+    from usecase.settings import flow as flow_uc
 
-    from repository.models import FlowStatus, FlowVersion, TaskType
-
-    types = (await session.execute(sa.select(TaskType).order_by(TaskType.id))).scalars().all()
-    out = []
-    for tt in types:
-        fv = (await session.execute(sa.select(FlowVersion).where(
-            FlowVersion.task_type_id == tt.id, FlowVersion.is_current.is_(True),
-            FlowVersion.is_published.is_(True)))).scalar_one_or_none()
-        if fv is None:
-            continue
-        sts = (await session.execute(sa.select(FlowStatus).where(
-            FlowStatus.flow_version_id == fv.id).order_by(FlowStatus.id))).scalars().all()
-        out.append({"type": tt.key, "typeLabel": tt.label,
-                    "statuses": [{"key": s.status_key, "label": s.label,
-                                  "terminal": bool(s.is_terminal),
-                                  "aliasColumnId": str(s.alias_column_id or "")} for s in sts]})
-    return out
+    return await flow_uc.all_statuses_by_type(session)

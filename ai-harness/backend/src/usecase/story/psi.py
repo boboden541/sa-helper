@@ -11,12 +11,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import sqlalchemy as sa
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from domain.model.validators import DomainError
 from repository.models import (
-    Checklist, ChecklistItem, Chronicle, PsiDocument, PsiRun, PsiRunItem, Project, Task, User,
+    Checklist,
+    ChecklistItem,
+    Chronicle,
+    Project,
+    PsiDocument,
+    PsiRun,
+    PsiRunItem,
+    Task,
+    User,
 )
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 async def _story(session: AsyncSession, code: str) -> Task:
@@ -100,21 +107,22 @@ async def create_version(session: AsyncSession, story_code: str, author: User,
     session.add(Chronicle(task_id=story.id, event_type="psi",
                           author_id=author.id, author_kind="agent" if author.user_type == "agent" else "human",
                           message=f"Составлен ПСИ v{version} ({items_count} пунктов)"))
-    await session.commit()
-
-    # файл psi.md — в папку назначения (например, sa_documentation/FNR/FNR_<N>/psi.md)
+    # файл psi.md — в папку назначения (например, sa_documentation/FNR/FNR_<N>/psi.md).
+    # Одна транзакция на версию (было 3 коммита: данные, файл-ок, файл-фейл —
+    # отказ между ними оставлял БД и файл в разных фазах; анализ 03.11.2026).
+    # Риск-окно неустранимо: файл вне БД — при сбое коммита файл остаётся
+    # сиротой (документ в БД не зафиксирован); осознанный компромисс.
     try:
         md = render_psi_md(story, version, sections, preamble_md)
         saved_to = await save_psi_file(session, story, md)
         session.add(Chronicle(task_id=story.id, event_type="psi", author_id=author.id,
                               author_kind="auto", rule_code="PSI_FILE",
                               message=f"Файл ПСИ v{version} сохранён: {saved_to}"))
-        await session.commit()
     except (OSError, DomainError) as err:
         session.add(Chronicle(task_id=story.id, event_type="psi", author_id=author.id,
                               author_kind="auto", rule_code="PSI_FILE",
                               message=f"Файл ПСИ v{version} НЕ сохранён: {err}"))
-        await session.commit()
+    await session.commit()
     return version
 
 

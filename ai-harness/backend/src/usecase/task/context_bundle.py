@@ -5,12 +5,21 @@
 from __future__ import annotations
 
 import sqlalchemy as sa
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from repository.models import (
-    Checklist, ChecklistItem, Chronicle, Project, Tag, Task, TaskComment,
-    TaskArtifact, TaskRelation, TaskTag, TaskType, User,
+    Checklist,
+    ChecklistItem,
+    Chronicle,
+    Project,
+    Tag,
+    Task,
+    TaskArtifact,
+    TaskComment,
+    TaskRelation,
+    TaskTag,
+    TaskType,
+    User,
 )
+from sqlalchemy.ext.asyncio import AsyncSession
 
 _OPEN = ("done", "closed")
 
@@ -113,16 +122,19 @@ async def build_context_md(session: AsyncSession, task: Task) -> str:
     # Допустимые переходы из текущего статуса: агент предлагает только их,
     # не догадывается о ключах статусов (инцидент AH-130: агент выдумал
     # «testing» вместо qa_ready — движок честно отказал, попытка сгорела)
+    from repository.flow_queries import current_flow_version_id
     from repository.models import FlowStatus, FlowTransition, FlowVersion
 
+    # fv_id заранее: подзапрос в ON джойна путал SQLAlchemy разрешение FROM
+    # (анализ 03.11.2026); двухшаговое получение id — детерминированный план
+    fv_id = await current_flow_version_id(session, task.task_type_id)
     edges = (await session.execute(
         sa.select(FlowTransition.to_status, FlowTransition.runner, FlowTransition.display,
                   FlowStatus.label)
         .join(FlowVersion, FlowVersion.id == FlowTransition.flow_version_id)
         .join(FlowStatus, (FlowStatus.flow_version_id == FlowTransition.flow_version_id)
               & (FlowStatus.status_key == FlowTransition.to_status))
-        .where(FlowVersion.task_type_id == task.task_type_id,
-               FlowVersion.is_current.is_(True), FlowVersion.is_published.is_(True),
+        .where(FlowVersion.id == fv_id,
                FlowTransition.from_status == task.status_key))).all()
     if edges:
         lines = [f"- → {to} «{label}» — исполнитель: {runner}"

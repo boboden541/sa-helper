@@ -5,18 +5,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import sqlalchemy as sa
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from domain.model.enums import PRIORITY_RANK
 from repository.models import (
     FlowStatus,
-    FlowVersion,
     Project,
     Task,
     TaskRun,
     TaskType,
     User,
 )
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 @dataclass
@@ -50,7 +48,6 @@ def build_query(projects: list[str] | None = None,
     самой задачи."""
     type_t = TaskType.__table__
     flow_status_t = FlowStatus.__table__
-    flow_version_t = FlowVersion.__table__
     # код истории задачи (доска группирует задачи в полосы по storyCode)
     story_t = sa.alias(Task.__table__)
     story_sq = (
@@ -91,13 +88,9 @@ def build_query(projects: list[str] | None = None,
     if exclude_terminal:
         # терминальность — по АКТУАЛЬНОЙ версии flow типа задачи
         # (решение владельца 28.10.2026: задачи всегда живут на current)
-        cur_fv = (
-            sa.select(flow_version_t.c.id)
-            .where(flow_version_t.c.task_type_id == Task.task_type_id,
-                   flow_version_t.c.is_current.is_(True),
-                   flow_version_t.c.is_published.is_(True))
-            .correlate(Task).scalar_subquery()
-        )
+        from repository.flow_queries import current_flow_version_sq
+
+        cur_fv = current_flow_version_sq(Task.task_type_id)
         query = query.outerjoin(
             flow_status_t,
             sa.and_(flow_status_t.c.flow_version_id == cur_fv,
