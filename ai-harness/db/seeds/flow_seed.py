@@ -9,11 +9,15 @@ from pathlib import Path
 
 import sqlalchemy as sa
 import yaml
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from repository.models import (
-    AliasColumn, FlowStatus, FlowTransition, FlowVersion, Project, TaskType, User,
+    AliasColumn,
+    FlowStatus,
+    FlowTransition,
+    FlowVersion,
+    TaskType,
+    User,
 )
+from sqlalchemy.ext.asyncio import AsyncSession
 
 PRESETS_DIR = Path(__file__).resolve().parent / "flow_presets"
 
@@ -93,7 +97,9 @@ async def publish_preset(
             is_entry=bool(st.get("entry")),
             is_terminal=bool(st.get("terminal")),
             is_blocking=bool(st.get("blocking")),
-            alias_column_id=columns[st["alias"]].id,
+            # alias опционален: архивный статус completed живёт вне колонок доски
+            # (латентный баг HEAD: сид падал KeyError на свежей БД, 03.11.2026)
+            alias_column_id=columns[st["alias"]].id if "alias" in st else None,
         ))
     await session.flush()
     for tr in definition["transitions"]:
