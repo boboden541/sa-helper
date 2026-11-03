@@ -2,57 +2,92 @@
 
 Несколько подряд неудач на одном подключении → задачи ждут (не блокируются
 по одной), предупреждение «провайдер недоступен» — уведомление + журнал.
+
+Состояние предохранителя — в БД (app_setting, ключ circuit:<connection_id>,
+значение JSON-строка): раньше жило в памяти процесса — рестарт демона молча
+снимал паузу, вторая копия демона её не видела (анализ 03.11.2026).
 """
 
 from __future__ import annotations
 
 import datetime as dt
+import json
 
 import sqlalchemy as sa
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from repository.models import AgentProfile
+from repository.models import AppSetting
 
 _THRESHOLD = 3
 _PAUSE = dt.timedelta(minutes=10)
 
-# состояние в процессе демона: connection_id -> (подряд неудач, пауза до)
-_state: dict[str, tuple[int, dt.datetime | None]] = {}
+
+def _key(connection_id: str | None) -> str:
+    return f"circuit:{connection_id or 'default'}"
 
 
-def record_failure(connection_id: str | None) -> None:
-    key = connection_id or "default"
-    failures, _ = _state.get(key, (0, None))
-    _state[key] = (failures + 1, None)
+def _load(row: AppSetting | None) -> dict:
+    try:
+        return json.loads(row.value) if row is not None else {}
+    except Exception:  # noqa: BLE001 — битое значение = «нет состояния»
+        return {}
 
 
-def record_success(connection_id: str | None) -> None:
-    _state.pop(connection_id or "default", None)
+async def record_failure(session, connection_id: str | None) -> None:
+    """Подряд неудач +1 (коммит — за вызывающим)."""
+    key = _key(connection_id)
+    row = (await session.execute(
+        sa.select(AppSetting).where(AppSetting.key == key))).scalar_one_or_none()
+    failures = _load(row).get("failures", 0)
+    payload = json.dumps({"failures": failures + 1})
+    if row is None:
+        session.add(AppSetting(key=key, value=payload))
+    else:
+        row.value = payload
 
 
-async def paused_connections(session: AsyncSession) -> set[str]:
-    """Подключения на паузе; истёкшие — снимаются автоматически."""
+async def record_success(session, connection_id: str | None) -> None:
+    """Успех обнуляет серию неудач подключения."""
+    await session.execute(sa.delete(AppSetting).where(AppSetting.key == _key(connection_id)))
+
+
+async def paused_connections(session) -> set[str]:
+    """Подключения на паузе; истёкшие — снимаются на чтении."""
     now = dt.datetime.now(dt.timezone.utc)
-    for key, (failures, until) in list(_state.items()):
-        if failures >= _THRESHOLD and (until is None or until > now):
-            if until is None:
-                _state[key] = (failures, now + _PAUSE)
+    out: set[str] = set()
+    rows = (await session.execute(sa.select(AppSetting).where(
+        AppSetting.key.like("circuit:%")))).scalars().all()
+    for row in rows:
+        conn_id = row.key.removeprefix("circuit:")
+        state = _load(row)
+        failures = int(state.get("failures", 0))
+        until_raw = state.get("paused_until")
+        until = dt.datetime.fromisoformat(until_raw) if until_raw else None
+        if failures < _THRESHOLD or until is None:
             continue
-        if until is not None and until <= now:
-            _state.pop(key, None)
-    return {k for k, (f, u) in _state.items() if f >= _THRESHOLD}
+        if until > now:
+            out.add(conn_id)
+        else:
+            await session.execute(sa.delete(AppSetting).where(AppSetting.key == row.key))
+            await session.commit()
+    return out
 
 
-async def maybe_trip(session: AsyncSession, connection_id: str | None) -> bool:
-    """При достижении порога — пауза подключения + уведомление (однократно)."""
-    key = connection_id or "default"
-    failures, _ = _state.get(key, (0, None))
+async def maybe_trip(session, connection_id: str | None) -> bool:
+    """Порог набран → пауза подключения + уведомление (однократно)."""
+    key = _key(connection_id)
+    row = (await session.execute(
+        sa.select(AppSetting).where(AppSetting.key == key))).scalar_one_or_none()
+    failures = int(_load(row).get("failures", 0))
     if failures < _THRESHOLD:
         return False
-    if _state.get(key, (0, None))[1] is not None:
+    if _load(row).get("paused_until"):
         return True  # уже на паузе
     now = dt.datetime.now(dt.timezone.utc)
-    _state[key] = (failures, now + _PAUSE)
+    until = now + _PAUSE
+    payload = json.dumps({"failures": failures, "paused_until": until.isoformat()})
+    if row is None:
+        session.add(AppSetting(key=key, value=payload))
+    else:
+        row.value = payload
     from usecase.journal.notifications import raise_event
 
     await raise_event(

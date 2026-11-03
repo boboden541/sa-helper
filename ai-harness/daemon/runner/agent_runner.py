@@ -76,6 +76,9 @@ class RunReport:
     questions: list[str] = field(default_factory=list)
     comments: list[str] = field(default_factory=list)  # комментарии агента к задаче
     raw: str = ""
+    # машиночитаемый код исхода (миграция 0013): timeout_start/work, turns_limit,
+    # soft_turns, no_report — планировщик решает по коду, не подстроками текста
+    outcome_code: str | None = None
 
 
 REPORT_CONTRACT = """
@@ -146,6 +149,7 @@ def parse_report(text: str) -> RunReport:
     if lenient is not None:
         return lenient
     return RunReport(status="failed", summary_md="агент не вернул отчёт по контракту",
+                     outcome_code="no_report",
                      raw=text[-4000:])
 
 
@@ -446,6 +450,7 @@ class ClaudeCodeRunner:
                 await gen.aclose()
             except Exception:
                 pass
+        return turns
 
 
     async def run(self, req: RunRequest) -> RunReport:
@@ -478,13 +483,15 @@ class ClaudeCodeRunner:
             os.environ.update(env)
         collected: list[str] = []
         usage: dict = {"input": 0, "output": 0, "cache": 0, "total": 0}
+        turns = 0
         try:
-            await self._iterate_sdk(req, prompt, options, collected, usage)
+            turns = await self._iterate_sdk(req, prompt, options, collected, usage)
         except RunnerTimeout as err:
             await req.emit("system", text=f"timeout: {err.args[0]}")
             phase = "старт" if err.args and err.args[0] == "start" else "работа"
             return RunReport(status="failed",
-                             summary_md=f"Таймаут прогона ({phase}) — процесс агента остановлен демоном")
+                             summary_md=f"Таймаут прогона ({phase}) — процесс агента остановлен демоном",
+                             outcome_code="timeout_start" if phase == "старт" else "timeout_work")
         except RunnerSoftLimit as err:
             # не failed-дефект: плановая смена сессии до деградации длинного
             # контекста; прогресс в чеклисте/коммитах, handoff уйдёт в контекст
@@ -492,7 +499,8 @@ class ClaudeCodeRunner:
             return RunReport(status="failed",
                              summary_md=f"Мягкий лимит ходов ({err}) — плановая смена сессии: "
                                         f"прогресс в чеклисте и коммитах, следующий прогон "
-                                        f"продолжит с открытых пунктов")
+                                        f"продолжит с открытых пунктов",
+                             outcome_code="soft_turns")
         finally:
             if saved_env is not None:
                 import os
@@ -502,6 +510,10 @@ class ClaudeCodeRunner:
                     else:
                         os.environ[k] = v
         report = parse_report("\n".join(collected))
+        if report.status == "failed" and turns >= req.max_turns:
+            # исчерпание жёсткого лимита ходов: код для resume-логики демона
+            # (раньше распознавалось подстрокой "Reached maximum number of turns")
+            report.outcome_code = "turns_limit"
         await req.emit("report", text=report.summary_md,
                        data={"status": report.status,
                              "proposed_transition": report.proposed_transition})
@@ -513,7 +525,6 @@ class ClaudeCodeRunner:
         """Обработка сообщения SDK; True = это был ХОД ассистента (для мягкого
         лимита — tool-результаты и служебные сообщения ходами не считаются:
         раньше лимит втрое агрессивнее задуманного — VITRINA-1, 02.11)."""
-        sdk = self._sdk
         subtype = getattr(message, "subtype", None)
         if subtype == "init":
             # SDK >= 0.2.x: данные init лежат в message.data (словарь), а не в
@@ -533,7 +544,7 @@ class ClaudeCodeRunner:
         content = getattr(message, "content", None)
         if content is None and getattr(message, "result", None) is not None:
             # ResultMessage: итоговый текст (не ход)
-            collected.append(str(getattr(message, "result")))
+            collected.append(str(message.result))
             return False
         assistant_turn = bool(content)
         for block in (content or []):
@@ -618,13 +629,15 @@ class FakeRunner:
         await req.emit("system", text="сессия агента запущена (демо-режим без SDK)",
                        data={"model": "fake", "cwd": str(req.worktree_path or ".")})
         await beat()
-        spend(); await req.emit("usage", data=dict(usage))
+        spend()
+        await req.emit("usage", data=dict(usage))
         await req.emit("thinking", text="Читаю постановку задачи и чек-лист: "
                        "нужно понять, какой файл править и какие тесты затронуты.")
         await beat()
         await req.emit("tool", text="Read", data={"input": {"file_path": "src/board.tsx"}})
         await beat()
-        spend(); await req.emit("usage", data=dict(usage))
+        spend()
+        await req.emit("usage", data=dict(usage))
         await beat()
         await req.emit("tool_result", text="export function Board() {\n  … 120 строк …}")
         await beat()
@@ -634,22 +647,26 @@ class FakeRunner:
         await req.emit("tool", text="Edit", data={"input": {"file_path": "src/board.tsx",
                                                             "new_string": "colIdOfStatus(t.type, …)"}})
         await beat()
-        spend(); await req.emit("usage", data=dict(usage))
+        spend()
+        await req.emit("usage", data=dict(usage))
         await beat()
         await req.emit("tool", text="Bash", data={"input": {"command": "npm test -- board"}})
         await beat()
-        spend(); await req.emit("usage", data=dict(usage))
+        spend()
+        await req.emit("usage", data=dict(usage))
         await beat()
         await req.emit("tool_result", text="Tests: 8 passed")
         await beat()
         await req.emit("tool", text="Bash", data={"input": {"command": "git add -A && git commit -m fix"}})
         await beat()
-        spend(); await req.emit("usage", data=dict(usage))
+        spend()
+        await req.emit("usage", data=dict(usage))
         await beat()
         await req.emit("tool_result", text="[task/AH-59] 1 file changed")
         await beat()
         await beat()
-        spend(inp=31000, out=1400, cache=22000); await req.emit("usage", data=dict(usage))
+        spend(inp=31000, out=1400, cache=22000)
+        await req.emit("usage", data=dict(usage))
         await req.emit("report", text="Демо-прогон завершён")
         return RunReport(status="success",
                          summary_md="Демо-прогон: правка применена, тесты зелёные.",

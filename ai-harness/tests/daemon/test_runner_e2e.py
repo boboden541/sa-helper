@@ -196,7 +196,7 @@ class _ManyTurnsSDK(_ResumeCaptureSDK):
     @staticmethod
     async def query(*, prompt, options):
         _ResumeCaptureSDK.last_options = options
-        for i in range(50):
+        for _i in range(50):
             class Msg:
                 subtype = None
                 usage = None

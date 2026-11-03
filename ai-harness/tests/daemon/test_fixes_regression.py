@@ -6,16 +6,12 @@ import datetime as dt
 
 import pytest
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from repository.models import Checklist, ChecklistItem, PsiDocument, PsiRun, Task, User
 
 from daemon.config import load_daemon_settings, retry_pauses_minutes
-from daemon.scheduler.scheduler import Daemon, _next_retry_at
 from daemon.runner.agent_runner import RunReport
 from daemon.runner.reservation import reserve_task
-from repository.models import (Checklist, ChecklistItem, PsiDocument, PsiRun,
-                               Task, User)
-
+from daemon.scheduler.scheduler import Daemon, _next_retry_at
 from tests.daemon.test_heartbeat_retry import _maker, _ready_task
 
 
@@ -189,7 +185,7 @@ async def test_launch_skips_hard_blocked_tasks(_test_db):
     гейта, ожидая блокер (VITRINA-36, 29.10.2026)."""
     agent_id, code = await _ready_task(_test_db)
     maker = _maker(_test_db)
-    daemon = Daemon(maker, runner=None)
+    _daemon = Daemon(maker, runner=None)
     async with maker() as s:
         task = (await s.execute(sa.select(Task).where(Task.code == code))).scalar_one()
         # сосед-блокер в todo (не done)
@@ -264,9 +260,10 @@ async def test_infra_failure_blocks_without_burning_attempts(_test_db):
     stderr в сообщении — диагноз виден в карточке, а не только в логах."""
     import asyncio
 
-    from daemon.scheduler.scheduler import Daemon
     from infrastructure.git.worktree import GitError
     from repository.models import Chronicle, TaskRun
+
+    from daemon.scheduler.scheduler import Daemon
 
     agent_id, code = await _ready_task(_test_db)
     maker = _maker(_test_db)
@@ -307,8 +304,9 @@ async def test_run_limit_blocks_and_warns(_test_db):
     задача блокируется (rule_code RUN_LIMIT), до порога — разовое предупреждение
     «цикл не сходится». retry_count сбрасывается переходами, поэтому без этого
     лимита цикл «разработка↔ревью» легально сжигал сотни прогонов."""
+    from repository.models import Chronicle, Notification
+
     from daemon.scheduler.scheduler import Daemon
-    from repository.models import Chronicle, Notification, TaskRun
 
     agent_id, code = await _ready_task(_test_db)
     maker = _maker(_test_db)
@@ -352,8 +350,9 @@ async def test_run_limit_blocks_and_warns(_test_db):
 async def test_session_id_saved_from_event(_test_db):
     """session_id из init-события SDK пишется в task_run — без него resume
     следующего прогона невозможен."""
-    from daemon.scheduler.scheduler import Daemon
     from repository.models import TaskRun
+
+    from daemon.scheduler.scheduler import Daemon
 
     class _SidRunner:
         async def run(self, req):
@@ -429,17 +428,18 @@ async def test_soft_limit_does_not_burn_attempts(_test_db):
     """Мягкий лимит ходов — ПЛАНОВАЯ смена сессии, а не failure: попытка не
     сжигается (иначе 3 «смены» блокируют легитимно длинную задачу —
     VITRINA-1, 02.11.2026), исход interrupted даёт паузу до следующей смены."""
-    import json as _json
+
+    from repository.models import TaskRun
 
     from daemon.runner.agent_runner import RunReport
     from daemon.scheduler.scheduler import Daemon
-    from repository.models import TaskRun
 
     agent_id, code = await _ready_task(_test_db, status="in_testing")
     maker = _maker(_test_db)
     daemon = Daemon(maker, runner=None)
     report = RunReport(status="failed", summary_md="Мягкий лимит ходов (120) — "
-                       "плановая смена сессии: прогресс в чеклисте и коммитах")
+                       "плановая смена сессии: прогресс в чеклисте и коммитах",
+                       outcome_code="soft_turns")
     async with maker() as s:
         task = (await s.execute(sa.select(Task).where(Task.code == code))).scalar_one()
         from daemon.runner.reservation import reserve_task

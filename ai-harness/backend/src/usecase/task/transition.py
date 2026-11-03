@@ -3,25 +3,27 @@
 from __future__ import annotations
 
 import datetime as dt
+import uuid
 
 import sqlalchemy as sa
-from sqlalchemy.ext.asyncio import AsyncSession
-
+from domain.model.validators import DomainError
 from domain.transition.engine import Subject, check_edge, check_force
 from domain.transition.graph import load_graph
-from domain.model.validators import DomainError
 from repository.models import Chronicle, Task, User
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from usecase.task.gates import load_gate_data
 from usecase.task.rights import assigned_statuses
 
 
 class TransitionDenied(Exception):
-    """Отказ движка: applied=False с человекочитаемой причиной."""
+    """Отказ движка: applied=False с человекочитаемой причиной и кодом отказа."""
 
-    def __init__(self, reason: str, status_code: int = 200) -> None:
+    def __init__(self, reason: str, status_code: int = 200, code: str = "") -> None:
         super().__init__(reason)
         self.reason = reason
         self.status_code = status_code
+        self.code = code  # машиночитаемый код из Decision.code (миграция 0013)
 
 
 async def _subject_for(session: AsyncSession, actor: User | None, task: Task,
@@ -54,9 +56,9 @@ async def task_flow_version_id(session: AsyncSession, task) -> uuid.UUID:
     """Актуальная (current) версия flow типа задачи. Решение владельца
     28.10.2026: задачи всегда живут по текущей версионной модели — колонка
     task.flow_version_id хранится, но чтения правил идут по current."""
-    row = (await session.execute(sa.text(
-        "SELECT id FROM flow_version WHERE task_type_id = :t "
-        "AND is_current AND is_published"), {"t": str(task.task_type_id)})).scalar_one_or_none()
+    from repository.flow_queries import current_flow_version_id
+
+    row = await current_flow_version_id(session, task.task_type_id)
     return row or task.flow_version_id
 
 
@@ -82,7 +84,8 @@ async def apply_transition(session: AsyncSession, actor: User | None, code: str,
         if subject.kind == "agent":
             await _record_denial(session, task, actor, decision.reason)
         raise TransitionDenied(decision.reason,
-                               status_code=403 if subject.kind == "agent" else 200)
+                               status_code=403 if subject.kind == "agent" else 200,
+                               code=decision.code)
 
     prev_label = graph.statuses[task.status_key].label
     task.status_key = to
@@ -126,6 +129,7 @@ async def apply_blocked(session: AsyncSession, task: Task, actor: User | None,
     rule_code — источник рассинхрона правил (анализ 30.10.2026).
     Коммит не делает (кроме внутреннего в apply_transition) — за вызывающим."""
     from domain.transition.engine import check_edge
+
     from usecase.task.gates import load_gate_data
 
     graph = await load_graph(session, await task_flow_version_id(session, task))
@@ -160,7 +164,6 @@ async def _cascade_terminal(session: AsyncSession, task: Task, to: str,
     движком, а при отсутствии ребра — форсом с причиной-каскадом. Истории
     исключены: их жизненным циклом управляют зеркала M1–M6 и зачёт ПСИ."""
     import sqlalchemy as sa
-
     from repository.models import TaskRelation, TaskType
 
     rels = (await session.execute(
@@ -173,6 +176,7 @@ async def _cascade_terminal(session: AsyncSession, task: Task, to: str,
         .where(TaskRelation.to_task == task.id))).scalars().all()
     seen_ids: set = set()
     neighbor_ids: list = []
+    failed: list[tuple[str, str]] = []  # (код соседа, причина) — попадают в хронику
     for rel in rels:
         if rel.id in seen_ids:
             continue
@@ -201,10 +205,22 @@ async def _cascade_terminal(session: AsyncSession, task: Task, to: str,
                 try:
                     await apply_force(session, actor, neighbor.code, to,
                                       f"каскад при закрытии {task.code}")
-                except (TransitionDenied, DomainError):
-                    pass
-        except DomainError:
-            pass
+                except (TransitionDenied, DomainError) as err:
+                    failed.append((neighbor.code, str(err)))
+            else:
+                failed.append((neighbor.code, "нет легального ребра"))
+        except DomainError as err:
+            failed.append((neighbor.code, str(err)))
+    # прозрачность каскада (было: молчаливый `except … pass` — отказ оставлял
+    # соседа в старом статусе без следа в хронике; анализ 03.11.2026)
+    if failed:
+        session.add(Chronicle(
+            task_id=task.id, event_type="transition", author_id=actor.id,
+            author_kind="human",
+            rule_code="CASCADE",
+            message="Каскад «" + to + "» не прошёл для: "
+                    + "; ".join(f"{c} — {r}" for c, r in failed)[:450],
+        ))
 
 
 async def apply_force(session: AsyncSession, actor: User, code: str, to: str,

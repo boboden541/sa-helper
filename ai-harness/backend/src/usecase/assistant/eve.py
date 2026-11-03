@@ -10,19 +10,18 @@ import datetime as dt
 import re
 
 import sqlalchemy as sa
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from domain.model.validators import DomainError
 from repository.models import AppSetting, ChatMessage, Task, User
-from usecase.task.transition import TransitionDenied, apply_force, apply_transition
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from usecase.assistant import eve_agent  # noqa: F401 — фолбэк-проверки внизу
+from usecase.task.transition import TransitionDenied, apply_force, apply_transition
 
 _CODE_RE = re.compile(r"\b[A-Za-zА-Яа-я]{2,10}-\d+\b")
 _INTENT_TTL = dt.timedelta(minutes=10)
-# процессы без общего состояния — намерения живут в памяти backend (TTL 10 мин);
-# оба сообщения (намерение и «да») пишутся в chat_message для аудита
-_INTENTS: dict[str, tuple[dict, dt.datetime]] = {}
+# намерения «намерение → да» живут в БД (таблица eve_intent, миграция 0013):
+# память процесса теряла их при рестарте backend и не делила со вторым воркером.
+# Оба сообщения (намерение и «да») по-прежнему пишутся в chat_message для аудита.
 
 MOVE_VERBS = re.compile(r"переведи|перевести|верни|возьми", re.IGNORECASE)
 WHY_VERBS = re.compile(r"почему|не двигается|встала|застряла", re.IGNORECASE)
@@ -56,7 +55,9 @@ async def handle_message(session: AsyncSession, user: User, text: str,
         await _find_task(session, screen_task_code) if screen_task_code else None)
 
     # намерение на подтверждении?
-    intent = _pop_intent(user.id, text)
+    from usecase.assistant.eve_intents import pop_intent
+
+    intent = await pop_intent(session, user.id, text)
     if intent is not None:
         return await _confirm_intent(session, user, intent)
 
@@ -78,8 +79,11 @@ async def handle_message(session: AsyncSession, user: User, text: str,
             if hasattr(eve_agent, "EDIT_CONFIRM_RE") else False
 
         def _register(intent: dict) -> None:
-            _INTENTS[str(user.id)] = (
-                intent, dt.datetime.now(dt.timezone.utc) + _INTENT_TTL)
+            # запись в БД здесь невозможна (callback синхронный внутри SDK-сервера
+            # инструментов) — сохранение делает _persist_intent отдельной сессией
+            from usecase.assistant.eve_intents import persist_intent
+
+            persist_intent(user.id, intent)
 
         try:
             result = await eve_agent.agent_reply(
@@ -113,6 +117,7 @@ async def free_chat_reply(session: AsyncSession, user: User, text: str,
     системы (проекты, задачи, очередь, предупреждения конвейера, экран)."""
     from infrastructure.ai.chat import chat_call
     from repository.models import Connection
+
     from usecase.settings.connections import get_decrypted_token
 
     conn = (await session.execute(
@@ -221,7 +226,7 @@ async def _deep_details(session: AsyncSession, text: str,
         "JOIN task_type tt ON tt.id = t.task_type_id "
         "ORDER BY p.mnemonic, t.status_key, t.code"))).all()
     cur = None
-    for pr, tp, code, st, prio, title, br, tok in rows:
+    for pr, tp, code, st, _prio, title, br, tok in rows:
         if pr != cur:
             cur = pr
             index_lines.append(f"Проект {pr}:")
@@ -306,14 +311,14 @@ async def _deep_details(session: AsyncSession, text: str,
 async def _flow_statuses(session, task) -> list[tuple[str, str]]:
     """[(ключ, метка)] статусов flow-версии задачи — для резолвинга цели по метке."""
     import sqlalchemy as sa
-
+    from repository.flow_queries import current_flow_version_id
     from repository.models import FlowStatus, FlowVersion
 
-    return [(k, l) for k, l in (await session.execute(
+    fv_id = await current_flow_version_id(session, task.task_type_id)
+    return [(k, label) for k, label in (await session.execute(
         sa.select(FlowStatus.status_key, FlowStatus.label)
         .join(FlowVersion, FlowVersion.id == FlowStatus.flow_version_id)
-        .where(FlowVersion.task_type_id == task.task_type_id,
-               FlowVersion.is_current.is_(True), FlowVersion.is_published.is_(True))
+        .where(FlowVersion.id == fv_id)
     )).all()]
 
 
@@ -347,27 +352,13 @@ async def _plan_transition(session: AsyncSession, user: User, task: Task,
                     "task": task.code}
         except TransitionDenied as d:
             return {"reply": f"Не вышло: {d.reason}", "task": task.code}
-    _INTENTS[str(user.id)] = (
-        {"kind": "transition", "task": task.code, "to": target,
-         "expires": (dt.datetime.now(dt.timezone.utc) + _INTENT_TTL).isoformat()},
-        dt.datetime.now(dt.timezone.utc) + _INTENT_TTL)
+    from usecase.assistant.eve_intents import save_intent
+
+    await save_intent(session, user.id, {"kind": "transition", "task": task.code,
+                                         "to": target})
     return {"action": "confirm", "intent": {"kind": "transition", "task": task.code,
                                             "to": target},
             "reply": f"Переведу {task.code} в «{target}». Подтвердите: «да»."}
-
-
-def _pop_intent(user_id, text: str) -> dict | None:
-    if not re.fullmatch(r"\s*(да|подтверждаю|yes)\s*", text, re.IGNORECASE):
-        return None
-    item = _INTENTS.get(str(user_id))
-    if not item:
-        return None
-    intent, expires = item
-    if expires < dt.datetime.now(dt.timezone.utc):
-        _INTENTS.pop(str(user_id), None)
-        return None
-    _INTENTS.pop(str(user_id), None)
-    return intent
 
 
 async def _confirm_intent(session: AsyncSession, user: User, intent: dict) -> dict:
@@ -429,8 +420,9 @@ async def _confirm_intent(session: AsyncSession, user: User, intent: dict) -> di
     elif intent["kind"] == "interrupt":
         import datetime as _dt
 
-        from daemon.runner.reservation import release_reservation
         from repository.models import Chronicle, TaskRun
+
+        from daemon.runner.reservation import release_reservation
 
         t = (await session.execute(
             sa.select(Task).where(Task.code == intent["task"].upper()))).scalar_one_or_none()
@@ -483,9 +475,10 @@ async def _confirm_intent(session: AsyncSession, user: User, intent: dict) -> di
 async def plan_force(session: AsyncSession, user: User, task_code: str, to: str,
                      reason: str) -> dict:
     """Форс с само-сформулированной причиной — тоже через намерение (ФТ-ah-52)."""
-    _INTENTS[str(user.id)] = (
-        {"kind": "force", "task": task_code, "to": to, "reason": reason},
-        dt.datetime.now(dt.timezone.utc) + _INTENT_TTL)
+    from usecase.assistant.eve_intents import save_intent
+
+    await save_intent(session, user.id, {"kind": "force", "task": task_code,
+                                         "to": to, "reason": reason})
     return {"action": "confirm", "intent": {"kind": "force", "task": task_code, "to": to},
             "reply": f"Форс-переход {task_code} в «{to}» с причиной: {reason}. «да»?"}
 

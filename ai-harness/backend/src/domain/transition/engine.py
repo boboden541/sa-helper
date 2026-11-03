@@ -10,6 +10,23 @@ from dataclasses import dataclass, field
 
 from domain.transition.graph import ACTIVE_STATUSES, GATE_LABELS, FlowGraph
 
+# Коды отказов движка (попадают в task_run.reason_code / TransitionDenied.code,
+# миграция 0013): планировщик демона и targeted-retry решают по коду, а не
+# подстроками в тексте причины — смена формулировки больше не меняет семантику.
+NO_EDGE = "no_edge"
+NO_STATUS = "no_status"
+RUNNER_AUTO = "runner_auto"          # ребро не автоматическое
+RUNNER_AGENT = "runner_agent"        # исполнитель ребра не агент
+AGENT_NOT_ASSIGNED = "agent_not_assigned"
+AGENT_CANCEL = "agent_cancel"        # агент не может отменять задачи
+AGENT_TERMINAL = "agent_terminal"    # из терминального статуса агенту хода нет
+LINKS_BLOCKED = "links_blocked"      # жёсткая связь blocked_by открыта
+PSI_FAILED = "psi_failed"            # непройденные пункты ПСИ
+CHECKLIST_NOT_CREATED = "checklist_not_created"
+CHECKLIST_NOT_CLOSED = "checklist_not_closed"
+CHECKLIST_FAILED = "checklist_failed"
+ARTIFACT_MISSING = "artifact_missing"
+
 
 @dataclass(frozen=True)
 class Subject:
@@ -41,17 +58,23 @@ class GateData:
 class Decision:
     allowed: bool
     reason: str = ""
+    # машиночитаемый код отказа (см. константы ниже): планировщик демона и
+    # targeted-retry решают по коду, не подстроками текста (анализ 03.11.2026)
+    code: str = ""
 
 
 def _reason_checklist_not_created(gate: str) -> str:
     return f"{GATE_LABELS[gate]} не создан — этап не начат"
 
 
-def _reason_checklist_closed(state: ChecklistState, gate: str) -> str:
+def _reason_checklist_closed(state: ChecklistState, gate: str) -> tuple[str, str]:
+    """Человекочитаемая причина + машиночитаемый код отказа гейта."""
     if state.open:
         plural = "пункт" if state.open % 10 == 1 and state.open % 100 != 11 else "пунктов"
-        return f"{GATE_LABELS[gate]}: не закрыто {state.open} {plural}"
-    return f"{GATE_LABELS[gate]}: есть неуспешные пункты ({state.failed})"
+        return (f"{GATE_LABELS[gate]}: не закрыто {state.open} {plural}",
+                CHECKLIST_NOT_CLOSED)
+    return (f"{GATE_LABELS[gate]}: есть неуспешные пункты ({state.failed})",
+            CHECKLIST_FAILED)
 
 
 def _checklist_state_is_closed(state: ChecklistState) -> bool:
@@ -66,11 +89,12 @@ def check_edge(graph: FlowGraph, current: str, target: str, subject: Subject,
         from_status = graph.status(current)
         to_status = graph.status(target)
         if to_status is None:
-            return Decision(False, f"Статус «{target}» не существует в flow задачи")
+            return Decision(False, f"Статус «{target}» не существует в flow задачи", code=NO_STATUS)
         return Decision(
             False,
             "Переход не предусмотрен flow: "
             f"«{from_status.label if from_status else current}» → «{to_status.label}»",
+            code=NO_EDGE,
         )
 
     # --- права субъекта (матрица прав, постановка «Права субъектов») ---
@@ -79,27 +103,31 @@ def check_edge(graph: FlowGraph, current: str, target: str, subject: Subject,
         # исполнять такие рёбра детерминированными правилами (возврат из
         # blocked после снятия блокера и т.п.); иначе подпись flow врала
         if edge.runner not in ("auto", "auto_or_agent"):
-            return Decision(False, f"Ребро не помечено как автоматическое ({edge.runner})")
+            return Decision(False, f"Ребро не помечено как автоматическое ({edge.runner})",
+                            code=RUNNER_AUTO)
     elif subject.kind == "agent":
         if current not in subject.assigned_statuses:
-            return Decision(False, f"Агент не назначен на статус «{current}» — переход отклонён")
+            return Decision(False, f"Агент не назначен на статус «{current}» — переход отклонён",
+                            code=AGENT_NOT_ASSIGNED)
         if edge.runner not in ("agent", "auto_or_agent"):
             return Decision(False, "Переход недоступен агенту: "
-                                   f"исполнитель ребра — {edge.runner}")
+                                   f"исполнитель ребра — {edge.runner}", code=RUNNER_AGENT)
         if target == "canceled":
-            return Decision(False, "Агент не может отменять задачи")
+            return Decision(False, "Агент не может отменять задачи", code=AGENT_CANCEL)
         if graph.status(current).is_terminal:
-            return Decision(False, "Агент не может переводить из терминального статуса")
+            return Decision(False, "Агент не может переводить из терминального статуса",
+                            code=AGENT_TERMINAL)
     # human / eve: любые валидные рёбра (Eve приравнена к человеку)
 
     # --- гейты (ФТ-ah-9): жёсткие связи, ПСИ, чеклисты, артефакты ---
     if edge.cond_links and target in ACTIVE_STATUSES and gates.open_blockers:
         code, title = gates.open_blockers[0]
-        return Decision(False, f"жёсткая связь blocked by {code} — «{title}» не закрыта")
+        return Decision(False, f"жёсткая связь blocked by {code} — «{title}» не закрыта",
+                        code=LINKS_BLOCKED)
 
     if target == "done" and gates.psi_failed:
         return Decision(False, f"прогон ПСИ не пройден полностью: {gates.psi_failed} "
-                               "пунктов «не пройден»")
+                               "пунктов «не пройден»", code=PSI_FAILED)
 
     if edge.cond_checklist:
         decision = _check_gates(graph, edge, current, target, gates)
@@ -111,7 +139,7 @@ def check_edge(graph: FlowGraph, current: str, target: str, subject: Subject,
 
         kind = ARTIFACT_KINDS.get(current)
         if kind and not gates.artifacts.get(kind, False):
-            return Decision(False, "не заполнен артефакт этапа")
+            return Decision(False, "не заполнен артефакт этапа", code=ARTIFACT_MISSING)
 
     return Decision(True)
 
@@ -155,19 +183,22 @@ def _check_gates(graph: FlowGraph, edge, current: str, target: str,
             reason = _reason_checklist_not_created(src.checklist_gate)
             if src.key == "todo":
                 reason += " — decomposition not done"
-            return Decision(False, reason)
+            return Decision(False, reason, code=CHECKLIST_NOT_CREATED)
         if not _checklist_state_is_closed(state):
-            return Decision(False, _reason_checklist_closed(state, src.checklist_gate))
+            reason_c, code = _reason_checklist_closed(state, src.checklist_gate)
+            return Decision(False, reason_c, code=code)
 
     if edge.runner != "auto" and dst.key == "in_progress" and dst.checklist_gate:
         state = state_of(dst.checklist_gate)
         if not state.exists or state.total == 0:
-            return Decision(False, _reason_checklist_not_created(dst.checklist_gate))
+            return Decision(False, _reason_checklist_not_created(dst.checklist_gate),
+                            code=CHECKLIST_NOT_CREATED)
 
     if forward and edge.runner != "auto" and dst.key == "in_review" and dst.checklist_gate:
         state = state_of(dst.checklist_gate)
         if not state.exists or state.total == 0:
-            return Decision(False, _reason_checklist_not_created(dst.checklist_gate))
+            return Decision(False, _reason_checklist_not_created(dst.checklist_gate),
+                            code=CHECKLIST_NOT_CREATED)
 
     return None
 
@@ -184,9 +215,9 @@ def check_force(graph: FlowGraph, current: str, target: str, subject: Subject,
                 reason: str | None) -> Decision:
     """Форс: только человек (Eve приравнена), причина обязательна (ФТ-ah-28)."""
     if subject.kind not in ("human", "eve"):
-        return Decision(False, "Форс-переход доступен только человеку")
+        return Decision(False, "Форс-переход доступен только человеку", code="force_not_human")
     if not (reason or "").strip():
-        return Decision(False, "Причина форс-перехода обязательна")
+        return Decision(False, "Причина форс-перехода обязательна", code="force_reason_required")
     if graph.status(target) is None:
-        return Decision(False, f"Статус «{target}» не существует в flow задачи")
+        return Decision(False, f"Статус «{target}» не существует в flow задачи", code=NO_STATUS)
     return Decision(True)

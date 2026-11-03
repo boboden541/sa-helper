@@ -11,11 +11,11 @@ import datetime as dt
 import logging
 
 import sqlalchemy as sa
+from repository.models import TaskRun
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from daemon.config import load_daemon_settings, retry_pauses_minutes
 from daemon.runner.reservation import release_reservation, reserve_task
-from repository.models import TaskRun
 
 
 async def active_run_id(session, task_id) -> str | None:
@@ -88,8 +88,10 @@ class Daemon:
     def __init__(self, sessionmaker, runner) -> None:
         self._maker = sessionmaker
         self.runner = runner
-        self._active: dict[str, asyncio.Task] = {}  # task_code -> asyncio.Task
-        self._active_runs: dict[str, str] = {}  # task_code -> run_id текущего прогона
+        # ключ всего — run_id (режим parallel: у задачи несколько одновременных
+        # прогонов разных агентов; AC-4.4.3.1, анализ 03.11.2026)
+        self._active: dict[str, asyncio.Task] = {}  # run_id -> asyncio.Task
+        self._runs: dict[str, dict] = {}  # run_id -> {task_code, status_key, agent_id, task_id}
         self._paused_until: dict[str, dt.datetime] = {}  # connection_id -> until
 
     async def tick(self) -> dict:
@@ -145,7 +147,7 @@ class Daemon:
                    TaskType.key != "story")
         )).all()
         blocked = 0
-        for task, type_key in rows:
+        for task, _type_key in rows:
             has_agent = (await session.execute(
                 sa.select(sa.func.count()).select_from(Assignment)
                 .join(User, User.id == Assignment.user_id)
@@ -191,10 +193,8 @@ class Daemon:
         from domain.transition.engine import STAGE_ORDER, Subject, check_edge
         from domain.transition.graph import load_graph
         from repository.models import FlowTransition, FlowVersion
-
         from usecase.task.gates import load_gate_data
-        from usecase.task.transition import TransitionDenied, apply_transition, \
-            task_flow_version_id
+        from usecase.task.transition import TransitionDenied, apply_transition, task_flow_version_id
 
         rows = (await session.execute(
             sa.select(Task, TaskType.key.label("type_key"))
@@ -202,7 +202,7 @@ class Daemon:
             .where(Task.status_key == "blocked", TaskType.key != "story",
                    Task.reserved_by.is_(None)))).all()
         returned = 0
-        for task, type_key in rows:
+        for task, _type_key in rows:
             blockers = (await session.execute(
                 sa.select(Task.code)
                 .join(TaskRelation, TaskRelation.to_task == Task.id)
@@ -254,15 +254,17 @@ class Daemon:
         if not self._active:
             return
         now = dt.datetime.now(dt.timezone.utc)
+        run_ids = list(self._active.keys())
         await session.execute(
             sa.text("UPDATE task_run SET heartbeat_at = :n WHERE finished_at IS NULL "
-                    "AND task_id IN (SELECT id FROM task WHERE code = ANY(:codes))"),
-            {"n": now, "codes": list(self._active.keys())},
+                    "AND id = ANY(:rids)"),
+            {"n": now, "rids": run_ids},
         )
+        codes = sorted({m["task_code"] for m in self._runs.values()})
         await session.execute(
             sa.text("UPDATE task SET heartbeat_at = :n WHERE reserved_by IS NOT NULL "
                     "AND code = ANY(:codes)"),
-            {"n": now, "codes": list(self._active.keys())},
+            {"n": now, "codes": codes},
         )
         await session.commit()
 
@@ -284,7 +286,8 @@ class Daemon:
         )).all()
         lost = 0
         for run, task in dead:
-            await release_reservation(session, task.id, "failed",
+            # по прогону (parallel: у задачи живёт соседний прогон — не трогаем)
+            await release_reservation(session, task.id, str(run.id), "failed",
                                       "heartbeat пропал — возврат в очередь")
             task.retry_count += 1
             session.add(_chronicle(task.id, "heartbeat",
@@ -303,12 +306,14 @@ class Daemon:
         if paused == "true":
             return 0
         now = dt.datetime.now(dt.timezone.utc)
+        # reserved_by НЕ фильтруем в SQL: параллельные задачи живут с пустым
+        # reserved_by при активных прогонах; эксклюзивный резерв отсеивается
+        # в python-цикле ниже (анализ 03.11.2026)
         rows = (await session.execute(
             sa.select(Task, TaskType.key.label("type_key"))
             .join(TaskType, TaskType.id == Task.task_type_id)
             .outerjoin(Project, Project.id == Task.project_id)
-            .where(Task.reserved_by.is_(None),
-                   Task.status_key.notin_(("pending", "blocked", "done", "canceled")),
+            .where(Task.status_key.notin_(("pending", "blocked", "done", "canceled")),
                    Project.is_archived.is_(False))
         )).all()
 
@@ -326,11 +331,9 @@ class Daemon:
             .where(User.user_type == "agent", User.is_service.is_(False))
             .order_by(Assignment.position)
         )).all()
-        assignments: dict[tuple, tuple] = {}
+        assignments: dict[tuple, list] = {}
         for at, sk, uid, mode, pos in assign_rows:
-            key = (str(at), sk)
-            if key not in assignments:  # первая по position — «замещение»
-                assignments[key] = (uid, mode, pos)
+            assignments.setdefault((str(at), sk), []).append((uid, mode, pos))
 
         conn_rows = (await session.execute(
             sa.text("SELECT user_id, connection_id FROM agent_profile"))).all()
@@ -338,17 +341,19 @@ class Daemon:
 
         from repository.models import TaskRun
 
-        last_runs: dict[str, tuple] = {}
+        # последний прогон — по паре (задача, агент): в parallel пауза ретрая
+        # одного агента не должна задерживать первого запуска соседа
+        last_runs: dict[tuple, tuple] = {}
         if rows:
             lr = (await session.execute(
-                sa.select(TaskRun.task_id, TaskRun.finished_at, TaskRun.attempt_no,
-                          TaskRun.outcome, TaskRun.status_key)
+                sa.select(TaskRun.task_id, TaskRun.agent_id, TaskRun.finished_at,
+                          TaskRun.attempt_no, TaskRun.outcome, TaskRun.status_key)
                 .where(TaskRun.task_id.in_([row.Task.id for row in rows]),
                        TaskRun.outcome.in_(("failed", "interrupted", "success")))
-                .distinct(TaskRun.task_id)
-                .order_by(TaskRun.task_id, TaskRun.finished_at.desc())
+                .distinct(TaskRun.task_id, TaskRun.agent_id)
+                .order_by(TaskRun.task_id, TaskRun.agent_id, TaskRun.finished_at.desc())
             )).all()
-            last_runs = {str(r[0]): tuple(r)[1:] for r in lr}
+            last_runs = {(str(r[0]), str(r[1])): tuple(r)[2:] for r in lr}
 
         # счётчик прогонов задачи в целом: retry_count сбрасывается переходами,
         # поэтому цикл «разработка↔ревью» легально сжигал сотни прогонов
@@ -363,22 +368,42 @@ class Daemon:
                 .group_by(_TR.task_id))).all()
             run_counts = {str(tid): n for tid, n in rc}
 
+        # активные прогоны кандидатов — один пакетный запрос (parallel: пара
+        # «задача×агент» с живым прогоном не перезапускается)
+        active_pairs: set[tuple] = set()
+        if rows:
+            act = (await session.execute(
+                sa.select(TaskRun.task_id, TaskRun.agent_id)
+                .where(TaskRun.task_id.in_([row.Task.id for row in rows]),
+                       TaskRun.finished_at.is_(None)))).all()
+            active_pairs = {(str(tid), str(aid)) for tid, aid in act}
+
         ready = []
         for row in rows:
             task = row.Task
-            agent_row = assignments.get((str(task.task_type_id), task.status_key))
-            if agent_row is None:
+            type_key = row.type_key
+            if task.reserved_by is not None:
+                continue  # эксклюзивный резерв держит другая копия демона — не трогаем
+            agent_rows = assignments.get((str(task.task_type_id), task.status_key))
+            if not agent_rows:
                 continue
-            last = last_runs.get(str(task.id))
-            retry_at = _retry_at_from_run(last, task.status_key, cfg) if last else None
-            if retry_at and retry_at > now:
-                continue  # ждёт растущей паузы ретрая
-            # массовый отказ провайдера: задачи ждут, не блокируются (ФТ-ah-35)
-            agent_conn = conn_by_agent.get(str(agent_row[0]))
-            conn_key = str(agent_conn) if agent_conn else "default"
-            if agent_conn is not None and conn_key in paused_conns:
-                continue
-            ready.append((*row, *agent_row))
+            # режим ведущей записи (первой по position): parallel — работают все
+            # назначенные агенты одновременно; exclusive — только первый
+            parallel = agent_rows[0][1] == "parallel"
+            agents = agent_rows if parallel else agent_rows[:1]
+            for uid, _m, _p in agents:
+                if (str(task.id), str(uid)) in active_pairs:
+                    continue  # у агента уже есть живой прогон по этой задаче
+                last = last_runs.get((str(task.id), str(uid)))
+                retry_at = _retry_at_from_run(last, task.status_key, cfg) if last else None
+                if retry_at and retry_at > now:
+                    continue  # ждёт растущую паузу ретрая
+                # массовый отказ провайдера: задачи ждут, не блокируются (ФТ-ah-35)
+                agent_conn = conn_by_agent.get(str(uid))
+                conn_key = str(agent_conn) if agent_conn else "default"
+                if agent_conn is not None and conn_key in paused_conns:
+                    continue
+                ready.append((task, type_key, uid, "parallel" if parallel else "replacement", _p))
 
         # правило очереди по зависимостям (решение владельца 29.10.2026):
         # приоритет → сперва задачи, которые сами разблокируют других
@@ -415,8 +440,10 @@ class Daemon:
 
         max_attempts = int(cfg["daemon.max_attempts"])
         launched = 0
-        for task, type_key, agent_id, mode, position in sorted(ready, key=_dep_key):
-            if task.code in self._active:
+        for task, _type_key, agent_id, mode, _position in sorted(ready, key=_dep_key):
+            # replacement: один активный прогон на задачу; parallel: соседи живут одновременно
+            if mode == "replacement" and any(
+                    m["task_code"] == task.code for m in self._runs.values()):
                 continue
             total_runs = run_counts.get(str(task.id), 0)
             warn_n = int(cfg.get("daemon.warn_runs_per_task") or 0)
@@ -480,14 +507,16 @@ class Daemon:
             if hard_blocked:
                 continue
             run_id = await reserve_task(session, task.id, agent_id, task.status_key,
-                                        attempt_no=task.retry_count + 1)
+                                        attempt_no=task.retry_count + 1,
+                                        mode=mode)
             if not run_id:
-                continue  # занято другой копией демона
-            self._active_runs[task.code] = run_id
+                continue  # занято: гонка проиграна (эксклюзив) или агент уже живёт (parallel)
+            self._runs[run_id] = {"task_code": task.code, "task_id": str(task.id),
+                                  "status_key": task.status_key, "agent_id": str(agent_id)}
             async def _go(task=task, agent_id=agent_id, status_key=task.status_key,
                           run_id=run_id):
                 await self._run_task(task.code, agent_id, status_key, cfg, run_id)
-            self._active[task.code] = asyncio.create_task(_go())
+            self._active[run_id] = asyncio.create_task(_go())
             launched += 1
         return launched
 
@@ -499,7 +528,6 @@ class Daemon:
         транзакций не держим: долгая idle-in-transaction вставала в очередь
         перед UPDATE пульса/резерва и замораживала тики демона (инцидент
         29.10.2026: демон молчал 15 минут, пульс и свип встали за её блокировкой)."""
-        from usecase.task.transition import TransitionDenied, apply_transition
 
         try:
             async with self._maker() as session:
@@ -567,10 +595,11 @@ class Daemon:
                 # сохраняется; бюджет ходов у запроса свой, лестница ретраев
                 # ограничивает цепочку). Инфра-сбои и обычные failed — свежий лист.
                 # прицельный перепрогон: прошлый failed — отказ чеклист-гейта?
+                # (по коду отказа, не подстроками в тексте — анализ 03.11.2026)
                 last_denied = (await session.execute(sa.text(
                     "SELECT detail FROM task_run "
-                    "WHERE task_id = :t AND outcome = 'failed' "
-                    "AND detail LIKE '%чек-лист%' AND detail LIKE '%не закрыто%' "
+                    "WHERE task_id = :t AND outcome = 'failed' AND reason_code IN "
+                    "('checklist_not_closed', 'checklist_failed', 'checklist_not_created') "
                     "ORDER BY started_at DESC LIMIT 1"),
                     {"t": str(task.id)})).scalar_one_or_none()
                 base_ctx = await self._context_md(session, task)
@@ -612,8 +641,7 @@ class Daemon:
                 resume_sid = (await session.execute(sa.text(
                     "SELECT session_id FROM task_run "
                     "WHERE task_id = :t AND outcome = 'failed' AND session_id IS NOT NULL "
-                    "AND (detail LIKE '% Reached maximum number of turns%' "
-                    "     OR detail LIKE '%Таймаут прогона%') "
+                    "AND reason_code IN ('turns_limit', 'timeout_work') "
                     "AND finished_at - started_at < interval '15 minutes' "
                     "ORDER BY started_at DESC LIMIT 1"),
                     {"t": str(task.id)})).scalar_one_or_none()
@@ -675,9 +703,10 @@ class Daemon:
                         "UPDATE task SET retry_count = retry_count + 1 WHERE code = :c"),
                         {"c": task_code})
                 await s2.commit()
-                await release_reservation(s2, task_id, "failed", str(err)[:500])
-            self._active.pop(task_code, None)
-            self._active_runs.pop(task_code, None)
+                await release_reservation(s2, task_id, run_id, "failed", str(err)[:500],
+                                          reason_code="runner_error" if not infra else "infra")
+            self._active.pop(run_id, None)
+            self._runs.pop(run_id, None)
             return
 
         # Прогон агента и применение отчёта — БЕЗ открытых транзакций, пока
@@ -707,13 +736,13 @@ class Daemon:
                     sa.text("SELECT connection_id FROM agent_profile WHERE user_id = :u"),
                     {"u": str(agent_id)})).scalar_one_or_none()
                 if report.status == "success":
-                    record_success(str(conn_id) if conn_id else None)
+                    await record_success(session, conn_id)
                 elif report.status == "failed":
-                    record_failure(str(conn_id) if conn_id else None)
+                    await record_failure(session, conn_id)
                     from daemon.runner.circuit import maybe_trip
 
-                    await maybe_trip(session, str(conn_id) if conn_id else None)
-                await self._apply_report(session, task, agent, report, cfg)
+                    await maybe_trip(session, conn_id)
+                await self._apply_report(session, task, agent, report, cfg, run_id)
         except Exception as err:  # noqa: BLE001 — демон не должен падать
             log.exception("run failed: %s", task_code)
             async with self._maker() as s2:
@@ -725,10 +754,11 @@ class Daemon:
                     {"c": task_code})
                 await s2.commit()
                 await release_reservation(s2, await task_id_by_code(s2, task_code),
-                                          "failed", str(err)[:500])
+                                          run_id, "failed", str(err)[:500],
+                                          reason_code="runner_error")
         finally:
-            self._active.pop(task_code, None)
-            self._active_runs.pop(task_code, None)
+            self._active.pop(run_id, None)
+            self._runs.pop(run_id, None)
 
     async def _ensure_worktree(self, session, task):
         from repository.models import Project
@@ -741,7 +771,6 @@ class Daemon:
         if type_key not in GIT_TASK_TYPES:
             return None
         project = await session.get(Project, task.project_id)
-        from pathlib import Path
 
         from infrastructure.git.worktree import ensure_task_worktree
 
@@ -764,6 +793,17 @@ class Daemon:
                 .limit(1))).scalar_one_or_none()
         if conn is None:
             return None
+        if conn.protocol == "openai":
+            # фаст-фейл вместо молчаливого ухода на дефолтного провайдера
+            # (анализ 03.11.2026: _sdk_env возвращал пустой env, прогон уходил
+            # на дефолт; DomainError → INFRA-blocked, попытки не сжигаются)
+            from domain.model.validators import DomainError
+
+            raise DomainError(
+                "Подключение с протоколом openai не поддерживается прогонами "
+                "агентов: SDK работает только с Anthropic-совместимыми "
+                "эндпоинтами. Назначьте агенту anthropic-совместимое "
+                "подключение (или активное глобальное).")
         return {"protocol": conn.protocol, "url": conn.url, "model": conn.model,
                 "token": await get_decrypted_token(session, conn)}
 
@@ -775,21 +815,20 @@ class Daemon:
             return 0
         now = dt.datetime.now(dt.timezone.utc)
         rows = (await session.execute(
-            sa.select(Task.code, TaskRun.id)
-            .join(Task, Task.id == TaskRun.task_id)
+            sa.select(TaskRun.id)
             .where(TaskRun.finished_at.isnot(None),
                    TaskRun.outcome == "interrupted",
                    TaskRun.finished_at >= now - dt.timedelta(minutes=10),
-                   Task.code.in_(list(self._active_runs.keys()))))).all()
+                   TaskRun.id.in_(list(self._active.keys()))))).all()
         killed = 0
-        for code, rid in rows:
-            if self._active_runs.get(code) != str(rid):
-                continue  # гасим только тот прогон, который сами запустили
-            t = self._active.pop(code, None)
-            self._active_runs.pop(code, None)
+        for (rid,) in rows:
+            t = self._active.get(str(rid))
             if t is not None and not t.done():
                 t.cancel()
                 killed += 1
+            # run-строка уже помечена в БД перехватом; чистим учёт демона
+            self._active.pop(str(rid), None)
+            self._runs.pop(str(rid), None)
         return killed
 
     async def _retention_tick(self, session) -> None:
@@ -825,7 +864,6 @@ class Daemon:
         Пропавший файл не роняет прогон — в промт уходит честная пометка."""
         from domain.model.validators import DomainError
         from repository.models import ToolArtifact
-
         from usecase.settings import tools as tools_uc
 
         try:
@@ -847,12 +885,22 @@ class Daemon:
                            "(файл не найден в папке инструментов — скилл пропущен)")
         return out
 
-    async def _apply_report(self, session, task, agent, report, cfg) -> None:
+    async def _apply_report(self, session, task, agent, report, cfg,
+                            run_id: str | None = None) -> None:
         from repository.models import Chronicle, Task
         from usecase.task.transition import TransitionDenied, apply_transition
 
         task = (await session.execute(
             sa.select(Task).where(Task.code == task.code))).scalar_one()
+        # гвард параллельного режима: задача ушла со статуса прогона (человек,
+        # сосед-агент, зеркало) — отчёт чужого статуса не применяется
+        run_meta = self._runs.get(str(run_id)) or {}
+        if run_meta.get("status_key") and task.status_key != run_meta["status_key"]:
+            await release_reservation(session, task.id, run_id, "interrupted",
+                                      "задача ушла со статуса — прогон остановлен",
+                                      reason_code="stale_status")
+            await session.commit()
+            return
 
         session.add(Chronicle(
             task_id=task.id, event_type="agent", author_id=agent.id, author_kind="agent",
@@ -876,15 +924,15 @@ class Daemon:
         await self._apply_relations(session, task, report)
         await self._apply_checklist_updates(session, task, report)
 
-        if report.summary_md.startswith("Мягкий лимит ходов"):
+        if report.outcome_code == "soft_turns":
             # плановая смена сессии: не дефект и не вина агента — попытку не
             # сжигаем (иначе задача блокируется после 3 «смен», VITRINA-1,
             # 02.11.2026), исход interrupted даёт максимальную паузу до
             # следующей смены; чеклист/артефакт/связи уже применены выше
             session.add(_chronicle(task.id, "agent",
                                    "Смена сессии (мягкий лимит ходов) — прогресс сохранён"))
-            await release_reservation(session, task.id, "interrupted",
-                                      report.summary_md[:200])
+            await release_reservation(session, task.id, run_id, "interrupted",
+                                      report.summary_md[:200], reason_code="soft_turns")
             await session.commit()
             return
 
@@ -902,7 +950,6 @@ class Daemon:
                 # честного «переход отклонён» и сжигал попытки прогона.
                 from domain.transition.engine import check_edge
                 from domain.transition.graph import load_graph
-
                 from usecase.task.gates import load_gate_data
                 from usecase.task.transition import _subject_for, task_flow_version_id
 
@@ -919,14 +966,16 @@ class Daemon:
                 task.retry_count += 1
                 session.add(_chronicle(task.id, "engine",
                                        f"Переход отклонён: {denied.reason}"))
-                await release_reservation(session, task.id, "failed", denied.reason)
+                await release_reservation(session, task.id, run_id, "failed",
+                                          denied.reason,
+                                          reason_code=denied.code or "denied_gate")
                 return
         elif report.status == "blocked":
             from usecase.task.transition import apply_blocked
             await apply_blocked(session, task, agent,
                                 blocked_reason_from_summary(report.summary_md),
                                 subject_kind="agent", rule_code="AGENT_REPORT")
-            await release_reservation(session, task.id, "blocked")
+            await release_reservation(session, task.id, run_id, "blocked")
             await session.commit()
             return
         else:
@@ -935,7 +984,8 @@ class Daemon:
             await session.commit()
             return
 
-        await release_reservation(session, task.id, "success")
+        # success без перехода: release с кодом None (перехода не было)
+        await release_reservation(session, task.id, run_id, "success")
         await session.commit()
 
     async def _apply_checklist_updates(self, session, task, report) -> None:
@@ -1026,10 +1076,9 @@ class Daemon:
 
     async def _merge_before_done(self, session, task) -> None:
         """Слияние перед done (ФТ-ah-37); конфликт -> TransitionDenied (далее ретрай-лестница)."""
-        from repository.models import Project
-
         from infrastructure.git.worktree import GitError, merge_task_branch
         from infrastructure.paths import host_to_container
+        from repository.models import Project
         from usecase.task.transition import TransitionDenied
 
         project = await session.get(Project, task.project_id)
@@ -1072,7 +1121,7 @@ def blocked_reason_from_summary(summary: str, limit: int = 500) -> str:
     return "…" + reason[-(limit - 1):]
 
 
-def targeted_retry_block(denied_reason: str, open_items: list[dict]) -> str | None:
+def targeted_retry_block(denied_reason: str | None, open_items: list[dict]) -> str | None:
     """Блок «прицельный перепрогон» для контекста: прошлый прогон упёрся в
     чеклист-гейт — следующий агент верифицирует только открытое, не повторяет
     полный регресс (экономия: 50 мин и ~11М кэша на повтор)."""
@@ -1084,7 +1133,7 @@ def targeted_retry_block(denied_reason: str, open_items: list[dict]) -> str | No
         "## Прицельный перепрогон (важно)\n"
         f"Прошлый прогон выполнил работу, но переход отклонён гейтом: {denied_reason}.\n"
         f"Единственное препятствие — открытые пункты чеклиста:\n"
-        + "\n".join(f"- {l}" for l in lines)
+        + "\n".join(f"- {line}" for line in lines)
         + "\nВерифицируй ТОЛЬКО эти пункты (полный регресс не повторяй — он уже "
           "пройден прошлым прогоном), закрой их в checklist_updates и предложи переход."
     )

@@ -5,10 +5,9 @@ from __future__ import annotations
 import uuid
 
 import sqlalchemy as sa
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from domain.model.validators import DomainError
 from repository.models import AgentProfile, Assignment, TaskType, User
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 async def _ensure_agent_user(session: AsyncSession, name: str) -> User:
@@ -99,6 +98,7 @@ async def create_agent(session: AsyncSession, data: dict) -> User:
     user = await _ensure_agent_user(session, name)
     runner_fields = _clean_runner_fields(data)
     await _check_skills_in_registry(session, runner_fields["skills"])
+    await _check_connection_for_runner(session, data.get("connection_id"))
     profile = AgentProfile(
         user_id=user.id,
         role=data.get("role") or "исполнитель этапа конвейера",
@@ -119,6 +119,7 @@ async def update_agent(session: AsyncSession, user_id: uuid.UUID, fields: dict) 
         raise DomainError("Агент не найден")
     for field in ("role", "connection_id"):
         if field in fields:
+            await _check_connection_for_runner(session, fields[field])
             setattr(profile, field, fields[field])
     # опции раннера меняются только явно переданными ключами (пустая строка/JSON = сброс)
     runner = _clean_runner_fields(fields)
@@ -208,3 +209,22 @@ async def agent_usages(session: AsyncSession, user_id: uuid.UUID) -> list[str]:
         .join(TaskType, TaskType.id == Assignment.task_type_id)
         .where(Assignment.user_id == user_id))).all()
     return [f"{key}:{status}" for key, status in rows]
+
+
+async def _check_connection_for_runner(session: AsyncSession, connection_id) -> None:
+    """Прогоны агентов работают только через Anthropic-совместимые подключения:
+    раннер (Claude Agent SDK) понимает только ANTHROPIC_*-окружение. Пресеты
+    OpenRouter/Groq/vLLM/Ollama (протокол openai) пригодны для чата Eve, но не
+    для прогонов — раньше такое подключение молча давало пустой env, и прогон
+    уходил на дефолтного провайдера (анализ 03.11.2026)."""
+    if not connection_id:
+        return
+    from repository.models import Connection
+
+    conn = await session.get(Connection, connection_id)
+    if conn is not None and conn.protocol == "openai":
+        raise DomainError(
+            "Это подключение с протоколом openai — оно пригодно для чата Eve, "
+            "но не для прогонов агентов (SDK работает только с "
+            "Anthropic-совместимыми эндпоинтами). Назначьте агенту "
+            "anthropic-совместимое подключение.", field="connection_id")

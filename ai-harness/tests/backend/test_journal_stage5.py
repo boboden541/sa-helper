@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import sqlalchemy as sa
-
-from repository.models import Notification, PsiRunItem, Task, User
+from repository.models import PsiRunItem, Task, User
 from usecase.journal.chronicle import append, purge_expired_payloads
-from usecase.journal.notifications import list_open, on_transition, raise_event, resolve
+from usecase.journal.notifications import list_open, raise_event, resolve
 from usecase.task.create_task import CreateTaskInput, create_task
 
 
@@ -37,7 +36,6 @@ async def test_auto_event_requires_rule_code(session, actor_id):
 
 async def test_retention_purges_payload_keeps_record(session, actor_id):
     """AC-4.5.1.2: payload удалён по сроку, лёгкая запись жива."""
-    import datetime as dt
 
     task = await _task(session, actor_id)
     entry = await append(session, task.id, "agent", "agent", "мысли агента",
@@ -128,7 +126,7 @@ async def test_psi_new_cycle_keeps_protocols_no_dup_bug(session, actor_id):
     actor, story, _ = await _story_with_psi(session, actor_id)
     from usecase.story.psi import get_document, link_bug, new_cycle, run_psi
 
-    result = await run_psi(session, story.code, actor,
+    await run_psi(session, story.code, actor,
                            results=[{"position": 1, "passed": False, "actual": "упало"}])
     await link_bug(session, story.code, 1, "AH-1")  # заведён баг по пункту
 

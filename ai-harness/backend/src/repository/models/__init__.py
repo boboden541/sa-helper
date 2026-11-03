@@ -7,6 +7,7 @@ from repository.models.journal import (
     ChatMessage,
     Chronicle,
     ChroniclePayload,
+    EveIntent,
     Notification,
     PsiDocument,
     PsiRun,
@@ -23,6 +24,7 @@ from repository.models.settings_entities import (
 from repository.models.task import (
     Checklist,
     ChecklistItem,
+    Tag,
     Task,
     TaskArtifact,
     TaskAssignee,
@@ -31,7 +33,6 @@ from repository.models.task import (
     TaskRelation,
     TaskRun,
     TaskRunLog,
-    Tag,
     TaskTag,
 )
 
@@ -40,8 +41,8 @@ __all__ = [
     "AppSetting", "DeadMnemonic", "Project", "Session", "TaskType", "User",
     "AliasColumn", "FlowPreset", "FlowStatus", "FlowTransition", "FlowVersion",
     "ChatMessage", "Chronicle", "ChroniclePayload", "Notification",
-    "PsiDocument", "PsiRun", "PsiRunItem", "SettingsJournal",
-    "AgentProfile", "Assignment", "Connection", "ProviderPreset",
+    "EveIntent", "PsiDocument", "PsiRun", "PsiRunItem", "SettingsJournal",
+    "AgentProfile", "Assignment", "Connection", "ProviderPreset", "ToolArtifact",
     "Checklist", "ChecklistItem", "Task", "TaskArtifact", "TaskAssignee",
     "TaskBranch", "TaskComment", "TaskRelation", "TaskRun", "TaskRunLog", "Tag", "TaskTag",
 ]

@@ -3,7 +3,19 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, SmallInteger, String, Text, func, text
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    SmallInteger,
+    String,
+    Text,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -162,6 +174,10 @@ class TaskRun(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     outcome: Mapped[str | None] = mapped_column(String(16))  # success|failed|blocked|interrupted
     detail: Mapped[str | None] = mapped_column(Text)
+    # машиночитаемый код исхода/отказа (timeout_work, turns_limit, soft_turns,
+    # checklist_not_closed…): планировщик решает по коду, а не подстроками
+    # в detail (анализ 03.11.2026 — миграция 0013)
+    reason_code: Mapped[str | None] = mapped_column(String(32))
     # расход токенов прогоном, накопительно (решение владельца 27.10.2026):
     # раннер после каждого хода SDK пишет абсолютные значения — идемпотентно
     input_tokens: Mapped[int] = mapped_column(BigInteger, default=0, server_default=text("0"))
