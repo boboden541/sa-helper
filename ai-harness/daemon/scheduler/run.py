@@ -11,6 +11,7 @@ from repository.models import Task, User
 
 from daemon.runner.reservation import release_reservation
 from daemon.scheduler.helpers import (
+    HANDOFF_OUTCOMES,
     active_run_id,
     log,
     targeted_retry_block,
@@ -330,6 +331,21 @@ class RunMixin:
                             )
                         )
                     await sc.commit()
+            elif report.outcome_code in HANDOFF_OUTCOMES:
+                # агент не отписался (обрыв/таймаут/битый отчёт) — след сессии
+                # пишет демон от имени агента (решение владельца 04.11.2026)
+                from daemon.scheduler.helpers import (
+                    _HANDOFF_HEADLINES,
+                    write_handoff_comment,
+                )
+
+                await write_handoff_comment(
+                    self._maker,
+                    task.id,
+                    agent.id,
+                    run_id,
+                    _HANDOFF_HEADLINES.get(report.outcome_code, "Сессия завершилась без отчёта"),
+                )
             async with self._maker() as session:
                 conn_id = (
                     await session.execute(
@@ -347,6 +363,8 @@ class RunMixin:
                 await self._apply_report(session, task, agent, report, cfg, run_id)
         except Exception as err:  # noqa: BLE001 — демон не должен падать
             log.exception("run failed: %s", task_code)
+            from daemon.scheduler.helpers import write_handoff_comment
+
             async with self._maker() as s2:
                 # сбой инфраструктуры (worktree/git/провайдер) тоже считается
                 # попыткой: иначе задача ретраится вечно, сжигая токены
@@ -356,6 +374,14 @@ class RunMixin:
                     {"c": task_code},
                 )
                 await s2.commit()
+                # сбой среди сессии: лог непуст — след сессии пишет демон
+                await write_handoff_comment(
+                    s2,
+                    await task_id_by_code(s2, task_code),
+                    agent_id,
+                    run_id,
+                    f"Сбой раннера: {str(err)[:120]}",
+                )
                 await release_reservation(
                     s2,
                     await task_id_by_code(s2, task_code),

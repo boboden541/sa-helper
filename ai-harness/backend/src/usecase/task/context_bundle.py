@@ -107,6 +107,12 @@ async def build_context_md(session: AsyncSession, task: Task) -> str:
             closed = [str(p) for p, t, s in items if s in _OPEN]
             lines = [f"### Чеклист {kind} — закрыто {len(items) - len(open_items)}/{len(items)}"]
             lines += [f"- ☐ №{p} {t} [{s}]" for p, t, s in open_items]
+            if kind == "psi" and type_key == "story":
+                lines.append(
+                    "- Отмечай каждый пункт СРАЗУ после проверки: POST /stories/{код}/psi/items "
+                    '{"position": N, "passed": true/false, "actual": "факт"} '
+                    "через host.docker.internal:8000 — отметка переживает обрыв сессии"
+                )
             if closed:
                 lines.append(f"- ✓ закрыты: №{', №'.join(closed)}")
             blocks.append("\n".join(lines))

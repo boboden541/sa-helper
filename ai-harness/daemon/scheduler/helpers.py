@@ -132,3 +132,52 @@ def _chronicle(task_id, rule: str, message: str):
     return Chronicle(
         task_id=task_id, event_type="agent", author_kind="auto", rule_code=rule, message=message
     )
+
+
+# исходы, при которых агент НЕ успел/не смог отписаться сам — след сессии
+# пишет демон (решение владельца 04.11.2026 «комментарий обязателен даже при
+# мягком переключении сессии»)
+HANDOFF_OUTCOMES = frozenset(
+    {"soft_turns", "timeout_start", "timeout_work", "turns_limit", "no_report"}
+)
+
+_HANDOFF_HEADLINES = {
+    "soft_turns": "Сессия оборвана мягким лимитом ходов — отчёт не был возвращён",
+    "timeout_start": "Таймаут старта прогона — процесс остановлен демоном",
+    "timeout_work": "Таймаут работы прогона — процесс остановлен демоном",
+    "turns_limit": "Исчерпан жёсткий лимит ходов — отчёт не был возвращён",
+    "no_report": "Агент не вернул отчёт по контракту",
+}
+
+
+async def write_handoff_comment(maker, task_id, agent_id, run_id, headline: str) -> bool:
+    """[handoff]-комментарий в карточку от имени агента: сессия кончилась без
+    отчёта — следующий агент и человек видят по карточке, на чём остановились.
+    Источник — хвост лога прогона (те же события, что уходят в handoff-блок
+    контекста следующей сессии). Пустой лог (агент не начал работать) —
+    комментария нет: нечего докладывать. True — комментарий записан."""
+    from repository.models import TaskComment
+
+    async with maker() as s:
+        rows = (
+            (
+                await s.execute(
+                    sa.text(
+                        "SELECT kind, left(coalesce(text,''),160) AS txt FROM task_run_log "
+                        "WHERE run_id = :r AND kind IN ('tool', 'thinking') "
+                        "AND coalesce(text, '') <> '' ORDER BY seq DESC LIMIT 8"
+                    ),
+                    {"r": str(run_id)},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        if not rows:
+            return False
+        lines = [f"[handoff] {headline}. Последние действия сессии:"]
+        lines += [f"- [{r['kind']}] {r['txt']}" for r in reversed(rows)]
+        lines.append("Следующий прогон продолжит с этого места.")
+        s.add(TaskComment(task_id=task_id, author_id=agent_id, body="\n".join(lines)[:4000]))
+        await s.commit()
+        return True

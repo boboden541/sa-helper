@@ -330,6 +330,41 @@ async def link_bug(session: AsyncSession, story_code: str, position: int, bug_co
         await apply_m4(session, story)
 
 
+async def mark_item(
+    session: AsyncSession,
+    story_code: str,
+    actor: User,
+    position: int,
+    passed: bool,
+    actual: str,
+) -> dict:
+    """Поэтапная отметка пункта ПСИ по ходу прогона (решение владельца 04.11.2026).
+
+    Вердикт фиксируется сразу — переживает обрыв сессии, гейт M6 и карточка
+    видят живую картину прогона. Пройденный пункт — без события (шум не плодим),
+    непройденный — событие в хроники: владелец видит провал немедленно."""
+    story = await _story(session, story_code)
+    _, items = await _current_doc_and_items(session, story.id)
+    item = next((i for i in items if i.kind == "item" and i.position == position), None)
+    if item is None:
+        raise DomainError(f"Пункт П.{position} не найден в текущем документе ПСИ")
+    item.status = "done" if passed else "failed"
+    item.psi_actual = (actual or "").strip() or None
+    if not passed:
+        session.add(
+            Chronicle(
+                task_id=story.id,
+                event_type="psi",
+                author_id=actor.id,
+                author_kind="agent" if actor.user_type == "agent" else "human",
+                message=f"Пункт П.{position} ПСИ НЕ ПРОЙДЕН"
+                + (f": {(actual or '')[:200]}" if actual else ""),
+            )
+        )
+    await session.commit()
+    return {"position": position, "status": item.status, "passed": passed}
+
+
 async def new_cycle(session: AsyncSession, story_code: str) -> int:
     """Идемпотентность: статусы пунктов сбрасываются в «не прогонялся»,
     протоколы (со снапшотами) не затираются (ФТ-ah-42)."""

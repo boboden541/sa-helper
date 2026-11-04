@@ -60,6 +60,28 @@ async def psi_create(
     return {"version": version}
 
 
+class PsiItemIn(BaseModel):
+    position: int
+    passed: bool
+    actual: str = ""
+    model_config = ConfigDict(extra="forbid")
+
+
+@router.post("/stories/{code}/psi/items")
+@_400
+async def psi_mark_item(
+    code: str,
+    payload: PsiItemIn,
+    session: AsyncSession = Depends(get_session),
+    actor: User = Depends(get_actor),
+):
+    """Поэтапная отметка пункта ПСИ по ходу прогона (решение владельца 04.11.2026):
+    вердикт сразу в БД — переживает обрыв сессии, гейт M6 видит живую картину."""
+    return await psi_uc.mark_item(
+        session, code, actor, payload.position, payload.passed, payload.actual
+    )
+
+
 @router.post("/stories/{code}/psi/runs")
 @_400
 async def psi_run(
