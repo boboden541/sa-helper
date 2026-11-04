@@ -284,8 +284,7 @@ def _build_tools(register_intent):
                 {
                     "type": "text",
                     "text": "Намерение записано. Скажите пользователю, "
-                            "что подтвердить нужно словом «да»: "
-                    + json.dumps(intent, ensure_ascii=False),
+                    "что подтвердить нужно словом «да»: " + json.dumps(intent, ensure_ascii=False),
                 }
             ]
         }

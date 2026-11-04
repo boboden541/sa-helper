@@ -13,6 +13,7 @@ PY="$ROOT/ai-harness/.venv/bin/python"
 
 echo "==> ruff (ai-harness)"
 "$PY" -m ruff check ai-harness
+"$PY" -m ruff format --check ai-harness
 "$PY" ai-harness/scripts/check_file_length.py
 
 echo "==> pytest (ai-harness/tests)"

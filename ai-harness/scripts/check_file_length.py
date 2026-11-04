@@ -12,6 +12,9 @@ import sys
 from pathlib import Path
 
 LIMIT = 800
+# корни якорятся к каталогу скрипта (ai-harness/): проверка работает из
+# любого cwd — из корня репо в CI и из ai-harness/ локально
+ROOT = Path(__file__).resolve().parent.parent
 ROOTS = ("backend", "daemon", "db", "tests", "scripts")
 
 # Наследие: (путь от ai-harness, зафиксированный размер). Рост запрещён.
@@ -22,18 +25,21 @@ BASELINE: dict[str, int] = {}
 def main() -> int:
     failures: list[str] = []
     for root in ROOTS:
-        for path in Path(root).rglob("*.py"):
-            rel = str(path)
+        for path in (ROOT / root).rglob("*.py"):
+            rel = str(path.relative_to(ROOT))
             lines = len(path.read_text(encoding="utf-8").splitlines())
             if rel in BASELINE:
                 base = BASELINE[rel]
                 if lines > base:
                     failures.append(
                         f"{rel}: {lines} строк — РОСТ над baseline {base}: "
-                        "не добавляйте код в файл из baseline, выносите в новый модуль")
+                        "не добавляйте код в файл из baseline, выносите в новый модуль"
+                    )
                 elif lines < base:
-                    print(f"{rel}: {lines} < baseline {base} — уменьшился: "
-                          f"обновите BASELINE (а лучше доведите до {LIMIT})")
+                    print(
+                        f"{rel}: {lines} < baseline {base} — уменьшился: "
+                        f"обновите BASELINE (а лучше доведите до {LIMIT})"
+                    )
                 continue
             if lines > LIMIT:
                 failures.append(f"{rel}: {lines} строк > {LIMIT} — разбейте файл")
