@@ -23,6 +23,12 @@ def repo(tmp_path: Path) -> Path:
         subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
 
     subprocess.run(["git", "init", "-b", "main", str(root)], check=True, capture_output=True)
+    # identity локально в репо: merge через production-код создаёт коммит,
+    # per-command -c на него не действует (CI-раннер без global identity)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=root, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "t@t"], cwd=root, check=True, capture_output=True
+    )
     (root / "README.md").write_text("demo\n", encoding="utf-8")
     git("add", ".")
     git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "init")

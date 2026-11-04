@@ -273,6 +273,33 @@ async def seed() -> None:
                 subprocess.run(
                     ["git", "-C", str(demo_repo), "add", "."], check=True, capture_output=True
                 )
+                # identity локально в репо: на CI-раннере глобального
+                # user.name/email нет — commit падал 128 «Please tell me
+                # who you are» (первый зелёный pytest на GitHub, 04.11.2026)
+                subprocess.run(
+                    [
+                        "git",
+                        "-C",
+                        str(demo_repo),
+                        "config",
+                        "user.name",
+                        "AI-Harness Seed",
+                    ],
+                    check=True,
+                    capture_output=True,
+                )
+                subprocess.run(
+                    [
+                        "git",
+                        "-C",
+                        str(demo_repo),
+                        "config",
+                        "user.email",
+                        "seed@ai-harness.local",
+                    ],
+                    check=True,
+                    capture_output=True,
+                )
                 subprocess.run(
                     ["git", "-C", str(demo_repo), "commit", "-m", "init"],
                     check=True,
