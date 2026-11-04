@@ -127,6 +127,28 @@ REPORT_CONTRACT = """
 """
 
 
+# Признаки «провайдер недоступен» в тексте ошибки SDK/CLI (не вина агента):
+# такие сбои не должны сжигать попытки и блокировать задачу (ФТ-ah-35 —
+# «массовый отказ провайдера: задачи ждут, не блокируются»; 04.11.2026)
+_PROVIDER_DOWN_MARKS = (
+    "Can't reach the API server",
+    "EAI_AGAIN",
+    "ENOTFOUND",
+    "ECONNREFUSED",
+    "ETIMEDOUT",
+    "ECONNRESET",
+    "fetch failed",
+    "api.anthropic.com",
+    "api.z.ai",
+)
+
+
+def is_provider_unreachable(err_text: str) -> bool:
+    """True — ошибка среды/сети провайдера, ретрай бессмыслен прямо сейчас."""
+    text = err_text or ""
+    return any(mark in text for mark in _PROVIDER_DOWN_MARKS)
+
+
 def parse_report(text: str) -> RunReport:
     """JSON report extraction; fallback = failed report.
 
@@ -155,7 +177,7 @@ def parse_report(text: str) -> RunReport:
     return RunReport(
         status="failed",
         summary_md="агент не вернул отчёт по контракту",
-        outcome_code="no_report",
+        outcome_code="provider_unreachable" if is_provider_unreachable(text) else "no_report",
         raw=text[-4000:],
     )
 

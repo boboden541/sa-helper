@@ -159,6 +159,19 @@ class ReportMixin:
             await session.commit()
             return
         else:
+            # провайдер недоступен (битый/пустой отчёт на фоне сетевого сбоя) —
+            # вина среды: попытку не сжигаем (ФТ-ah-35), код для bypass'а запуска
+            if report.outcome_code == "provider_unreachable":
+                await release_reservation(
+                    session,
+                    task.id,
+                    run_id,
+                    "failed",
+                    report.summary_md[:500],
+                    reason_code="provider_unreachable",
+                )
+                await session.commit()
+                return
             task.retry_count += 1
             await release_reservation(session, task.id, "failed", report.summary_md[:500])
             await session.commit()

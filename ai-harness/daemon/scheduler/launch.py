@@ -284,6 +284,20 @@ class LaunchMixin:
                     f"Задача {task.code}: {total_runs}-й прогон — цикл может не сходиться",
                 )
             if task.retry_count >= max_attempts:
+                # провайдер мигает — задача НЕ блокируется (ФТ-ah-35 «задачи
+                # ждут»): последний отказ был сетью/API, не работой агента
+                last_reason = (
+                    await session.execute(
+                        sa.text(
+                            "SELECT reason_code FROM task_run WHERE task_id = :t "
+                            "AND outcome = 'failed' AND reason_code IS NOT NULL "
+                            "ORDER BY started_at DESC LIMIT 1"
+                        ),
+                        {"t": str(task.id)},
+                    )
+                ).scalar_one_or_none()
+                if last_reason == "provider_unreachable":
+                    continue
                 # исчерпание попыток → blocked «требуется участие человека» (ФТ-ah-34).
                 # Прозрачность (решение владельца 30.10.2026): в причину входят
                 # последние сбои прогонов — «что случилось» видно сразу, без

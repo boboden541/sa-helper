@@ -9,6 +9,7 @@ from __future__ import annotations
 import sqlalchemy as sa
 from repository.models import Task, User
 
+from daemon.runner.agent_runner import is_provider_unreachable
 from daemon.runner.reservation import release_reservation
 from daemon.scheduler.helpers import (
     HANDOFF_OUTCOMES,
@@ -366,14 +367,18 @@ class RunMixin:
             from daemon.scheduler.helpers import write_handoff_comment
 
             async with self._maker() as s2:
-                # сбой инфраструктуры (worktree/git/провайдер) тоже считается
-                # попыткой: иначе задача ретраится вечно, сжигая токены
-                # (VITRINA-32…35: git-ошибка worktree, ретрай каждый тик)
-                await s2.execute(
-                    sa.text("UPDATE task SET retry_count = retry_count + 1 WHERE code = :c"),
-                    {"c": task_code},
-                )
-                await s2.commit()
+                # провайдер недоступен (DNS/сеть/API) — вина среды, не агента:
+                # попытку не сжигаем (ФТ-ah-35 «задачи ждут, не блокируются»),
+                # отказ пишем в предохранитель — пауза защитит весь конвейер
+                provider_down = is_provider_unreachable(str(err))
+                if not provider_down:
+                    # обычные инфра-сбои считаются попыткой: иначе задача
+                    # ретраится вечно (VITRINA-32…35: git-ошибка, ретрай каждый тик)
+                    await s2.execute(
+                        sa.text("UPDATE task SET retry_count = retry_count + 1 WHERE code = :c"),
+                        {"c": task_code},
+                    )
+                    await s2.commit()
                 # сбой среди сессии: лог непуст — след сессии пишет демон
                 await write_handoff_comment(
                     s2,
@@ -388,8 +393,13 @@ class RunMixin:
                     run_id,
                     "failed",
                     str(err)[:500],
-                    reason_code="runner_error",
+                    reason_code="provider_unreachable" if provider_down else "runner_error",
                 )
+                if provider_down:
+                    from daemon.runner.circuit import maybe_trip, record_failure
+
+                    await record_failure(s2, None)
+                    await maybe_trip(s2, None)
         finally:
             self._active.pop(run_id, None)
             self._runs.pop(run_id, None)
