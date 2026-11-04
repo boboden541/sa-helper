@@ -14,6 +14,21 @@ def _maker(engine):
     return async_sessionmaker(engine, expire_on_commit=False)
 
 
+def _url() -> str:
+    """URL тестовой БД — из TEST_DATABASE_URL (контест): своё имя ломает прогон
+    с переопределённым URL (хук использует собственную базу, 04.11.2026)."""
+    import os
+
+    return os.environ.get(
+        "TEST_DATABASE_URL",
+        "postgresql+asyncpg://harness:harness@localhost:5433/ai_harness_test",
+    )
+
+
+def _db_name() -> str:
+    return _url().rsplit("/", 1)[-1]
+
+
 async def _task_on_work_status(eng) -> str:
     """Задача in_progress без назначенного агента (проект/тип из сидов)."""
     async with _maker(eng)() as s:
@@ -51,7 +66,7 @@ async def test_pause_freezes_status_automata(_test_db):
 
     # герметично: свой движок на цикле теста + dispose в конце,
     # иначе тики оставляют незакрытые транзакции и вешают соседние тесты
-    eng = create_async_engine("postgresql+asyncpg://harness:harness@localhost:5433/ai_harness_test")
+    eng = create_async_engine(_url())
     try:
         code = await _task_on_work_status(eng)
         daemon = Daemon(_maker(eng), FakeRunner())
@@ -96,8 +111,9 @@ async def test_pause_freezes_status_automata(_test_db):
         try:
             await aconn.execute(
                 "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-                "WHERE datname = 'ai_harness_test' AND pid <> pg_backend_pid() "
-                "AND state = 'idle in transaction'"
+                "WHERE datname = $1 AND pid <> pg_backend_pid() "
+                "AND state = 'idle in transaction'",
+                _db_name(),
             )
         finally:
             await aconn.close()
