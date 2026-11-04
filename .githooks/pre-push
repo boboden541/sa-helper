@@ -17,8 +17,19 @@ echo "==> ruff (ai-harness)"
 "$PY" ai-harness/scripts/check_file_length.py
 
 echo "==> pytest (ai-harness/tests)"
-cd "$ROOT/ai-harness" && "$PY" -m pytest tests -q
+# собственная тестовая БД хука, уникальная на пуш: параллельный прогон набора
+# (другая сессия, CI-дубль, внешний наблюдатель) не вешает пуш на блокировках
+# и DROP'е тестовой базы (04.11.2026). Старые gate-базы чистим best-effort.
+cd "$ROOT/ai-harness"
+GATE_DB="ai_harness_hook_$(date +%s)"
+TEST_DATABASE_URL="postgresql+asyncpg://harness:harness@localhost:5433/$GATE_DB" "$PY" -m pytest tests -q
 cd "$ROOT"
+docker exec ai-harness-postgres psql -U harness -d ai_harness -At -c \
+  "SELECT datname FROM pg_database WHERE datname LIKE 'ai_harness_hook_%' AND datname <> '$GATE_DB'" 2>/dev/null | \
+  while IFS= read -r db; do
+    [ -n "$db" ] || continue
+    docker exec ai-harness-postgres psql -U harness -d ai_harness -c "DROP DATABASE IF EXISTS \"$db\"" >/dev/null 2>&1 || true
+  done
 
 echo "==> tsc + eslint + vitest (frontend)"
 cd ai-harness/frontend

@@ -3,13 +3,19 @@
 
 from __future__ import annotations
 
+import os
+
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from daemon.runner.agent_runner import FakeRunner, RunReport
 from daemon.scheduler.scheduler import Daemon
 
-URL = "postgresql+asyncpg://harness:harness@localhost:5433/ai_harness_test"
+# та же БД, что у контеста (TEST_DATABASE_URL): своё имя ломает прогон с
+# переопределённым URL (хук демона использует собственную базу, 04.11.2026)
+URL = os.environ.get(
+    "TEST_DATABASE_URL", "postgresql+asyncpg://harness:harness@localhost:5433/ai_harness_test"
+)
 CFG = {"daemon.timeout_start_seconds": "5", "daemon.timeout_work_seconds": "10"}
 
 
@@ -72,10 +78,13 @@ async def test_handoff_comment(_test_db):
 
         daemon.runner = FakeRunner(script=script)
         await daemon._run_task(code, agent, "qa_ready", CFG, run)
-        res = await async_sessionmaker(eng)().execute(
-            sa.text("SELECT body FROM task_comment ORDER BY created_at LIMIT 1")
-        )
-        body = res.scalar_one()
+        # чтение — строго в контекст-менеджере: сессия без close держит
+        # транзакцию и вешает TRUNCATE следующего теста (нашли на прогоне)
+        async with async_sessionmaker(eng)() as s:
+            res = await s.execute(
+                sa.text("SELECT body FROM task_comment ORDER BY created_at LIMIT 1")
+            )
+            body = res.scalar_one()
         assert "[handoff]" in body and "мягким лимитом" in body and "Edit psi.md" in body
 
         # агент сам отписался — handoff не пишется, живёт только его комментарий
@@ -100,10 +109,9 @@ async def test_handoff_comment(_test_db):
 
         daemon.runner = FakeRunner(script=script2)
         await daemon._run_task(code, agent, "qa_ready", CFG, str(run2))
-        res = await async_sessionmaker(eng)().execute(
-            sa.text("SELECT body FROM task_comment ORDER BY created_at")
-        )
-        rows = res.scalars().all()
+        async with async_sessionmaker(eng)() as s:
+            res = await s.execute(sa.text("SELECT body FROM task_comment ORDER BY created_at"))
+            rows = res.scalars().all()
         assert len([b for b in rows if "[handoff]" in b]) == 1
         assert any("Сам отписался" in b for b in rows)
     finally:
