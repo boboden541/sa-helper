@@ -15,9 +15,8 @@ LIMIT = 800
 ROOTS = ("backend", "daemon", "db", "tests", "scripts")
 
 # Наследие: (путь от ai-harness, зафиксированный размер). Рост запрещён.
-BASELINE: dict[str, int] = {
-    "daemon/scheduler/scheduler.py": 1597,  # TODO: рефакторинг — разбить на тики/запуски/отчёты
-}
+# 04.11.2026: scheduler.py (1597) разбит на модули — baseline пуст.
+BASELINE: dict[str, int] = {}
 
 
 def main() -> int:
