@@ -3,13 +3,20 @@ services:
     image: postgres:16-alpine
     container_name: ai-harness-postgres
     ports:
-      - "5433:5432"
+      # только localhost: база не должна светиться на всех интерфейсах
+      # (контейнеры ходят по сети compose, хостовые процессы — по 127.0.0.1;
+      # решение владельца 04.11.2026 после внешних подключений к тестовой БД)
+      - "127.0.0.1:5433:5432"
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-ai_harness}
       POSTGRES_USER: ${POSTGRES_USER:-harness}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-harness}
     volumes:
-      - ./.pgdata:/var/lib/postgresql/data
+      # named volume: данные живут в ФС виртуальной машины Docker, а не на
+      # bind-монте через virtiofs — транзакции больше не проходят через
+      # файловый мост, краши «service fs failed» уходят (04.11.2026;
+      # старая ./.pgdata на хосте оставлена как откат)
+      - ai_harness_pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U harness -d ai_harness"]
       interval: 3s
@@ -108,3 +115,7 @@ services:
       - "8081:8080"
     environment:
       ADMINER_DEFAULT_SERVER: postgres
+
+volumes:
+  ai_harness_pgdata:
+    external: true
