@@ -29,12 +29,16 @@ async def patch_task(
     Каждое изменение — событие «поле» в хроники (ФТ-ah-43); ответ несёт свежую копию
     карточки и флаг конфликта для баннера «карточка обновлена другим участником» (решение 3.1-9).
     """
-    task = (await session.execute(sa.select(Task).where(Task.code == code.upper()))).scalar_one_or_none()
+    task = (
+        await session.execute(sa.select(Task).where(Task.code == code.upper()))
+    ).scalar_one_or_none()
     if task is None:
         raise ApiNotFound(code)
 
     changed_by_other = (
-        if_updated_at is not None and task.updated_at is not None and task.updated_at != if_updated_at
+        if_updated_at is not None
+        and task.updated_at is not None
+        and task.updated_at != if_updated_at
     )
 
     events: list[str] = []
@@ -79,13 +83,23 @@ async def patch_task(
         if "by_ai" in fields["tags"]:
             # агент-автор: by_human из запроса игнорируется, авторский тег восстанавливается
             labels = sorted({x for x in labels if x != "by_human"} | {"by_ai"})
-        current = (await session.execute(
-            sa.select(Tag.label).join(TaskTag, TaskTag.tag_id == Tag.id)
-            .where(TaskTag.task_id == task.id))).scalars().all()
+        current = (
+            (
+                await session.execute(
+                    sa.select(Tag.label)
+                    .join(TaskTag, TaskTag.tag_id == Tag.id)
+                    .where(TaskTag.task_id == task.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
         if set(labels) != set(current):
             await session.execute(sa.delete(TaskTag).where(TaskTag.task_id == task.id))
             for label in labels:
-                tag = (await session.execute(sa.select(Tag).where(Tag.label == label))).scalar_one_or_none()
+                tag = (
+                    await session.execute(sa.select(Tag).where(Tag.label == label))
+                ).scalar_one_or_none()
                 if tag is None:
                     tag = Tag(label=label, is_author=label in AUTHOR_TAGS)
                     session.add(tag)
@@ -94,15 +108,21 @@ async def patch_task(
             events.append("теги изменены")
             # осиротевшие теги удаляются (ФТ-ah-6)
             for label in set(current) - set(labels):
-                orphans = (await session.execute(
-                    sa.select(sa.func.count()).select_from(TaskTag)
-                    .join(Tag, Tag.id == TaskTag.tag_id)
-                    .where(Tag.label == label))).scalar_one()
+                orphans = (
+                    await session.execute(
+                        sa.select(sa.func.count())
+                        .select_from(TaskTag)
+                        .join(Tag, Tag.id == TaskTag.tag_id)
+                        .where(Tag.label == label)
+                    )
+                ).scalar_one()
                 if orphans == 0:
                     await session.execute(sa.delete(Tag).where(Tag.label == label))
 
     if events:
-        task.updated_at = datetime.now(task.updated_at.tzinfo) if task.updated_at.tzinfo else datetime.now()
+        task.updated_at = (
+            datetime.now(task.updated_at.tzinfo) if task.updated_at.tzinfo else datetime.now()
+        )
         # содержание эталона изменилось → версия/хэш + версия родительской
         # истории (постановка ребёнка — часть эталона истории)
         if "описание изменено" in events:

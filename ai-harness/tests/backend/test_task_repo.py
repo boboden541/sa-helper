@@ -13,8 +13,9 @@ from usecase.task.create_task import CreateTaskInput, _validate_repo_path, creat
 def _mkproject(session, path: Path, mnemonic: str):
     from repository.models import Project
 
-    project = Project(mnemonic=mnemonic, name=mnemonic, path=str(path),
-                      base_branch="main", next_number=1)
+    project = Project(
+        mnemonic=mnemonic, name=mnemonic, path=str(path), base_branch="main", next_number=1
+    )
     session.add(project)
     return project
 
@@ -56,17 +57,38 @@ async def test_create_task_with_repo(session, actor_id, tmp_path: Path):
     from repository.models import User
 
     human = await session.get(User, actor_id)
-    created = await create_task(session, human, CreateTaskInput(
-        project_mnemonic="WS2", type_key="common_task", title="С репозиторием",
-        priority="medium", author_tag="by_human", repo_path="tc-admin"))
+    created = await create_task(
+        session,
+        human,
+        CreateTaskInput(
+            project_mnemonic="WS2",
+            type_key="common_task",
+            title="С репозиторием",
+            priority="medium",
+            author_tag="by_human",
+            repo_path="tc-admin",
+        ),
+    )
 
     from sqlalchemy import text as stext
 
-    row = (await session.execute(stext(
-        "SELECT repo_path FROM task WHERE code = :c"), {"c": created.code})).scalar()
+    row = (
+        await session.execute(
+            stext("SELECT repo_path FROM task WHERE code = :c"), {"c": created.code}
+        )
+    ).scalar()
     assert row == "tc-admin"
 
     with pytest.raises(DomainError, match="не git-репозиторий"):
-        await create_task(session, human, CreateTaskInput(
-            project_mnemonic="WS2", type_key="common_task", title="Плохой репо",
-            priority="medium", author_tag="by_human", repo_path="нет-такого"))
+        await create_task(
+            session,
+            human,
+            CreateTaskInput(
+                project_mnemonic="WS2",
+                type_key="common_task",
+                title="Плохой репо",
+                priority="medium",
+                author_tag="by_human",
+                repo_path="нет-такого",
+            ),
+        )

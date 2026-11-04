@@ -30,14 +30,18 @@ def need_env() -> None:
     example = ROOT / ".env.example"
     if not env.exists() and example.exists():
         env.write_text(example.read_text(encoding="utf-8"), encoding="utf-8")
-        print("Создан .env из .env.example — задайте AI_HARNESS_TOKEN_KEY перед работой с провайдерами.")
+        print(
+            "Создан .env из .env.example — "
+            "задайте AI_HARNESS_TOKEN_KEY перед работой с провайдерами."
+        )
 
 
 def wait_postgres() -> None:
     """Ждём healthcheck postgres (compose --wait сам ждёт, это запасной путь)."""
     r = subprocess.run(
         [*COMPOSE, "exec", "-T", "postgres", "pg_isready", "-U", "harness", "-d", "ai_harness"],
-        cwd=ROOT, capture_output=True,
+        cwd=ROOT,
+        capture_output=True,
     )
     if r.returncode != 0:
         compose("up", "-d", "--wait", "postgres")
@@ -79,14 +83,19 @@ def cmd_test(args) -> int:
         import asyncpg  # noqa: F401 — маркер зависимостей тестовой среды
     except ImportError:
         print("Зависимости тестов не установлены в текущем интерпретаторе.", file=sys.stderr)
-        print(f"  source {ROOT / '.venv' / 'bin' / 'activate'}  # и повторите команду", file=sys.stderr)
+        print(
+            f"  source {ROOT / '.venv' / 'bin' / 'activate'}  # и повторите команду",
+            file=sys.stderr,
+        )
         return 1
     return run([sys.executable, "-m", "pytest", *rest])
 
 
 def cmd_run_api(args) -> int:
-    return run([sys.executable, "-m", "uvicorn", "main:app", "--reload", "--port", str(args.port)],
-               cwd=ROOT / "backend" / "src")
+    return run(
+        [sys.executable, "-m", "uvicorn", "main:app", "--reload", "--port", str(args.port)],
+        cwd=ROOT / "backend" / "src",
+    )
 
 
 def cmd_run_daemon(args) -> int:
@@ -118,7 +127,9 @@ def main() -> int:
     p = sub.add_parser("downgrade", help="откатить миграции")
     p.add_argument("target", nargs="?")
     p.set_defaults(func=cmd_downgrade)
-    sub.add_parser("seed", help="наполнить БД справочниками и dev-данными").set_defaults(func=cmd_seed)
+    sub.add_parser("seed", help="наполнить БД справочниками и dev-данными").set_defaults(
+        func=cmd_seed
+    )
     p = sub.add_parser("test", help="pytest (аргументы после --)")
     p.add_argument("rest", nargs=argparse.REMAINDER)
     p.set_defaults(func=cmd_test)

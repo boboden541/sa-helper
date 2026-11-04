@@ -6,13 +6,15 @@ from repository.models import SettingsJournal
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
-async def record(session: AsyncSession, who_id, entity: str, summary: str,
-                 diff: list[dict]) -> None:
+async def record(
+    session: AsyncSession, who_id, entity: str, summary: str, diff: list[dict]
+) -> None:
     """diff: [{"field": ..., "old": ..., "new": ...}] — секреты маскируются вызывающим."""
     session.add(SettingsJournal(who_id=who_id, entity=entity, summary=summary, diff=diff))
 
 
-async def record_and_commit(session: AsyncSession, who_id, entity: str, summary: str,
-                            diff: list[dict]) -> None:
+async def record_and_commit(
+    session: AsyncSession, who_id, entity: str, summary: str, diff: list[dict]
+) -> None:
     await record(session, who_id, entity, summary, diff)
     await session.commit()

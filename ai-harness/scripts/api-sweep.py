@@ -1,6 +1,7 @@
 """Полный API-свип: каждый эндпоинт с реальными данными против :8088.
 Печатает PASS/FAIL по каждому пункту; FAIL = любой не-OK ответ вне ожиданий.
 Запуск: python scripts/api-sweep.py"""
+
 from __future__ import annotations
 
 import json
@@ -14,9 +15,12 @@ results: list[tuple[bool, str, str]] = []
 
 
 def call(method: str, path: str, body=None, expect=200):
-    req = urllib.request.Request(BASE + path, method=method,
+    req = urllib.request.Request(
+        BASE + path,
+        method=method,
         headers={"Content-Type": "application/json"},
-        data=json.dumps(body).encode() if body is not None else None)
+        data=json.dumps(body).encode() if body is not None else None,
+    )
     try:
         with urllib.request.urlopen(req) as r:
             raw = r.read()
@@ -41,35 +45,73 @@ def check(name, got, want):
 def main():
     uniq = str(uuid.uuid4())[:6]
     # --- Провайдеры ---
-    st, r = call("POST", "/api/v1/connections", {"name": f"swp-{uniq}", "protocol": "anthropic",
-        "url": "https://api.anthropic.com", "model": "claude-sonnet-5", "token": "sk-swp-" + uniq})
+    st, r = call(
+        "POST",
+        "/api/v1/connections",
+        {
+            "name": f"swp-{uniq}",
+            "protocol": "anthropic",
+            "url": "https://api.anthropic.com",
+            "model": "claude-sonnet-5",
+            "token": "sk-swp-" + uniq,
+        },
+    )
     check("connections create", st, 200)
     _cid = r.get("id")
-    st, r = call("POST", "/api/v1/connections", {"name": f"swp-{uniq}", "protocol": "openai",
-        "url": "https://x", "model": "m", "token": "t"})
+    st, r = call(
+        "POST",
+        "/api/v1/connections",
+        {
+            "name": f"swp-{uniq}",
+            "protocol": "openai",
+            "url": "https://x",
+            "model": "m",
+            "token": "t",
+        },
+    )
     check("connections duplicate name → 400", st, 400)
     st, _ = call("GET", "/api/v1/provider-presets")
     check("provider-presets list", st, 200)
     st, _ = call("GET", "/api/v1/connections")
     check("connections list", st, 200)
     # --- Проекты ---
-    st, r = call("POST", "/api/v1/projects", {"name": "Sweep", "mnemonic": f"SW{uniq[:2].upper()}",
-        "path": "/tmp"})
+    st, r = call(
+        "POST",
+        "/api/v1/projects",
+        {"name": "Sweep", "mnemonic": f"SW{uniq[:2].upper()}", "path": "/tmp"},
+    )
     check("projects create", st, 200)
     _pid = r.get("id")
-    st, r = call("POST", "/api/v1/projects", {"name": "Дубль", "mnemonic": f"SW{uniq[:2].upper()}", "path": "/tmp"})
+    st, r = call(
+        "POST",
+        "/api/v1/projects",
+        {"name": "Дубль", "mnemonic": f"SW{uniq[:2].upper()}", "path": "/tmp"},
+    )
     check("projects duplicate mnemonic → 400", st, 400)
     # --- Задачи ---
-    st, r = call("POST", "/api/v1/tasks", {"projectId": "AH", "type": "common_task",
-        "title": "Sweep задача " + uniq, "priority": "high", "authorTag": "by_human",
-        "tags": ["sweep"], "descriptionMd": "## Sweep\nпроверка"})
+    st, r = call(
+        "POST",
+        "/api/v1/tasks",
+        {
+            "projectId": "AH",
+            "type": "common_task",
+            "title": "Sweep задача " + uniq,
+            "priority": "high",
+            "authorTag": "by_human",
+            "tags": ["sweep"],
+            "descriptionMd": "## Sweep\nпроверка",
+        },
+    )
     check("task create → pending", (st, r.get("statusKey")), (200, "pending"))
     code = r.get("code")
     st, r = call("GET", f"/api/v1/tasks/{code}")
     check("task card GET", st, 200)
     check("task card gate present", "allowed" in (r.get("gate") or {}), True)
-    st, r = call("PATCH", f"/api/v1/tasks/{code}", {"title": "Sweep переименована", "priority": "critical",
-        "tags": ["sweep", "e2e"]})
+    st, r = call(
+        "PATCH",
+        f"/api/v1/tasks/{code}",
+        {"title": "Sweep переименована", "priority": "critical", "tags": ["sweep", "e2e"]},
+    )
     check("task PATCH (title/prio/tags)", st, 200)
     # --- Переходы/форс ---
     st, r = call("POST", f"/api/v1/tasks/{code}/transitions", {"to": "done"})
@@ -82,8 +124,11 @@ def main():
     st, _ = call("POST", f"/api/v1/tasks/{code}/force", {"to": "todo"})
     check("force empty reason → 400", st, 400)
     # --- Чеклисты/комментарии/артефакты/связи ---
-    st, _ = call("PUT", f"/api/v1/tasks/{code}/checklists/developer",
-                 {"lines": "# Этап\n- сделать\n+ сделано"})
+    st, _ = call(
+        "PUT",
+        f"/api/v1/tasks/{code}/checklists/developer",
+        {"lines": "# Этап\n- сделать\n+ сделано"},
+    )
     check("checklist PUT", st, 200)
     st, r = call("GET", f"/api/v1/tasks/{code}/checklists/developer")
     check("checklist GET ≥2 items", (st, len(r.get("items", [])) >= 2), (200, True))

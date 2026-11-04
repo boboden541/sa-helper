@@ -13,7 +13,9 @@ KEY_RE = re.compile(r"^[a-z0-9_]+$")
 
 @dataclass
 class FlowDraft:
-    statuses: list[dict]   # {key, label, stage_desc, checklist_gate, is_entry, is_terminal, is_blocking}
+    statuses: list[
+        dict
+    ]  # {key, label, stage_desc, checklist_gate, is_entry, is_terminal, is_blocking}
     transitions: list[dict]  # {from, to, runner, display}
 
 
@@ -38,7 +40,9 @@ def validate_draft(draft: FlowDraft) -> ValidationResult:
         res.errors.append("Ключи статусов не уникальны")
     for k in keys:
         if not KEY_RE.match(k or ""):
-            res.errors.append(f"Ключ статуса {k!r} не соответствует формату: строчные латиница, цифры, _")
+            res.errors.append(
+                f"Ключ статуса {k!r} не соответствует формату: строчные латиница, цифры, _"
+            )
 
     # ровно одна точка входа
     entries = [s["key"] for s in statuses if s.get("is_entry")]
@@ -106,7 +110,9 @@ def validate_draft(draft: FlowDraft) -> ValidationResult:
 
     # предупреждения: canceled и blocked есть
     if "canceled" not in keys or "blocked" not in keys:
-        res.warnings.append("Нет статусов canceled и blocked — автомату некуда девать отмены и блокеры")
+        res.warnings.append(
+            "Нет статусов canceled и blocked — автомату некуда девать отмены и блокеры"
+        )
     # предупреждение: каждый статус замаплен на alias-колонку
     unmapped = [s["key"] for s in statuses if not s.get("alias")]
     if unmapped:

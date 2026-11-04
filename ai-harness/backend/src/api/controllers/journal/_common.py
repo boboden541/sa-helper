@@ -20,4 +20,5 @@ def _400(fn):
             return await fn(*args, **kw)
         except DomainError as err:
             raise ApiError(400, err.message, tech=err.tech)
+
     return wrapper

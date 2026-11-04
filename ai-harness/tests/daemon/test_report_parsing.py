@@ -8,10 +8,14 @@ from daemon.runner.agent_runner import parse_report
 
 
 def test_valid_report_at_end_with_braces_in_prose():
-    text = ('Погоди {не парси это}\nИтог: готово. Summary mentions {odd braces}\n'
-            + json.dumps({"status": "success", "summary_md": "готово",
-                          "proposed_transition": {"to": "review", "reason": "ok"},
-                          "comments": ["коммит 1", ""]}))
+    text = "Погоди {не парси это}\nИтог: готово. Summary mentions {odd braces}\n" + json.dumps(
+        {
+            "status": "success",
+            "summary_md": "готово",
+            "proposed_transition": {"to": "review", "reason": "ok"},
+            "comments": ["коммит 1", ""],
+        }
+    )
     report = parse_report(text)
     assert report.status == "success"
     assert report.proposed_transition == {"to": "review", "reason": "ok"}
@@ -19,13 +23,16 @@ def test_valid_report_at_end_with_braces_in_prose():
 
 
 def test_nested_json_and_checklist_updates():
-    raw = {"status": "failed", "summary_md": "тесты упали",
-           "checklist_updates": [
-               {"checklist_kind": "developer", "item_position": 1, "new_status": "failed"},
-               {"checklist_kind": "developer", "text": "новый пункт", "new_status": "todo"},
-               "мусор",
-           ],
-           "questions": ["что делать?", 42]}
+    raw = {
+        "status": "failed",
+        "summary_md": "тесты упали",
+        "checklist_updates": [
+            {"checklist_kind": "developer", "item_position": 1, "new_status": "failed"},
+            {"checklist_kind": "developer", "text": "новый пункт", "new_status": "todo"},
+            "мусор",
+        ],
+        "questions": ["что делать?", 42],
+    }
     report = parse_report("до отчёта {скобка\n" + json.dumps(raw))
     assert report.status == "failed"
     assert len(report.checklist_updates) == 2
@@ -45,8 +52,7 @@ def test_unknown_status_rejected():
 
 
 def test_bad_transition_type_dropped():
-    text = json.dumps({"status": "success", "summary_md": "ok",
-                       "proposed_transition": "review"})
+    text = json.dumps({"status": "success", "summary_md": "ok", "proposed_transition": "review"})
     report = parse_report(text)
     assert report.status == "success"
     assert report.proposed_transition is None
@@ -57,9 +63,11 @@ def test_report_kind_outside_registry_dropped():
     (анализ 30.10.2026: произвольный kind влиял на чеклист-гейты)."""
     from daemon.runner.agent_runner import parse_report
 
-    report = parse_report('{"status": "success", "summary_md": "ок", '
-                          '"checklist_updates": ['
-                          '{"checklist_kind": "hacker", "item_position": 1, "new_status": "closed"},'
-                          '{"checklist_kind": "developer", "item_position": 2, "new_status": "closed"}]}')
+    report = parse_report(
+        '{"status": "success", "summary_md": "ок", '
+        '"checklist_updates": ['
+        '{"checklist_kind": "hacker", "item_position": 1, "new_status": "closed"},'
+        '{"checklist_kind": "developer", "item_position": 2, "new_status": "closed"}]}'
+    )
     kinds = [u["checklist_kind"] for u in report.checklist_updates]
     assert kinds == ["developer"]

@@ -39,16 +39,16 @@ _ENV_LOCK = asyncio.Lock()
 class RunRequest:
     task_code: str
     context_md: str
-    persona: str | None = None   # «Имя — роль»: единственная персона-строка от агента
+    persona: str | None = None  # «Имя — роль»: единственная персона-строка от агента
     worktree_path: Path | None = None
     # cwd прогона без worktree (папка проекта); при worktree cwd = worktree_path
     cwd_path: str | None = None
-    provider: dict | None = None   # {protocol,url,model,token} расшифрован только здесь
+    provider: dict | None = None  # {protocol,url,model,token} расшифрован только здесь
     timeouts: dict = field(default_factory=lambda: {"start": 300, "work": 1800})
     allowed_tools: tuple[str, ...] = ("Read", "Grep", "Glob", "Edit", "Write", "Bash")
-    model: str | None = None         # модель прогона (иначе модель подключения)
+    model: str | None = None  # модель прогона (иначе модель подключения)
     mcp_servers: dict | None = None  # {имя: {url|command, …}} — MCP-серверы
-    agent_dir: str | None = None     # папка агентов (.claude); путь уже в координатах контейнера
+    agent_dir: str | None = None  # папка агентов (.claude); путь уже в координатах контейнера
     skills_md: tuple[str, ...] = ()  # содержимое явно назначенных скиллов (реестр инструментов)
     max_turns: int = 100  # ходов SDK; демон всегда передаёт app_setting daemon.max_turns
     resume_session_id: str | None = None  # продолжить прошлую сессию (лимит ходов/таймаут)
@@ -66,7 +66,7 @@ class RunRequest:
 
 @dataclass
 class RunReport:
-    status: str                     # success | failed | blocked
+    status: str  # success | failed | blocked
     summary_md: str = ""
     checklist_updates: list[dict] = field(default_factory=list)
     artifact_md: str | None = None
@@ -88,7 +88,8 @@ REPORT_CONTRACT = """
  "summary_md": "что сделано и как проверялось",
  "checklist_updates": [{"checklist_kind": "developer|reviewer|tester",
                         "item_position": 1, "new_status": "todo|in_progress|closed|done|failed",
-                        "text": "текст пункта: для нового пункта обязателен, для существующего — обнови статус"}],
+                        "text": "текст пункта: для нового пункта обязателен, "
+                                "для существующего — обнови статус"}],
  "relations_updates": [{"task_code": "MNEMONIC-N", "kind": "do_after|blocked_by",
                         "note": "почему (кратко)"}],
  "artifact_md": "отчёт этапа (если требует скилл)",
@@ -148,9 +149,12 @@ def parse_report(text: str) -> RunReport:
     lenient = _parse_report_lenient(text)
     if lenient is not None:
         return lenient
-    return RunReport(status="failed", summary_md="агент не вернул отчёт по контракту",
-                     outcome_code="no_report",
-                     raw=text[-4000:])
+    return RunReport(
+        status="failed",
+        summary_md="агент не вернул отчёт по контракту",
+        outcome_code="no_report",
+        raw=text[-4000:],
+    )
 
 
 _LENIENT_STATUS = re.compile(r'"status"\s*:\s*"(success|failed|blocked)"')
@@ -159,8 +163,7 @@ _LENIENT_FIELD_T = r'"{}"\s*:\s*"((?:[^"\\]|\\.)*)"'
 
 def _unjson(s: str) -> str:
     """Разворачивает базовые \\n/\\t/\" в тексте поля."""
-    return (s.replace("\\r\\n", "\n").replace("\\n", "\n")
-             .replace("\\t", "\t").replace('\\\"', '"'))
+    return s.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\t", "\t").replace('\\"', '"')
 
 
 def _parse_report_lenient(text: str) -> RunReport | None:
@@ -180,21 +183,30 @@ def _parse_report_lenient(text: str) -> RunReport | None:
 
     summary = field("summary_md") or ""
     transition = None
-    mt = re.search(r'"proposed_transition"\s*:\s*\{[^}]*?"to"\s*:\s*"([a-z_0-9]+)"'
-                   r'[^}]*?"reason"\s*:\s*"((?:[^"\\]|\\.)*)"', text)
+    mt = re.search(
+        r'"proposed_transition"\s*:\s*\{[^}]*?"to"\s*:\s*"([a-z_0-9]+)"'
+        r'[^}]*?"reason"\s*:\s*"((?:[^"\\]|\\.)*)"',
+        text,
+    )
     if mt:
         transition = {"to": mt.group(1), "reason": _unjson(mt.group(2))}
 
     updates = []
     for um in re.finditer(
-            r'"checklist_kind"\s*:\s*"(developer|reviewer|tester|psi)"'
-            r'[^{}]*?"item_position"\s*:\s*(\d+)'
-            r'[^{}]*?"new_status"\s*:\s*"(todo|in_progress|closed|done|failed)"'
-            r'(?:[^{}]*?"text"\s*:\s*"((?:[^"\\]|\\.)*)")?', text):
-        updates.append({"checklist_kind": um.group(1),
-                        "item_position": int(um.group(2)),
-                        "new_status": um.group(3),
-                        "text": _unjson(um.group(4)) if um.group(4) else None})
+        r'"checklist_kind"\s*:\s*"(developer|reviewer|tester|psi)"'
+        r'[^{}]*?"item_position"\s*:\s*(\d+)'
+        r'[^{}]*?"new_status"\s*:\s*"(todo|in_progress|closed|done|failed)"'
+        r'(?:[^{}]*?"text"\s*:\s*"((?:[^"\\]|\\.)*)")?',
+        text,
+    ):
+        updates.append(
+            {
+                "checklist_kind": um.group(1),
+                "item_position": int(um.group(2)),
+                "new_status": um.group(3),
+                "text": _unjson(um.group(4)) if um.group(4) else None,
+            }
+        )
 
     artifact_md = field("artifact_md")
     artifact_kind = field("artifact_kind")
@@ -210,11 +222,16 @@ def _parse_report_lenient(text: str) -> RunReport | None:
             if body:
                 comment_list.append(body[:4000])
 
-    return RunReport(status=status, summary_md=summary[:2000] or "(мягкий разбор битого JSON)",
-                     checklist_updates=updates,
-                     artifact_md=artifact_md, artifact_kind=artifact_kind,
-                     proposed_transition=transition,
-                     comments=comment_list[:5], raw=text[-4000:])
+    return RunReport(
+        status=status,
+        summary_md=summary[:2000] or "(мягкий разбор битого JSON)",
+        checklist_updates=updates,
+        artifact_md=artifact_md,
+        artifact_kind=artifact_kind,
+        proposed_transition=transition,
+        comments=comment_list[:5],
+        raw=text[-4000:],
+    )
 
 
 # тот же allowlist, что в API checklist_put: агент не создаёт чеклисты
@@ -236,11 +253,18 @@ def _report_from(raw: dict, text: str) -> RunReport:
     transition = raw.get("proposed_transition")
     if not isinstance(transition, dict) or not isinstance(transition.get("to"), str):
         transition = None
-    upd = [u for u in raw.get("checklist_updates", [])
-           if isinstance(u, dict) and u.get("checklist_kind") in _CHECKLIST_KINDS]
-    rel = [r for r in raw.get("relations_updates", []) if isinstance(r, dict)
-           and isinstance(r.get("task_code"), str)
-           and r.get("kind") in ("do_after", "blocked_by")]
+    upd = [
+        u
+        for u in raw.get("checklist_updates", [])
+        if isinstance(u, dict) and u.get("checklist_kind") in _CHECKLIST_KINDS
+    ]
+    rel = [
+        r
+        for r in raw.get("relations_updates", [])
+        if isinstance(r, dict)
+        and isinstance(r.get("task_code"), str)
+        and r.get("kind") in ("do_after", "blocked_by")
+    ]
     return RunReport(
         status=raw["status"],
         summary_md=str(raw.get("summary_md", "")),
@@ -250,8 +274,9 @@ def _report_from(raw: dict, text: str) -> RunReport:
         artifact_kind=raw.get("artifact_kind"),
         proposed_transition=transition,
         questions=[q for q in raw.get("questions", []) if isinstance(q, str)],
-        comments=[c for c in _comments_list(raw.get("comments", []))
-                  if isinstance(c, str) and c.strip()],
+        comments=[
+            c for c in _comments_list(raw.get("comments", [])) if isinstance(c, str) and c.strip()
+        ],
         raw=text[-4000:],
     )
 
@@ -266,8 +291,10 @@ def _build_prompt(req: RunRequest) -> str:
 
     Свободного текста у агента больше нет (решение владельца 27.10.2026):
     методологии — в скиллах реестра, персона — одна строка «Имя — роль»."""
-    parts = [f"Ты — {req.persona or 'исполнитель этапа конвейера'}.",
-             f"# Контекст задачи\n{req.context_md}"]
+    parts = [
+        f"Ты — {req.persona or 'исполнитель этапа конвейера'}.",
+        f"# Контекст задачи\n{req.context_md}",
+    ]
     if req.skills_md:
         parts.append("# Подключённые скиллы (реестр инструментов)\n" + "\n\n".join(req.skills_md))
     parts.append(REPORT_CONTRACT)
@@ -278,8 +305,9 @@ def _options_cls(sdk) -> type:
     """Класс опций: в SDK 0.2+ это ClaudeAgentOptions, в старых версиях — ClaudeCodeOptions."""
     cls = getattr(sdk, "ClaudeAgentOptions", None) or getattr(sdk, "ClaudeCodeOptions", None)
     if cls is None:
-        raise RuntimeError("claude-agent-sdk: не найден класс опций "
-                           "(ClaudeAgentOptions/ClaudeCodeOptions)")
+        raise RuntimeError(
+            "claude-agent-sdk: не найден класс опций (ClaudeAgentOptions/ClaudeCodeOptions)"
+        )
     return cls
 
 
@@ -288,10 +316,12 @@ def _options_kwargs(req: RunRequest, fields: set[str]) -> dict:
 
     Неизвестные данной версии опции тихо отбрасываются: старый SDK не падает
     от новых полей профиля агента."""
-    kwargs: dict = {"cwd": str(req.cwd_path or req.worktree_path or ""),
-              "allowed_tools": list(req.allowed_tools),
-              "permission_mode": "acceptEdits",
-              "max_turns": int(getattr(req, "max_turns", 100) or 100)}
+    kwargs: dict = {
+        "cwd": str(req.cwd_path or req.worktree_path or ""),
+        "allowed_tools": list(req.allowed_tools),
+        "permission_mode": "acceptEdits",
+        "max_turns": int(getattr(req, "max_turns", 100) or 100),
+    }
     if req.model:
         kwargs["model"] = req.model
     if req.mcp_servers:
@@ -408,7 +438,8 @@ class ClaudeCodeRunner:
         except ImportError as err:  # pragma: no cover
             raise RuntimeError(
                 "claude-agent-sdk не установлен: pip install 'ai-harness[daemon]'"
-            " (и CLI Claude Code: npm i -g @anthropic-ai/claude-code)") from err
+                " (и CLI Claude Code: npm i -g @anthropic-ai/claude-code)"
+            ) from err
 
     async def _iterate_sdk(self, req, prompt, options, collected, usage):
         """Iterates SDK messages with per-message timeout and process cleanup.
@@ -417,6 +448,7 @@ class ClaudeCodeRunner:
         task, an unkilled process, and a task stuck forever in _active.
         """
         import asyncio
+
         loop = asyncio.get_running_loop()
         t = req.timeouts or {}
         start_to = float(t.get("start", 300))
@@ -443,7 +475,9 @@ class ClaudeCodeRunner:
                     # мягкий лимит: сессия длинная — ход дорожает (кэш = ходы x
                     # префикс), внимание размывается. Завершаем; прогресс — в
                     # чеклисте/коммитах; следующий прогон = свежая сессия + handoff
-                    await req.emit("system", text=f"мягкий лимит ходов ({req.soft_turns}) — смена сессии")
+                    await req.emit(
+                        "system", text=f"мягкий лимит ходов ({req.soft_turns}) — смена сессии"
+                    )
                     raise RunnerSoftLimit(str(req.soft_turns)) from None
         finally:
             try:
@@ -452,7 +486,6 @@ class ClaudeCodeRunner:
                 pass
         return turns
 
-
     async def run(self, req: RunRequest) -> RunReport:
         prompt = _build_prompt(req)
         await req.emit("prompt", text=prompt)
@@ -460,8 +493,9 @@ class ClaudeCodeRunner:
         fields = {f.name for f in dataclasses.fields(opts_cls)}
         if req.agent_dir and req.worktree_path:
             mode = _link_agent_dir(req.agent_dir, req.worktree_path)
-            await req.emit("system", text=f"папка инструментов подключена ({mode}): "
-                                         f"{req.agent_dir} → .claude")
+            await req.emit(
+                "system", text=f"папка инструментов подключена ({mode}): {req.agent_dir} → .claude"
+            )
         options = opts_cls(**_options_kwargs(req, fields))
         env = _sdk_env(req.provider)
         if env and "env" not in fields:
@@ -472,11 +506,11 @@ class ClaudeCodeRunner:
                 return await self._run_env(req, prompt, options, env)
         return await self._run_env(req, prompt, options, env)
 
-    async def _run_env(self, req: RunRequest, prompt: str, options,
-                       env: dict | None) -> RunReport:
+    async def _run_env(self, req: RunRequest, prompt: str, options, env: dict | None) -> RunReport:
         """Сам прогон: окружение провайдера в os.environ только на время
         прогона (legacy-путь — под _ENV_LOCK), таймауты, сбор текста отчёта."""
         import os
+
         saved_env = None
         if env:
             saved_env = {k: os.environ.get(k) for k in env}
@@ -489,21 +523,26 @@ class ClaudeCodeRunner:
         except RunnerTimeout as err:
             await req.emit("system", text=f"timeout: {err.args[0]}")
             phase = "старт" if err.args and err.args[0] == "start" else "работа"
-            return RunReport(status="failed",
-                             summary_md=f"Таймаут прогона ({phase}) — процесс агента остановлен демоном",
-                             outcome_code="timeout_start" if phase == "старт" else "timeout_work")
+            return RunReport(
+                status="failed",
+                summary_md=f"Таймаут прогона ({phase}) — процесс агента остановлен демоном",
+                outcome_code="timeout_start" if phase == "старт" else "timeout_work",
+            )
         except RunnerSoftLimit as err:
             # не failed-дефект: плановая смена сессии до деградации длинного
             # контекста; прогресс в чеклисте/коммитах, handoff уйдёт в контекст
             await req.emit("system", text="смена сессии (мягкий лимит ходов)")
-            return RunReport(status="failed",
-                             summary_md=f"Мягкий лимит ходов ({err}) — плановая смена сессии: "
-                                        f"прогресс в чеклисте и коммитах, следующий прогон "
-                                        f"продолжит с открытых пунктов",
-                             outcome_code="soft_turns")
+            return RunReport(
+                status="failed",
+                summary_md=f"Мягкий лимит ходов ({err}) — плановая смена сессии: "
+                f"прогресс в чеклисте и коммитах, следующий прогон "
+                f"продолжит с открытых пунктов",
+                outcome_code="soft_turns",
+            )
         finally:
             if saved_env is not None:
                 import os
+
                 for k, v in saved_env.items():
                     if v is None:
                         os.environ.pop(k, None)
@@ -514,14 +553,16 @@ class ClaudeCodeRunner:
             # исчерпание жёсткого лимита ходов: код для resume-логики демона
             # (раньше распознавалось подстрокой "Reached maximum number of turns")
             report.outcome_code = "turns_limit"
-        await req.emit("report", text=report.summary_md,
-                       data={"status": report.status,
-                             "proposed_transition": report.proposed_transition})
+        await req.emit(
+            "report",
+            text=report.summary_md,
+            data={"status": report.status, "proposed_transition": report.proposed_transition},
+        )
         return report
 
-
-    async def _emit_message(self, req: RunRequest, message,
-                            collected: list[str], usage: dict) -> bool:
+    async def _emit_message(
+        self, req: RunRequest, message, collected: list[str], usage: dict
+    ) -> bool:
         """Обработка сообщения SDK; True = это был ХОД ассистента (для мягкого
         лимита — tool-результаты и служебные сообщения ходами не считаются:
         раньше лимит втрое агрессивнее задуманного — VITRINA-1, 02.11)."""
@@ -531,12 +572,16 @@ class ClaudeCodeRunner:
             # атрибутах — раньше session_id всегда читался как None, resume
             # молча не включался, и каждый ретрай стартовал с чистого листа
             init = getattr(message, "data", None) or {}
-            await req.emit("system", text="сессия агента запущена",
-                           data={"model": init.get("model", getattr(message, "model", None)),
-                                 "cwd": init.get("cwd", getattr(message, "cwd", None)),
-                                 "tools": init.get("tools", getattr(message, "tools", None)),
-                                 "session_id": init.get("session_id",
-                                                        getattr(message, "session_id", None))})
+            await req.emit(
+                "system",
+                text="сессия агента запущена",
+                data={
+                    "model": init.get("model", getattr(message, "model", None)),
+                    "cwd": init.get("cwd", getattr(message, "cwd", None)),
+                    "tools": init.get("tools", getattr(message, "tools", None)),
+                    "session_id": init.get("session_id", getattr(message, "session_id", None)),
+                },
+            )
             return False
         _accumulate_usage(message, usage)
         if usage.get("total"):
@@ -547,15 +592,21 @@ class ClaudeCodeRunner:
             collected.append(str(message.result))
             return False
         assistant_turn = bool(content)
-        for block in (content or []):
+        for block in content or []:
             btype = type(block).__name__
             text = getattr(block, "text", None)
             thinking = getattr(block, "thinking", None)
             name = getattr(block, "name", None)
             if name and hasattr(block, "input"):  # ToolUseBlock
-                await req.emit("tool", text=name,
-                               data={"input": _short_input(getattr(block, "input", None))})
-            elif btype == "ToolResultBlock" or hasattr(block, "content") and text is None and name is None:
+                await req.emit(
+                    "tool", text=name, data={"input": _short_input(getattr(block, "input", None))}
+                )
+            elif (
+                btype == "ToolResultBlock"
+                or hasattr(block, "content")
+                and text is None
+                and name is None
+            ):
                 await req.emit("tool_result", text=_tail(str(getattr(block, "content", ""))))
             elif thinking:
                 await req.emit("thinking", text=thinking)
@@ -580,8 +631,7 @@ def _accumulate_usage(message, acc: dict) -> None:
         u = getattr(getattr(message, "message", None), "usage", None)
     raw_in = _uget(u, "input_tokens")
     raw_out = _uget(u, "output_tokens")
-    raw_cache = (_uget(u, "cache_read_input_tokens")
-                 + _uget(u, "cache_creation_input_tokens"))
+    raw_cache = _uget(u, "cache_read_input_tokens") + _uget(u, "cache_creation_input_tokens")
     if not (raw_in or raw_out or raw_cache):
         return
     acc["input"] += raw_in
@@ -626,13 +676,19 @@ class FakeRunner:
             usage["total"] = usage["input"] + usage["output"] + usage["cache"]
 
         await req.emit("prompt", text=_build_prompt(req))
-        await req.emit("system", text="сессия агента запущена (демо-режим без SDK)",
-                       data={"model": "fake", "cwd": str(req.worktree_path or ".")})
+        await req.emit(
+            "system",
+            text="сессия агента запущена (демо-режим без SDK)",
+            data={"model": "fake", "cwd": str(req.worktree_path or ".")},
+        )
         await beat()
         spend()
         await req.emit("usage", data=dict(usage))
-        await req.emit("thinking", text="Читаю постановку задачи и чек-лист: "
-                       "нужно понять, какой файл править и какие тесты затронуты.")
+        await req.emit(
+            "thinking",
+            text="Читаю постановку задачи и чек-лист: "
+            "нужно понять, какой файл править и какие тесты затронуты.",
+        )
         await beat()
         await req.emit("tool", text="Read", data={"input": {"file_path": "src/board.tsx"}})
         await beat()
@@ -641,11 +697,19 @@ class FakeRunner:
         await beat()
         await req.emit("tool_result", text="export function Board() {\n  … 120 строк …}")
         await beat()
-        await req.emit("thinking", text="Вижу причину: фильтр колонок учитывает только "
-                       "дефолтные статусы. Правлю маппинг и добавляю тест.")
+        await req.emit(
+            "thinking",
+            text="Вижу причину: фильтр колонок учитывает только "
+            "дефолтные статусы. Правлю маппинг и добавляю тест.",
+        )
         await beat()
-        await req.emit("tool", text="Edit", data={"input": {"file_path": "src/board.tsx",
-                                                            "new_string": "colIdOfStatus(t.type, …)"}})
+        await req.emit(
+            "tool",
+            text="Edit",
+            data={
+                "input": {"file_path": "src/board.tsx", "new_string": "colIdOfStatus(t.type, …)"}
+            },
+        )
         await beat()
         spend()
         await req.emit("usage", data=dict(usage))
@@ -657,7 +721,9 @@ class FakeRunner:
         await beat()
         await req.emit("tool_result", text="Tests: 8 passed")
         await beat()
-        await req.emit("tool", text="Bash", data={"input": {"command": "git add -A && git commit -m fix"}})
+        await req.emit(
+            "tool", text="Bash", data={"input": {"command": "git add -A && git commit -m fix"}}
+        )
         await beat()
         spend()
         await req.emit("usage", data=dict(usage))
@@ -668,8 +734,12 @@ class FakeRunner:
         spend(inp=31000, out=1400, cache=22000)
         await req.emit("usage", data=dict(usage))
         await req.emit("report", text="Демо-прогон завершён")
-        return RunReport(status="success",
-                         summary_md="Демо-прогон: правка применена, тесты зелёные.",
-                         comments=["Добавил тест на сохранение темы — он поймал баг, "
-                                   "который чинил вторым коммитом."],
-                         proposed_transition=None, raw="demo")
+        return RunReport(
+            status="success",
+            summary_md="Демо-прогон: правка применена, тесты зелёные.",
+            comments=[
+                "Добавил тест на сохранение темы — он поймал баг, который чинил вторым коммитом."
+            ],
+            proposed_transition=None,
+            raw="demo",
+        )

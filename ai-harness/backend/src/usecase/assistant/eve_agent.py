@@ -64,39 +64,62 @@ def _build_tools(register_intent):
     """In-process MCP-инструменты «harness»: чтение трекера и управление."""
     from claude_agent_sdk import tool
 
-    @tool("task_card", "Полная карточка задачи по коду (описание, хроника, чек-листы, прогоны)",
-          {"code": str})
+    @tool(
+        "task_card",
+        "Полная карточка задачи по коду (описание, хроника, чек-листы, прогоны)",
+        {"code": str},
+    )
     async def task_card(args, ctx=None):
         code = str(args.get("code", "")).upper()
         row = await _one(
             "SELECT t.id, t.code, t.title, t.status_key AS st, t.priority, t.description_md AS d "
-            "FROM task t WHERE t.code = :c", {"c": code})
+            "FROM task t WHERE t.code = :c",
+            {"c": code},
+        )
         if not row:
             return {"content": [{"type": "text", "text": f"Задача {code} не найдена"}]}
         chron = await _all(
             "SELECT event_type, author_kind, message FROM chronicle WHERE task_id = :i "
-            "ORDER BY created_at DESC LIMIT 15", {"i": str(row["id"])})
+            "ORDER BY created_at DESC LIMIT 15",
+            {"i": str(row["id"])},
+        )
         runs = await _all(
-            "SELECT u.name AS agent, r.outcome, r.input_tokens + r.output_tokens + r.cache_tokens AS tok "
-            "FROM task_run r JOIN \"user\" u ON u.id = r.agent_id "
-            "WHERE r.task_id = :i ORDER BY r.started_at DESC LIMIT 5", {"i": str(row["id"])})
+            "SELECT u.name AS agent, r.outcome, "
+            "r.input_tokens + r.output_tokens + r.cache_tokens AS tok "
+            'FROM task_run r JOIN "user" u ON u.id = r.agent_id '
+            "WHERE r.task_id = :i ORDER BY r.started_at DESC LIMIT 5",
+            {"i": str(row["id"])},
+        )
         cl = await _all(
             "SELECT c.kind, count(*) FILTER (WHERE i.status IN ('done','closed')) AS done_n, "
             "count(*) FILTER (WHERE i.kind = 'item') AS total FROM checklist c "
             "LEFT JOIN checklist_item i ON i.checklist_id = c.id "
-            "WHERE c.task_id = :i GROUP BY c.kind", {"i": str(row["id"])})
+            "WHERE c.task_id = :i GROUP BY c.kind",
+            {"i": str(row["id"])},
+        )
         out = {
-            "code": row["code"], "status": row["st"], "title": row["title"],
+            "code": row["code"],
+            "status": row["st"],
+            "title": row["title"],
             "priority": row["priority"],
             "card_md": (row["d"] or "")[:8000],
-            "chronicle": [f"[{c['event_type']}/{c['author_kind']}] {c['message'][:250]}" for c in chron],
+            "chronicle": [
+                f"[{c['event_type']}/{c['author_kind']}] {c['message'][:250]}" for c in chron
+            ],
             "checklists": {c["kind"]: f"{c['done_n']}/{c['total']}" for c in cl},
             "runs": [f"{r['agent']} ({r['outcome']}, {r['tok'] or 0} ток.)" for r in runs],
         }
-        return {"content": [{"type": "text", "text": _cap(json.dumps(out, ensure_ascii=False, indent=1))}]}
+        return {
+            "content": [
+                {"type": "text", "text": _cap(json.dumps(out, ensure_ascii=False, indent=1))}
+            ]
+        }
 
-    @tool("tasks_search", "Поиск задач: проект, статус, подстрока в названии/коде",
-          {"project": str, "status": str, "q": str, "limit": int})
+    @tool(
+        "tasks_search",
+        "Поиск задач: проект, статус, подстрока в названии/коде",
+        {"project": str, "status": str, "q": str, "limit": int},
+    )
     async def tasks_search(args, ctx=None):
         cond, par = [], {"lim": int(args.get("limit") or 25)}
         if args.get("project"):
@@ -114,17 +137,28 @@ def _build_tools(register_intent):
             f"SELECT t.code, tt.key AS tp, t.status_key AS st, t.title "
             f"FROM task t JOIN project p ON p.id = t.project_id "
             f"JOIN task_type tt ON tt.id = t.task_type_id {where} "
-            f"ORDER BY t.updated_at DESC LIMIT :lim", par)
-        return {"content": [{"type": "text", "text": _cap("\n".join(
-            f"{r['code']} [{r['tp']}/{r['st']}] {r['title']}" for r in rows) or "ничего не найдено")}]}
+            f"ORDER BY t.updated_at DESC LIMIT :lim",
+            par,
+        )
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": _cap(
+                        "\n".join(f"{r['code']} [{r['tp']}/{r['st']}] {r['title']}" for r in rows)
+                        or "ничего не найдено"
+                    ),
+                }
+            ]
+        }
 
-    @tool("story_tree", "История и её задачи: статусы, токены, итог",
-          {"code": str})
+    @tool("story_tree", "История и её задачи: статусы, токены, итог", {"code": str})
     async def story_tree(args, ctx=None):
         code = str(args.get("code", "")).upper()
         story = await _one(
             "SELECT t.id, t.code, t.title, t.status_key AS st FROM task t WHERE t.code = :c",
-            {"c": code})
+            {"c": code},
+        )
         if not story:
             return {"content": [{"type": "text", "text": f"Задача {code} не найдена"}]}
         kids = await _all(
@@ -132,44 +166,86 @@ def _build_tools(register_intent):
             "(SELECT coalesce(sum(r.input_tokens + r.output_tokens + r.cache_tokens),0) "
             " FROM task_run r WHERE r.task_id = t.id) AS tok "
             "FROM task t JOIN task_type tt ON tt.id = t.task_type_id "
-            "WHERE t.story_id = :i ORDER BY t.code", {"i": str(story["id"])})
+            "WHERE t.story_id = :i ORDER BY t.code",
+            {"i": str(story["id"])},
+        )
         # tok — NUMERIC из sum() → Decimal, json.dumps его не переваривает
-        tasks = [{"code": k["code"], "type": k["tp"], "status": k["st"],
-                  "title": k["title"], "tokens": int(k["tok"] or 0)} for k in kids]
-        out = {"story": f"{story['code']} [{story['st']}] {story['title']}",
-               "tasks": tasks,
-               "total_tokens": sum(t["tokens"] for t in tasks)}
-        return {"content": [{"type": "text", "text": _cap(json.dumps(out, ensure_ascii=False, indent=1))}]}
+        tasks = [
+            {
+                "code": k["code"],
+                "type": k["tp"],
+                "status": k["st"],
+                "title": k["title"],
+                "tokens": int(k["tok"] or 0),
+            }
+            for k in kids
+        ]
+        out = {
+            "story": f"{story['code']} [{story['st']}] {story['title']}",
+            "tasks": tasks,
+            "total_tokens": sum(t["tokens"] for t in tasks),
+        }
+        return {
+            "content": [
+                {"type": "text", "text": _cap(json.dumps(out, ensure_ascii=False, indent=1))}
+            ]
+        }
 
     @tool("projects_status", "Проекты: открытые задачи, пауза конвейера, активные прогоны", {})
     async def projects_status(args, ctx=None):
         paused = await _one("SELECT value FROM app_setting WHERE key = 'daemon.paused'")
         runs = await _all(
             "SELECT t.code, u.name AS agent FROM task_run r "
-            "JOIN task t ON t.id = r.task_id JOIN \"user\" u ON u.id = r.agent_id "
-            "WHERE r.finished_at IS NULL")
+            'JOIN task t ON t.id = r.task_id JOIN "user" u ON u.id = r.agent_id '
+            "WHERE r.finished_at IS NULL"
+        )
         projs = await _all(
             "SELECT p.mnemonic, count(t.id) FILTER (WHERE fs.is_terminal IS NOT TRUE) AS open_n "
             "FROM project p LEFT JOIN task t ON t.project_id = p.id "
             "LEFT JOIN flow_version fv ON fv.task_type_id = t.task_type_id "
             "AND fv.is_current AND fv.is_published "
             "LEFT JOIN flow_status fs ON fs.flow_version_id = fv.id "
-            "AND fs.status_key = t.status_key GROUP BY p.mnemonic ORDER BY p.mnemonic")
-        return {"content": [{"type": "text", "text": _cap(json.dumps({
-            "pipeline_paused": (paused or {}).get("value") == "true",
-            "active_runs": [f"{r['code']} ({r['agent']})" for r in runs],
-            "projects": {r["mnemonic"]: r["open_n"] for r in projs},
-        }, ensure_ascii=False, indent=1))}]}
+            "AND fs.status_key = t.status_key GROUP BY p.mnemonic ORDER BY p.mnemonic"
+        )
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": _cap(
+                        json.dumps(
+                            {
+                                "pipeline_paused": (paused or {}).get("value") == "true",
+                                "active_runs": [f"{r['code']} ({r['agent']})" for r in runs],
+                                "projects": {r["mnemonic"]: r["open_n"] for r in projs},
+                            },
+                            ensure_ascii=False,
+                            indent=1,
+                        )
+                    ),
+                }
+            ]
+        }
 
-    @tool("propose_action", "Изменяющее действие над трекером: записать намерение. "
-          "Пользователь подтвердит словом «да» — сообщите ему об этом. "
-          "kind: transition|force|create_task|interrupt|pipeline_pause. "
-          "Для create_task: type — один из story/common_task/qa_task/bug/analyse_task "
-          "(«задача» = common_task), project — мнемоника проекта (VITRINA, AH…). "
-          "Для transition/force: to — ключ статуса из status-flow типа задачи "
-          "(например new_status_9 = «Завершено», done = «Готово»).",
-          {"kind": str, "task": str, "to": str, "reason": str,
-           "title": str, "project": str, "type": str, "paused": bool})
+    @tool(
+        "propose_action",
+        "Изменяющее действие над трекером: записать намерение. "
+        "Пользователь подтвердит словом «да» — сообщите ему об этом. "
+        "kind: transition|force|create_task|interrupt|pipeline_pause. "
+        "Для create_task: type — один из story/common_task/qa_task/bug/analyse_task "
+        "(«задача» = common_task), project — мнемоника проекта (VITRINA, AH…). "
+        "Для transition/force: to — ключ статуса из status-flow типа задачи "
+        "(например new_status_9 = «Завершено», done = «Готово»).",
+        {
+            "kind": str,
+            "task": str,
+            "to": str,
+            "reason": str,
+            "title": str,
+            "project": str,
+            "type": str,
+            "paused": bool,
+        },
+    )
     async def propose_action(args, ctx=None):
         kind = str(args.get("kind", ""))
         supported = {"transition", "force", "create_task", "interrupt", "pipeline_pause"}
@@ -181,9 +257,15 @@ def _build_tools(register_intent):
                 intent[key] = str(args[key])
         if kind == "create_task":
             # нормализация типов: «задача»/task → common_task; неизвестное — тоже
-            alias = {"task": "common_task", "задача": "common_task",
-                     "story": "story", "common_task": "common_task",
-                     "qa_task": "qa_task", "bug": "bug", "analyse_task": "analyse_task"}
+            alias = {
+                "task": "common_task",
+                "задача": "common_task",
+                "story": "story",
+                "common_task": "common_task",
+                "qa_task": "qa_task",
+                "bug": "bug",
+                "analyse_task": "analyse_task",
+            }
             t = (intent.get("type") or "common_task").lower()
             intent["type"] = alias.get(t, "common_task")
         if kind == "pipeline_pause":
@@ -193,21 +275,32 @@ def _build_tools(register_intent):
         if kind == "interrupt" and not intent.get("task"):
             return {"content": [{"type": "text", "text": "Нужен task (код задачи)"}]}
         if kind == "create_task" and (not intent.get("title") or not intent.get("project")):
-            return {"content": [{"type": "text",
-                    "text": "Нужны title и project (мнемоника проекта)"}]}
+            return {
+                "content": [{"type": "text", "text": "Нужны title и project (мнемоника проекта)"}]
+            }
         register_intent(intent)
-        return {"content": [{"type": "text", "text":
-                "Намерение записано. Скажите пользователю, что подтвердить нужно словом «да»: "
-                + json.dumps(intent, ensure_ascii=False)}]}
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": "Намерение записано. Скажите пользователю, "
+                            "что подтвердить нужно словом «да»: "
+                    + json.dumps(intent, ensure_ascii=False),
+                }
+            ]
+        }
 
-    @tool("sql", "Прямой SQL к базе данных harness (PostgreSQL, схема ai_harness). "
-          "SELECT — чтение любых данных; UPDATE/INSERT/DELETE — изменения с коммитом. "
-          "Одна инструкция за вызов. После смены статуса задачи добавь запись в chronicle "
-          "этим же инструментом (INSERT INTO chronicle ...). Таблицы: task, project, "
-          "task_type, flow_version, flow_status, flow_transition, chronicle, task_run, "
-          "task_comment, checklist, checklist_item, task_artifact, task_branch, "
-          "task_relation, chat_message, app_setting, assignment, agent_profile.",
-          {"query": str})
+    @tool(
+        "sql",
+        "Прямой SQL к базе данных harness (PostgreSQL, схема ai_harness). "
+        "SELECT — чтение любых данных; UPDATE/INSERT/DELETE — изменения с коммитом. "
+        "Одна инструкция за вызов. После смены статуса задачи добавь запись в chronicle "
+        "этим же инструментом (INSERT INTO chronicle ...). Таблицы: task, project, "
+        "task_type, flow_version, flow_status, flow_transition, chronicle, task_run, "
+        "task_comment, checklist, checklist_item, task_artifact, task_branch, "
+        "task_relation, chat_message, app_setting, assignment, agent_profile.",
+        {"query": str},
+    )
     async def sql_tool(args, ctx=None):
         q = str(args.get("query", "")).strip().rstrip(";")
         if not q:
@@ -218,18 +311,33 @@ def _build_tools(register_intent):
             result = await s.execute(sa.text(q))
             if q.lstrip().lower().startswith("select"):
                 rows = [dict(r) for r in result.mappings().all()[:50]]
-                return {"content": [{"type": "text",
-                        "text": _cap(json.dumps(rows, ensure_ascii=False, default=str, indent=1))}]}
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": _cap(
+                                json.dumps(rows, ensure_ascii=False, default=str, indent=1)
+                            ),
+                        }
+                    ]
+                }
             await s.commit()
-            return {"content": [{"type": "text",
-                    "text": f"Выполнено. Затронуто строк: {result.rowcount}"}]}
+            return {
+                "content": [
+                    {"type": "text", "text": f"Выполнено. Затронуто строк: {result.rowcount}"}
+                ]
+            }
 
-    @tool("docker", "Полный доступ к docker CLI (ps, logs, inspect, exec …). args — аргументы команды",
-          {"args": str})
+    @tool(
+        "docker",
+        "Полный доступ к docker CLI (ps, logs, inspect, exec …). args — аргументы команды",
+        {"args": str},
+    )
     async def docker_tool(args, ctx=None):
         cmd = ["docker"] + shlex.split(str(args.get("args", "")))
         proc = await asyncio.create_subprocess_exec(
-            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+        )
         try:
             out, _ = await asyncio.wait_for(proc.communicate(), timeout=_DOCKER_TIMEOUT)
         except asyncio.TimeoutError:
@@ -239,11 +347,27 @@ def _build_tools(register_intent):
 
     from claude_agent_sdk import create_sdk_mcp_server
 
-    server = create_sdk_mcp_server("harness", tools=[
-        task_card, tasks_search, story_tree, projects_status, propose_action,
-        sql_tool, docker_tool])
-    names = ["task_card", "tasks_search", "story_tree", "projects_status",
-             "propose_action", "sql", "docker"]
+    server = create_sdk_mcp_server(
+        "harness",
+        tools=[
+            task_card,
+            tasks_search,
+            story_tree,
+            projects_status,
+            propose_action,
+            sql_tool,
+            docker_tool,
+        ],
+    )
+    names = [
+        "task_card",
+        "tasks_search",
+        "story_tree",
+        "projects_status",
+        "propose_action",
+        "sql",
+        "docker",
+    ]
     return server, [f"mcp__harness__{n}" for n in names]
 
 
@@ -262,8 +386,7 @@ async def _env_and_model(session, conn_row) -> tuple[dict, str] | None:
     url = (conn.url or "").rstrip("/")
     if url.endswith("/v1/messages"):
         url = url[: -len("/v1/messages")]
-    return ({"ANTHROPIC_BASE_URL": url, "ANTHROPIC_AUTH_TOKEN": token},
-            conn.model or "")
+    return ({"ANTHROPIC_BASE_URL": url, "ANTHROPIC_AUTH_TOKEN": token}, conn.model or "")
 
 
 SYSTEM_PROMPT = """Ты — Eve, встроенный ИИ-агент AI-Harness: task-tracker с конвейером
@@ -294,10 +417,16 @@ SYSTEM_PROMPT = """Ты — Eve, встроенный ИИ-агент AI-Harness
 """
 
 
-async def agent_reply(session, user, text: str, register_intent,
-                      screen_task_code: str | None = None,
-                      edits_confirmed: bool = False,
-                      emit=None, turn_id: str | None = None) -> dict | None:
+async def agent_reply(
+    session,
+    user,
+    text: str,
+    register_intent,
+    screen_task_code: str | None = None,
+    edits_confirmed: bool = False,
+    emit=None,
+    turn_id: str | None = None,
+) -> dict | None:
     """Запускает Eve-агента. None → вызывающий код отвечает прежним режимом.
 
     Память диалога: резюмится CLI-сессия (app_setting eve.session_id.<user>);
@@ -320,9 +449,17 @@ async def agent_reply(session, user, text: str, register_intent,
         log.warning("eve_agent откат: импорт SDK: %s", err)
         return None
 
-    conn = (await session.execute(sa.text(
-        "SELECT id, protocol, url, model, name FROM connection "
-        "WHERE is_active LIMIT 1"))).mappings().first()
+    conn = (
+        (
+            await session.execute(
+                sa.text(
+                    "SELECT id, protocol, url, model, name FROM connection WHERE is_active LIMIT 1"
+                )
+            )
+        )
+        .mappings()
+        .first()
+    )
     if conn is None:
         log.warning("eve_agent откат: нет активного провайдера")
         return None
@@ -346,8 +483,14 @@ async def agent_reply(session, user, text: str, register_intent,
         data = input_data if isinstance(input_data, dict) else {}
         name = data.get("tool_name", "?")
         ti = data.get("tool_input") or {}
-        hint = (ti.get("code") or ti.get("file_path") or ti.get("command")
-                or ti.get("pattern") or ti.get("q") or "")
+        hint = (
+            ti.get("code")
+            or ti.get("file_path")
+            or ti.get("command")
+            or ti.get("pattern")
+            or ti.get("q")
+            or ""
+        )
         line = f"🔧 {name} {str(hint)[:80]}".rstrip()
         feed.append(line)
         _emit({"type": "progress", "detail": f"инструмент {name} {str(hint)[:90]}".rstrip()})
@@ -377,7 +520,8 @@ async def agent_reply(session, user, text: str, register_intent,
         if resume_sid:
             options.resume = resume_sid
         options.stderr = lambda line: (
-            (stderr_lines.append(line), None)[1] if len(stderr_lines) < 200 else None)
+            (stderr_lines.append(line), None)[1] if len(stderr_lines) < 200 else None
+        )
         return options
 
     async def run_once(resume_sid: str | None, prompt: str) -> Exception | None:
@@ -391,8 +535,13 @@ async def agent_reply(session, user, text: str, register_intent,
                 if kind == "SystemMessage":
                     data = getattr(message, "data", None)
                     if isinstance(data, dict) and data.get("subtype") == "thinking_tokens":
-                        _emit({"type": "progress",
-                               "detail": f"думает… (~{data.get('estimated_tokens')} ток. размышлений)"})
+                        est = data.get("estimated_tokens")
+                        _emit(
+                            {
+                                "type": "progress",
+                                "detail": f"думает… (~{est} ток. размышлений)",
+                            }
+                        )
                 elif kind == "AssistantMessage":
                     for block in getattr(message, "content", []) or []:
                         btype = getattr(block, "type", "")
@@ -428,10 +577,13 @@ async def agent_reply(session, user, text: str, register_intent,
     if _aborted(turn_id):
         answer_parts.append("\n\n_(прервано пользователем)_")
 
-    answer = ("".join(answer_parts).strip() or (result_text or "").strip())
+    answer = "".join(answer_parts).strip() or (result_text or "").strip()
     if not answer:
-        log.warning("eve_agent откат: пустой ответ (tools_used=%s, stderr=%s)",
-                    tools_used, stderr_lines[-3:])
+        log.warning(
+            "eve_agent откат: пустой ответ (tools_used=%s, stderr=%s)",
+            tools_used,
+            stderr_lines[-3:],
+        )
         return None
     if feed:
         block = "\n".join(f"> {line}" for line in feed[-20:])
@@ -470,22 +622,27 @@ def _session_key(user) -> str:
 
 
 async def _load_session_id(session, user) -> str | None:
-    row = (await session.execute(sa.text(
-        "SELECT value FROM app_setting WHERE key = :k"),
-        {"k": _session_key(user)})).scalar_one_or_none()
+    row = (
+        await session.execute(
+            sa.text("SELECT value FROM app_setting WHERE key = :k"), {"k": _session_key(user)}
+        )
+    ).scalar_one_or_none()
     return row or None
 
 
 async def _save_session_id(session, user, sid: str) -> None:
     from repository.models import AppSetting
 
-    exists = (await session.execute(sa.text(
-        "SELECT key FROM app_setting WHERE key = :k"),
-        {"k": _session_key(user)})).scalar_one_or_none()
+    exists = (
+        await session.execute(
+            sa.text("SELECT key FROM app_setting WHERE key = :k"), {"k": _session_key(user)}
+        )
+    ).scalar_one_or_none()
     if exists:
-        await session.execute(sa.text(
-            "UPDATE app_setting SET value = :v WHERE key = :k"),
-            {"v": sid, "k": _session_key(user)})
+        await session.execute(
+            sa.text("UPDATE app_setting SET value = :v WHERE key = :k"),
+            {"v": sid, "k": _session_key(user)},
+        )
     else:
         session.add(AppSetting(key=_session_key(user), value=sid))
 
@@ -493,10 +650,19 @@ async def _save_session_id(session, user, sid: str) -> None:
 async def _history_block(session, user, limit: int = 10) -> str:
     """Последние сообщения чата — контекст диалога для свежего запуска."""
 
-    rows = (await session.execute(sa.text(
-        "SELECT role, body FROM chat_message WHERE user_id = :u "
-        "ORDER BY created_at DESC LIMIT :n"),
-        {"u": str(user.id), "n": limit})).mappings().all()
+    rows = (
+        (
+            await session.execute(
+                sa.text(
+                    "SELECT role, body FROM chat_message WHERE user_id = :u "
+                    "ORDER BY created_at DESC LIMIT :n"
+                ),
+                {"u": str(user.id), "n": limit},
+            )
+        )
+        .mappings()
+        .all()
+    )
     if not rows:
         return ""
     lines = []

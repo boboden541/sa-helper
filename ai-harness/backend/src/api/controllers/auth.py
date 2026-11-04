@@ -26,8 +26,9 @@ class SessionOut(BaseModel):
 
 
 @router.post("/login", response_model=SessionOut)
-async def login_view(payload: LoginIn, response: Response,
-                     session: AsyncSession = Depends(get_session)):
+async def login_view(
+    payload: LoginIn, response: Response, session: AsyncSession = Depends(get_session)
+):
     try:
         user, token = await login(session, payload.name, payload.password)
     except DomainError as err:
@@ -37,9 +38,11 @@ async def login_view(payload: LoginIn, response: Response,
 
 
 @router.post("/logout")
-async def logout_view(response: Response,
-                      session: AsyncSession = Depends(get_session),
-                      ai_harness_session: str | None = Cookie(default=None, alias=COOKIE_NAME)):
+async def logout_view(
+    response: Response,
+    session: AsyncSession = Depends(get_session),
+    ai_harness_session: str | None = Cookie(default=None, alias=COOKIE_NAME),
+):
     """Токен сессии читается из httpOnly-куки (раньше — query-параметр:
     серверная сессия не удалялась и жила до конца TTL, анализ 30.10.2026)."""
     if ai_harness_session:

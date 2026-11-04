@@ -1,4 +1,5 @@
-"""«Мост»: опции раннера агента — совместимость версий SDK и подключение папки инструментов (27.10.2026)."""
+"""«Мост»: опции раннера агента — совместимость версий SDK
+и подключение папки инструментов (27.10.2026)."""
 
 from __future__ import annotations
 
@@ -12,10 +13,18 @@ def _req(**kw) -> RunRequest:
 
 
 def test_options_new_sdk_keeps_all():
-    fields = {"cwd", "allowed_tools", "permission_mode", "max_turns",
-              "model", "mcp_servers", "setting_sources"}
-    kw = _options_kwargs(_req(model="m1", mcp_servers={"g": {"url": "http://x"}},
-                              agent_dir="/tmp/agents"), fields)
+    fields = {
+        "cwd",
+        "allowed_tools",
+        "permission_mode",
+        "max_turns",
+        "model",
+        "mcp_servers",
+        "setting_sources",
+    }
+    kw = _options_kwargs(
+        _req(model="m1", mcp_servers={"g": {"url": "http://x"}}, agent_dir="/tmp/agents"), fields
+    )
     assert kw["model"] == "m1"
     assert kw["mcp_servers"] == {"g": {"url": "http://x"}}
     assert kw["setting_sources"] == ["project"]
@@ -24,8 +33,10 @@ def test_options_new_sdk_keeps_all():
 
 def test_options_old_sdk_drops_unknown():
     """Старый SDK без model/setting_sources — новые опции тихо отбрасываются, прогон не падает."""
-    kw = _options_kwargs(_req(model="m1", agent_dir="/tmp/agents"),
-                         {"cwd", "allowed_tools", "permission_mode", "max_turns"})
+    kw = _options_kwargs(
+        _req(model="m1", agent_dir="/tmp/agents"),
+        {"cwd", "allowed_tools", "permission_mode", "max_turns"},
+    )
     assert set(kw) == {"cwd", "allowed_tools", "permission_mode", "max_turns"}
 
 

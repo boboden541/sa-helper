@@ -27,5 +27,9 @@ async def api_error_handler(request: Request, exc: ApiError) -> JSONResponse:
 async def domain_error_handler(request: Request, exc: DomainError) -> JSONResponse:
     return JSONResponse(
         status_code=400,
-        content={"message": exc.message, "techDetail": exc.tech or None, "field": exc.field or None},
+        content={
+            "message": exc.message,
+            "techDetail": exc.tech or None,
+            "field": exc.field or None,
+        },
     )

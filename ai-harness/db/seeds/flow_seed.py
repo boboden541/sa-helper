@@ -41,9 +41,7 @@ ALIAS_COLUMNS = [
 
 async def ensure_alias_columns(session: AsyncSession) -> dict[str, AliasColumn]:
     """Создаёт девять alias-колонок один раз; возвращает маппинг ключ → колонка."""
-    existing = {
-        c.label: c for c in (await session.execute(sa.select(AliasColumn))).scalars()
-    }
+    existing = {c.label: c for c in (await session.execute(sa.select(AliasColumn))).scalars()}
     mapping: dict[str, AliasColumn] = {}
     for key, label, color, position in ALIAS_COLUMNS:
         col = existing.get(label)
@@ -68,10 +66,13 @@ async def publish_preset(
     встроенный и заведомо корректен.
     """
     if version is None:
-        version = (await session.execute(
-            sa.select(sa.func.coalesce(sa.func.max(FlowVersion.version), 0))
-            .where(FlowVersion.task_type_id == task_type.id)
-        )).scalar_one() + 1
+        version = (
+            await session.execute(
+                sa.select(sa.func.coalesce(sa.func.max(FlowVersion.version), 0)).where(
+                    FlowVersion.task_type_id == task_type.id
+                )
+            )
+        ).scalar_one() + 1
 
     # снимаем is_current с предыдущих
     await session.execute(
@@ -80,38 +81,47 @@ async def publish_preset(
         .values(is_current=False)
     )
     fv = FlowVersion(
-        task_type_id=task_type.id, version=version, is_current=True,
-        is_published=True, created_by=author.id,
+        task_type_id=task_type.id,
+        version=version,
+        is_current=True,
+        is_published=True,
+        created_by=author.id,
     )
     session.add(fv)
     await session.flush()
 
     columns = await ensure_alias_columns(session)
     for st in definition["statuses"]:
-        session.add(FlowStatus(
-            flow_version_id=fv.id,
-            status_key=st["key"],
-            label=st["label"],
-            stage_desc=st.get("stage_desc"),
-            checklist_gate=st.get("gate"),
-            is_entry=bool(st.get("entry")),
-            is_terminal=bool(st.get("terminal")),
-            is_blocking=bool(st.get("blocking")),
-            # alias опционален: архивный статус completed живёт вне колонок доски
-            # (латентный баг HEAD: сид падал KeyError на свежей БД, 03.11.2026)
-            alias_column_id=columns[st["alias"]].id if "alias" in st else None,
-        ))
+        session.add(
+            FlowStatus(
+                flow_version_id=fv.id,
+                status_key=st["key"],
+                label=st["label"],
+                stage_desc=st.get("stage_desc"),
+                checklist_gate=st.get("gate"),
+                is_entry=bool(st.get("entry")),
+                is_terminal=bool(st.get("terminal")),
+                is_blocking=bool(st.get("blocking")),
+                # alias опционален: архивный статус completed живёт вне колонок доски
+                # (латентный баг HEAD: сид падал KeyError на свежей БД, 03.11.2026)
+                alias_column_id=columns[st["alias"]].id if "alias" in st else None,
+            )
+        )
     await session.flush()
     for tr in definition["transitions"]:
-        session.add(FlowTransition(
-            flow_version_id=fv.id,
-            from_status=tr["from"], to_status=tr["to"],
-            runner=tr["runner"], display=tr["display"],
-            cond_checklist=tr.get("cond_checklist", True),
-            cond_links=tr.get("cond_links", True),
-            cond_artifact=tr.get("cond_artifact", False),
-            rule_code=tr.get("rule"),
-        ))
+        session.add(
+            FlowTransition(
+                flow_version_id=fv.id,
+                from_status=tr["from"],
+                to_status=tr["to"],
+                runner=tr["runner"],
+                display=tr["display"],
+                cond_checklist=tr.get("cond_checklist", True),
+                cond_links=tr.get("cond_links", True),
+                cond_artifact=tr.get("cond_artifact", False),
+                rule_code=tr.get("rule"),
+            )
+        )
     await session.flush()
     return fv
 
@@ -121,26 +131,34 @@ async def seed_builtin_flows(session: AsyncSession, system_user: User) -> None:
     from domain.model.enums import BUILTIN_TASK_TYPES
 
     for type_key, label in BUILTIN_TASK_TYPES:
-        ttype = (await session.execute(
-            sa.select(TaskType).where(TaskType.key == type_key)
-        )).scalar_one_or_none()
+        ttype = (
+            await session.execute(sa.select(TaskType).where(TaskType.key == type_key))
+        ).scalar_one_or_none()
         if ttype is None:
             ttype = TaskType(key=type_key, label=label, is_builtin=True)
             session.add(ttype)
             await session.flush()
 
-        has_version = (await session.execute(
-            sa.select(sa.func.count()).select_from(FlowVersion)
-            .where(FlowVersion.task_type_id == ttype.id, FlowVersion.is_published.is_(True))
-        )).scalar_one()
+        has_version = (
+            await session.execute(
+                sa.select(sa.func.count())
+                .select_from(FlowVersion)
+                .where(FlowVersion.task_type_id == ttype.id, FlowVersion.is_published.is_(True))
+            )
+        ).scalar_one()
         if has_version:
             continue
 
         preset_path = PRESETS_DIR / f"{type_key}.yaml"
         definition = yaml.safe_load(preset_path.read_text(encoding="utf-8"))
-        session.add(FlowPresetRow(name=f"Встроенный: {label}", description=f"Пресет {type_key}",
-                                  is_builtin=True,
-                                  definition=preset_path.read_text(encoding="utf-8")))
+        session.add(
+            FlowPresetRow(
+                name=f"Встроенный: {label}",
+                description=f"Пресет {type_key}",
+                is_builtin=True,
+                definition=preset_path.read_text(encoding="utf-8"),
+            )
+        )
         await publish_preset(session, ttype, definition, system_user)
     await session.commit()
 

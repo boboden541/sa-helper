@@ -1,4 +1,5 @@
-"""Профили агентов, матрица назначений, подключения провайдеров, пресеты провайдеров, реестр инструментов."""
+"""Профили агентов, матрица назначений, подключения провайдеров,
+пресеты провайдеров, реестр инструментов."""
 
 import uuid
 from datetime import datetime
@@ -48,23 +49,31 @@ class AgentProfile(Base):
 
     __tablename__ = "agent_profile"
 
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user.id", ondelete="CASCADE"), primary_key=True
+    )
     role: Mapped[str] = mapped_column(String(200))
-    connection_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("connection.id"))  # NULL = активное
+    connection_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("connection.id")
+    )  # NULL = активное
     is_preset: Mapped[bool] = mapped_column(Boolean, default=False)
     preset_source: Mapped[dict | None] = mapped_column(JSONB)  # исходный скилл для сброса
     model: Mapped[str | None] = mapped_column(String(128))  # переопределение модели прогона
     allowed_tools: Mapped[list | None] = mapped_column(JSONB)  # None = стандартный набор раннера
     mcp_servers: Mapped[dict | None] = mapped_column(JSONB)  # {имя: {url|command, …}}
     agent_dir: Mapped[str | None] = mapped_column(String(500))  # путь на компьютере пользователя
-    skills: Mapped[list | None] = mapped_column(JSONB)  # явно назначенные скиллы из реестра инструментов
+    skills: Mapped[list | None] = mapped_column(
+        JSONB
+    )  # явно назначенные скиллы из реестра инструментов
 
 
 class Assignment(Base):
     """Матрица назначений (ФТ-ah-63): тип → статус → исполнители + режим совместной работы."""
 
     __tablename__ = "assignment"
-    __table_args__ = (UniqueConstraint("task_type_id", "status_key", "user_id", name="uq_assignment"),)
+    __table_args__ = (
+        UniqueConstraint("task_type_id", "status_key", "user_id", name="uq_assignment"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     task_type_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("task_type.id"))

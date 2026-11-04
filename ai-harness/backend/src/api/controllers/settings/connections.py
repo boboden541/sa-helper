@@ -16,14 +16,16 @@ router = APIRouter()
 
 
 @router.get("/provider-presets")
-async def provider_presets_list(session: AsyncSession = Depends(get_session),
-                                actor: User = Depends(get_actor)):
+async def provider_presets_list(
+    session: AsyncSession = Depends(get_session), actor: User = Depends(get_actor)
+):
     """Пресеты провайдеров: подставляют протокол и URL в форму (ФТ-ah-59)."""
     presets = await conn_uc.list_presets(session)
     return [{"name": p.name, "protocol": p.protocol, "baseUrl": p.base_url} for p in presets]
 
 
 # ---------- провайдеры ----------
+
 
 class ConnectionIn(BaseModel):
     name: str | None = None
@@ -35,22 +37,39 @@ class ConnectionIn(BaseModel):
 
 
 @router.get("/connections")
-async def connections_list(session: AsyncSession = Depends(get_session),
-                           actor: User = Depends(get_actor)):
+async def connections_list(
+    session: AsyncSession = Depends(get_session), actor: User = Depends(get_actor)
+):
     import sqlalchemy as sa
     from repository.models import Connection
 
-    rows = (await session.execute(
-        sa.select(Connection).order_by(Connection.created_at))).scalars().all()
-    return [{"id": str(c.id), "name": c.name, "protocol": c.protocol, "url": c.url,
-             "model": c.model, "tokenTail": c.token_tail, "checkStatus": c.check_status,
-             "isActive": c.is_active, "checkedAt": str(c.checked_at or "")} for c in rows]
+    rows = (
+        (await session.execute(sa.select(Connection).order_by(Connection.created_at)))
+        .scalars()
+        .all()
+    )
+    return [
+        {
+            "id": str(c.id),
+            "name": c.name,
+            "protocol": c.protocol,
+            "url": c.url,
+            "model": c.model,
+            "tokenTail": c.token_tail,
+            "checkStatus": c.check_status,
+            "isActive": c.is_active,
+            "checkedAt": str(c.checked_at or ""),
+        }
+        for c in rows
+    ]
 
 
 @router.post("/connections")
-async def connections_create(payload: ConnectionIn,
-                             session: AsyncSession = Depends(get_session),
-                             actor: User = Depends(get_actor)):
+async def connections_create(
+    payload: ConnectionIn,
+    session: AsyncSession = Depends(get_session),
+    actor: User = Depends(get_actor),
+):
     try:
         c = await conn_uc.create_connection(session, payload.model_dump())
     except DomainError as err:
@@ -59,23 +78,29 @@ async def connections_create(payload: ConnectionIn,
 
 
 @router.patch("/connections/{connection_id}")
-async def connections_update(connection_id: str, payload: ConnectionIn,
-                             session: AsyncSession = Depends(get_session),
-                             actor: User = Depends(get_actor)):
+async def connections_update(
+    connection_id: str,
+    payload: ConnectionIn,
+    session: AsyncSession = Depends(get_session),
+    actor: User = Depends(get_actor),
+):
     import uuid as uuid_mod
 
     try:
-        c = await conn_uc.update_connection(session, uuid_mod.UUID(connection_id),
-                                            payload.model_dump(exclude_none=True))
+        c = await conn_uc.update_connection(
+            session, uuid_mod.UUID(connection_id), payload.model_dump(exclude_none=True)
+        )
     except DomainError as err:
         raise ApiError(400, err.message)
     return {"id": str(c.id), "checkStatus": c.check_status}
 
 
 @router.post("/connections/check")
-async def connections_check(payload: ConnectionIn,
-                            session: AsyncSession = Depends(get_session),
-                            actor: User = Depends(get_actor)):
+async def connections_check(
+    payload: ConnectionIn,
+    session: AsyncSession = Depends(get_session),
+    actor: User = Depends(get_actor),
+):
     try:
         return await conn_uc.check_connection(session, payload.model_dump())
     except DomainError as err:
@@ -83,9 +108,11 @@ async def connections_check(payload: ConnectionIn,
 
 
 @router.post("/connections/{connection_id}/activate")
-async def connections_activate(connection_id: str,
-                               session: AsyncSession = Depends(get_session),
-                               actor: User = Depends(get_actor)):
+async def connections_activate(
+    connection_id: str,
+    session: AsyncSession = Depends(get_session),
+    actor: User = Depends(get_actor),
+):
     import uuid as uuid_mod
 
     try:
@@ -96,9 +123,11 @@ async def connections_activate(connection_id: str,
 
 
 @router.delete("/connections/{connection_id}")
-async def connections_delete(connection_id: str,
-                             session: AsyncSession = Depends(get_session),
-                             actor: User = Depends(get_actor)):
+async def connections_delete(
+    connection_id: str,
+    session: AsyncSession = Depends(get_session),
+    actor: User = Depends(get_actor),
+):
     import uuid as uuid_mod
 
     try:

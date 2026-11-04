@@ -39,7 +39,9 @@ class FlowStatus(Base):
     __table_args__ = (UniqueConstraint("flow_version_id", "status_key", name="uq_flow_status_key"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    flow_version_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("flow_version.id", ondelete="CASCADE"))
+    flow_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("flow_version.id", ondelete="CASCADE")
+    )
     status_key: Mapped[str] = mapped_column(String(32))
     label: Mapped[str] = mapped_column(String(64))
     stage_desc: Mapped[str | None] = mapped_column(String(2000))
@@ -52,10 +54,14 @@ class FlowStatus(Base):
 
 class FlowTransition(Base):
     __tablename__ = "flow_transition"
-    __table_args__ = (UniqueConstraint("flow_version_id", "from_status", "to_status", name="uq_flow_transition"),)
+    __table_args__ = (
+        UniqueConstraint("flow_version_id", "from_status", "to_status", name="uq_flow_transition"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    flow_version_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("flow_version.id", ondelete="CASCADE"))
+    flow_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("flow_version.id", ondelete="CASCADE")
+    )
     from_status: Mapped[str] = mapped_column(String(32))
     to_status: Mapped[str] = mapped_column(String(32))
     runner: Mapped[str] = mapped_column(String(16))  # human|agent|auto|auto_or_agent

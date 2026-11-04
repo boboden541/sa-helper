@@ -9,8 +9,7 @@ from __future__ import annotations
 from repository.models import Task, User
 from sqlalchemy.ext.asyncio import AsyncSession
 
-STATUS_BY_MARK = {"-": "todo", "~": "in_progress", "x": "closed",
-                  "+": "done", "!": "failed"}
+STATUS_BY_MARK = {"-": "todo", "~": "in_progress", "x": "closed", "+": "done", "!": "failed"}
 
 
 def parse_lines(lines: str) -> list[dict]:
@@ -24,8 +23,14 @@ def parse_lines(lines: str) -> list[dict]:
             continue
         heading = re.match(r"^(#{1,5})\s+(.*)$", line)
         if heading:
-            out.append({"kind": "heading", "level": len(heading.group(1)),
-                        "text": heading.group(2), "status": None})
+            out.append(
+                {
+                    "kind": "heading",
+                    "level": len(heading.group(1)),
+                    "text": heading.group(2),
+                    "status": None,
+                }
+            )
         else:
             item = re.match(r"^([~+x!\-])\s+(.*)$", line)
             status = STATUS_BY_MARK.get(item.group(1), "todo") if item else "todo"
@@ -34,16 +39,19 @@ def parse_lines(lines: str) -> list[dict]:
     return out
 
 
-async def put_checklist(session: AsyncSession, actor: User, task: Task,
-                        kind: str, lines: str) -> int:
+async def put_checklist(
+    session: AsyncSession, actor: User, task: Task, kind: str, lines: str
+) -> int:
     """Перезаписывает элементы чеклиста `kind` из текста; пишет событие в хронику.
     Возвращает число занятых строк (позиция последнего элемента + 1)."""
     import sqlalchemy as sa
     from repository.models import Checklist, ChecklistItem, Chronicle
 
-    chk = (await session.execute(
-        sa.select(Checklist).where(Checklist.task_id == task.id, Checklist.kind == kind)
-    )).scalar_one_or_none()
+    chk = (
+        await session.execute(
+            sa.select(Checklist).where(Checklist.task_id == task.id, Checklist.kind == kind)
+        )
+    ).scalar_one_or_none()
     if chk is None:
         chk = Checklist(task_id=task.id, kind=kind)
         session.add(chk)
@@ -53,21 +61,39 @@ async def put_checklist(session: AsyncSession, actor: User, task: Task,
     position = 0
     for element in parse_lines(lines):
         if element["kind"] == "heading":
-            session.add(ChecklistItem(checklist_id=chk.id, position=position,
-                                      kind="heading", level=element["level"],
-                                      text=element["text"]))
+            session.add(
+                ChecklistItem(
+                    checklist_id=chk.id,
+                    position=position,
+                    kind="heading",
+                    level=element["level"],
+                    text=element["text"],
+                )
+            )
         else:
-            session.add(ChecklistItem(checklist_id=chk.id, position=position,
-                                      kind="item", text=element["text"],
-                                      status=element["status"]))
+            session.add(
+                ChecklistItem(
+                    checklist_id=chk.id,
+                    position=position,
+                    kind="item",
+                    text=element["text"],
+                    status=element["status"],
+                )
+            )
         position += 1
     # пересмотр плана = заверка текущей версией эталона. Исключение — psi:
     # его заверяет ТОЛЬКО регистрация версии документа (create_version),
     # иначе PUT старых строк маскировал бы дрейф (ночь VITRINA-1, 02.11)
     if kind != "psi":
         chk.source_ref_version = task.ref_version
-    session.add(Chronicle(task_id=task.id, event_type="field", author_id=actor.id,
-                          author_kind="agent" if actor.user_type == "agent" else "human",
-                          message=f"Чеклист {kind} обновлён ({position} строк)"))
+    session.add(
+        Chronicle(
+            task_id=task.id,
+            event_type="field",
+            author_id=actor.id,
+            author_kind="agent" if actor.user_type == "agent" else "human",
+            message=f"Чеклист {kind} обновлён ({position} строк)",
+        )
+    )
     await session.commit()
     return position

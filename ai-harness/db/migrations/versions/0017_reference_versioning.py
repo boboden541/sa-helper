@@ -17,8 +17,9 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("task", sa.Column("ref_version", sa.Integer(), nullable=False,
-                                    server_default="1"))
+    op.add_column(
+        "task", sa.Column("ref_version", sa.Integer(), nullable=False, server_default="1")
+    )
     op.add_column("task", sa.Column("ref_hash", sa.String(64), nullable=True))
     op.add_column("checklist", sa.Column("source_ref_version", sa.Integer(), nullable=True))
     op.execute("UPDATE checklist SET source_ref_version = 1")
@@ -26,8 +27,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.add_column("task", sa.Column("psi_stale", sa.Boolean(), nullable=False,
-                                    server_default="false"))
+    op.add_column(
+        "task", sa.Column("psi_stale", sa.Boolean(), nullable=False, server_default="false")
+    )
     op.drop_column("checklist", "source_ref_version")
     op.drop_column("task", "ref_hash")
     op.drop_column("task", "ref_version")

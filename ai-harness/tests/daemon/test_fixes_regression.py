@@ -24,14 +24,25 @@ async def test_agent_checklist_add_is_applied(_test_db):
         task = (await s.execute(sa.select(Task).where(Task.code == code))).scalar_one()
         s.add(Checklist(task_id=task.id, kind="developer"))
         await s.commit()
-        report = RunReport(status="success", summary_md="ok",
-                           checklist_updates=[{"checklist_kind": "developer",
-                                               "text": "новый пункт",
-                                               "new_status": "todo"}])
+        report = RunReport(
+            status="success",
+            summary_md="ok",
+            checklist_updates=[
+                {"checklist_kind": "developer", "text": "новый пункт", "new_status": "todo"}
+            ],
+        )
         await daemon._apply_checklist_updates(s, task, report)
-        items = (await s.execute(
-            sa.select(ChecklistItem.text).where(ChecklistItem.kind == "item")
-            .order_by(ChecklistItem.position))).scalars().all()
+        items = (
+            (
+                await s.execute(
+                    sa.select(ChecklistItem.text)
+                    .where(ChecklistItem.kind == "item")
+                    .order_by(ChecklistItem.position)
+                )
+            )
+            .scalars()
+            .all()
+        )
     assert items == ["новый пункт"]
 
 
@@ -41,28 +52,39 @@ async def test_psi_document_isolated_per_story(_test_db):
     from usecase.story.psi import get_document
 
     async with _maker(_test_db)() as s:
-        await s.execute(sa.text(
-            "TRUNCATE task, psi_document, psi_run, psi_run_item RESTART IDENTITY CASCADE"))
-        author = (await s.execute(
-            sa.select(User).where(User.name == "Алексей"))).scalar_one()
-        id_a = (await s.execute(sa.text(
-            "INSERT INTO task (id, project_id, code, task_type_id, title, "
-            "description_md, status_key, flow_version_id, priority, author_id) "
-            "SELECT gen_random_uuid(), p.id, 'AH-STORY-A', t.id, 'S', '', 'qa_ready', fv.id, "
-            "'medium', :a FROM project p, task_type t, flow_version fv "
-            "WHERE p.mnemonic='AH' AND t.key='story' AND fv.task_type_id = t.id "
-            "AND fv.is_current RETURNING id"), {"a": str(author.id)})).scalar_one()
+        await s.execute(
+            sa.text("TRUNCATE task, psi_document, psi_run, psi_run_item RESTART IDENTITY CASCADE")
+        )
+        author = (await s.execute(sa.select(User).where(User.name == "Алексей"))).scalar_one()
+        id_a = (
+            await s.execute(
+                sa.text(
+                    "INSERT INTO task (id, project_id, code, task_type_id, title, "
+                    "description_md, status_key, flow_version_id, priority, author_id) "
+                    "SELECT gen_random_uuid(), p.id, 'AH-STORY-A', t.id, 'S', '', "
+                    "'qa_ready', fv.id, "
+                    "'medium', :a FROM project p, task_type t, flow_version fv "
+                    "WHERE p.mnemonic='AH' AND t.key='story' AND fv.task_type_id = t.id "
+                    "AND fv.is_current RETURNING id"
+                ),
+                {"a": str(author.id)},
+            )
+        ).scalar_one()
         doc_a = PsiDocument(story_id=id_a, version=1, author_id=author.id)
         s.add(doc_a)
         await s.flush()
         s.add(PsiRun(psi_doc_id=doc_a.id, run_by=author.id, passed=1, failed=0))
-        await s.execute(sa.text(
-            "INSERT INTO task (id, project_id, code, task_type_id, title, "
-            "description_md, status_key, flow_version_id, priority, author_id) "
-            "SELECT gen_random_uuid(), p.id, 'AH-STORY-B', t.id, 'S', '', 'qa_ready', fv.id, "
-            "'medium', :a FROM project p, task_type t, flow_version fv "
-            "WHERE p.mnemonic='AH' AND t.key='story' AND fv.task_type_id = t.id "
-            "AND fv.is_current"), {"a": str(author.id)})
+        await s.execute(
+            sa.text(
+                "INSERT INTO task (id, project_id, code, task_type_id, title, "
+                "description_md, status_key, flow_version_id, priority, author_id) "
+                "SELECT gen_random_uuid(), p.id, 'AH-STORY-B', t.id, 'S', '', 'qa_ready', fv.id, "
+                "'medium', :a FROM project p, task_type t, flow_version fv "
+                "WHERE p.mnemonic='AH' AND t.key='story' AND fv.task_type_id = t.id "
+                "AND fv.is_current"
+            ),
+            {"a": str(author.id)},
+        )
         await s.commit()
 
     async with _maker(_test_db)() as s:
@@ -75,8 +97,11 @@ async def test_psi_document_isolated_per_story(_test_db):
 async def test_interrupt_and_same_status_success_pause(_test_db):
     """Перехват человеком и успех без перехода → максимальная пауза перед повтором."""
     agent_id, code = await _ready_task(_test_db, status="in_progress")
-    cfg = await load_daemon_settings.__wrapped__(_test_db) if hasattr(
-        load_daemon_settings, "__wrapped__") else None
+    cfg = (
+        await load_daemon_settings.__wrapped__(_test_db)
+        if hasattr(load_daemon_settings, "__wrapped__")
+        else None
+    )
     maker = _maker(_test_db)
     async with maker() as s:
         task = (await s.execute(sa.select(Task).where(Task.code == code))).scalar_one()
@@ -87,6 +112,7 @@ async def test_interrupt_and_same_status_success_pause(_test_db):
         # успех на том же статусе → максимальная пауза (не вечный цикл)
         await reserve_task(s, task.id, agent_id, "in_progress")
         from daemon.runner.reservation import release_reservation
+
         await release_reservation(s, task.id, "success")
         nxt = await _next_retry_at(s, task.id, "in_progress", cfg)
         assert nxt is not None and nxt > now + dt.timedelta(minutes=pauses[-1] - 1)
@@ -116,39 +142,64 @@ async def test_report_creates_missing_checklist_and_relations(_test_db):
     async with maker() as s:
         task = (await s.execute(sa.select(Task).where(Task.code == code))).scalar_one()
         # сосед для связи
-        await s.execute(sa.text(
-            "INSERT INTO task (id, project_id, code, task_type_id, title, description_md, "
-            "status_key, flow_version_id, priority, author_id) "
-            "SELECT gen_random_uuid(), p.id, 'AH-999', t.id, 'Сосед', '', 'todo', fv.id, "
-            "'medium', u.id FROM project p, task_type t, flow_version fv, \"user\" u "
-            "WHERE p.mnemonic='AH' AND t.key='common_task' AND fv.task_type_id=t.id "
-            "AND fv.is_current AND u.name='Алексей'"))
+        await s.execute(
+            sa.text(
+                "INSERT INTO task (id, project_id, code, task_type_id, title, description_md, "
+                "status_key, flow_version_id, priority, author_id) "
+                "SELECT gen_random_uuid(), p.id, 'AH-999', t.id, 'Сосед', '', 'todo', fv.id, "
+                "'medium', u.id FROM project p, task_type t, flow_version fv, \"user\" u "
+                "WHERE p.mnemonic='AH' AND t.key='common_task' AND fv.task_type_id=t.id "
+                "AND fv.is_current AND u.name='Алексей'"
+            )
+        )
         await s.commit()
 
-        report = RunReport(status="success", summary_md="план готов",
-                           checklist_updates=[
-                               {"checklist_kind": "developer", "item_position": 1,
-                                "new_status": "todo", "text": "пункт один"},
-                               {"checklist_kind": "developer", "item_position": 2,
-                                "new_status": "todo", "text": "пункт два"},
-                           ],
-                           relations_updates=[
-                               {"task_code": "AH-999", "kind": "blocked_by",
-                                "note": "сначала сосед"},
-                           ])
+        report = RunReport(
+            status="success",
+            summary_md="план готов",
+            checklist_updates=[
+                {
+                    "checklist_kind": "developer",
+                    "item_position": 1,
+                    "new_status": "todo",
+                    "text": "пункт один",
+                },
+                {
+                    "checklist_kind": "developer",
+                    "item_position": 2,
+                    "new_status": "todo",
+                    "text": "пункт два",
+                },
+            ],
+            relations_updates=[
+                {"task_code": "AH-999", "kind": "blocked_by", "note": "сначала сосед"},
+            ],
+        )
         await daemon._apply_checklist_updates(s, task, report)
         await daemon._apply_relations(s, task, report)
 
-        items = (await s.execute(sa.text(
-            "SELECT ci.position, ci.text FROM checklist_item ci "
-            "JOIN checklist c ON c.id = ci.checklist_id "
-            "WHERE c.task_id = :t AND c.kind='developer' ORDER BY ci.position"),
-            {"t": str(task.id)})).all()
+        items = (
+            await s.execute(
+                sa.text(
+                    "SELECT ci.position, ci.text FROM checklist_item ci "
+                    "JOIN checklist c ON c.id = ci.checklist_id "
+                    "WHERE c.task_id = :t AND c.kind='developer' ORDER BY ci.position"
+                ),
+                {"t": str(task.id)},
+            )
+        ).all()
         assert [(r[0], r[1]) for r in items] == [(1, "пункт один"), (2, "пункт два")]
 
-        rel = (await s.execute(sa.text(
-            "SELECT kind FROM task_relation WHERE from_task = :t"),
-            {"t": str(task.id)})).scalars().all()
+        rel = (
+            (
+                await s.execute(
+                    sa.text("SELECT kind FROM task_relation WHERE from_task = :t"),
+                    {"t": str(task.id)},
+                )
+            )
+            .scalars()
+            .all()
+        )
         assert rel == ["blocked_by"]
 
 
@@ -160,22 +211,44 @@ async def test_report_updates_existing_item_by_position(_test_db):
     async with maker() as s:
         task = (await s.execute(sa.select(Task).where(Task.code == code))).scalar_one()
         s.add(Checklist(task_id=task.id, kind="developer"))
-        s.add(ChecklistItem(checklist_id=(await s.execute(sa.text(
-            "SELECT id FROM checklist WHERE task_id = :t AND kind='developer'"),
-            {"t": str(task.id)})).scalar_one(),
-            position=1, kind="item", text="пункт один", status="todo"))
+        s.add(
+            ChecklistItem(
+                checklist_id=(
+                    await s.execute(
+                        sa.text("SELECT id FROM checklist WHERE task_id = :t AND kind='developer'"),
+                        {"t": str(task.id)},
+                    )
+                ).scalar_one(),
+                position=1,
+                kind="item",
+                text="пункт один",
+                status="todo",
+            )
+        )
         await s.commit()
-        report = RunReport(status="success", summary_md="",
-                           checklist_updates=[{"checklist_kind": "developer",
-                                               "item_position": 1,
-                                               "new_status": "done",
-                                               "text": "пункт один"}])
+        report = RunReport(
+            status="success",
+            summary_md="",
+            checklist_updates=[
+                {
+                    "checklist_kind": "developer",
+                    "item_position": 1,
+                    "new_status": "done",
+                    "text": "пункт один",
+                }
+            ],
+        )
         await daemon._apply_checklist_updates(s, task, report)
-        rows = (await s.execute(sa.text(
-            "SELECT ci.status, ci.text FROM checklist_item ci "
-            "JOIN checklist c ON c.id = ci.checklist_id "
-            "WHERE c.task_id = :t AND c.kind='developer'"),
-            {"t": str(task.id)})).all()
+        rows = (
+            await s.execute(
+                sa.text(
+                    "SELECT ci.status, ci.text FROM checklist_item ci "
+                    "JOIN checklist c ON c.id = ci.checklist_id "
+                    "WHERE c.task_id = :t AND c.kind='developer'"
+                ),
+                {"t": str(task.id)},
+            )
+        ).all()
         assert rows == [("done", "пункт один")]
 
 
@@ -189,19 +262,24 @@ async def test_launch_skips_hard_blocked_tasks(_test_db):
     async with maker() as s:
         task = (await s.execute(sa.select(Task).where(Task.code == code))).scalar_one()
         # сосед-блокер в todo (не done)
-        await s.execute(sa.text(
-            "INSERT INTO task (id, project_id, code, task_type_id, title, description_md, "
-            "status_key, flow_version_id, priority, author_id) "
-            "SELECT gen_random_uuid(), p.id, 'AH-998', t.id, 'Блокер', '', 'todo', fv.id, "
-            "'medium', u.id FROM project p, task_type t, flow_version fv, \"user\" u "
-            "WHERE p.mnemonic='AH' AND t.key='common_task' AND fv.task_type_id=t.id "
-            "AND fv.is_current AND u.name='Алексей'"))
-        other = (await s.execute(sa.text(
-            "SELECT id FROM task WHERE code='AH-998'"))).scalar_one()
-        await s.execute(sa.text(
-            "INSERT INTO task_relation (id, from_task, to_task, kind) "
-            "VALUES (gen_random_uuid(), :a, :b, 'blocked_by')"),
-            {"a": str(task.id), "b": str(other)})
+        await s.execute(
+            sa.text(
+                "INSERT INTO task (id, project_id, code, task_type_id, title, description_md, "
+                "status_key, flow_version_id, priority, author_id) "
+                "SELECT gen_random_uuid(), p.id, 'AH-998', t.id, 'Блокер', '', 'todo', fv.id, "
+                "'medium', u.id FROM project p, task_type t, flow_version fv, \"user\" u "
+                "WHERE p.mnemonic='AH' AND t.key='common_task' AND fv.task_type_id=t.id "
+                "AND fv.is_current AND u.name='Алексей'"
+            )
+        )
+        other = (await s.execute(sa.text("SELECT id FROM task WHERE code='AH-998'"))).scalar_one()
+        await s.execute(
+            sa.text(
+                "INSERT INTO task_relation (id, from_task, to_task, kind) "
+                "VALUES (gen_random_uuid(), :a, :b, 'blocked_by')"
+            ),
+            {"a": str(task.id), "b": str(other)},
+        )
         await s.commit()
 
     class _NoRunner:
@@ -213,15 +291,20 @@ async def test_launch_skips_hard_blocked_tasks(_test_db):
 
     daemon2 = Daemon(maker, runner=_NoRunner())
     async with maker() as s:
-        cfg = {"daemon.max_attempts": "3", "daemon.max_parallel": "4",
-               "daemon.timeout_start_seconds": "300", "daemon.timeout_work_seconds": "1800",
-               "daemon.retry_pauses_minutes": "1,5,15", "agents.tools_dir": ""}
+        cfg = {
+            "daemon.max_attempts": "3",
+            "daemon.max_parallel": "4",
+            "daemon.timeout_start_seconds": "300",
+            "daemon.timeout_work_seconds": "1800",
+            "daemon.retry_pauses_minutes": "1,5,15",
+            "agents.tools_dir": "",
+        }
         launched = await daemon2._launch_ready(s, cfg)
         # заблокированная связью задача пропущена; сам блокер (без связей) запущен
         assert launched == 1
-        assert (await s.execute(sa.text(
-            "SELECT reserved_by FROM task WHERE code = :c"),
-            {"c": code})).scalar_one() is None
+        assert (
+            await s.execute(sa.text("SELECT reserved_by FROM task WHERE code = :c"), {"c": code})
+        ).scalar_one() is None
         # гасим запущенную демоном asyncio-задачу, чтобы соединения закрылись
         import asyncio
 
@@ -239,16 +322,27 @@ async def test_report_artifact_is_saved(_test_db):
     daemon = Daemon(maker, runner=None)
     async with maker() as s:
         task = (await s.execute(sa.select(Task).where(Task.code == code))).scalar_one()
-        report = RunReport(status="success", summary_md="готово",
-                           artifact_md="# Отчёт о ревью\n- пункт 1: пройдено",
-                           artifact_kind="review_report")
-        await daemon._apply_report(s, task,
-                                   (await s.execute(sa.select(User).where(
-                                       User.name == "Разработчик"))).scalar_one(),
-                                   report, {})
-        rows = (await s.execute(sa.text(
-            "SELECT kind, version, left(body_md, 20) FROM task_artifact "
-            "WHERE task_id = :t"), {"t": str(task.id)})).all()
+        report = RunReport(
+            status="success",
+            summary_md="готово",
+            artifact_md="# Отчёт о ревью\n- пункт 1: пройдено",
+            artifact_kind="review_report",
+        )
+        await daemon._apply_report(
+            s,
+            task,
+            (await s.execute(sa.select(User).where(User.name == "Разработчик"))).scalar_one(),
+            report,
+            {},
+        )
+        rows = (
+            await s.execute(
+                sa.text(
+                    "SELECT kind, version, left(body_md, 20) FROM task_artifact WHERE task_id = :t"
+                ),
+                {"t": str(task.id)},
+            )
+        ).all()
         assert rows == [("review_report", 1, "# Отчёт о ревью\n- пу")]
 
 
@@ -270,8 +364,10 @@ async def test_infra_failure_blocks_without_burning_attempts(_test_db):
 
     class _WorktreeBroken(Daemon):
         async def _ensure_worktree(self, session, task):
-            raise GitError("git config core.longpaths true failed",
-                           "fatal: unable to access '.git/config.lock': File exists")
+            raise GitError(
+                "git config core.longpaths true failed",
+                "fatal: unable to access '.git/config.lock': File exists",
+            )
 
     daemon = _WorktreeBroken(maker, runner=None)
     async with maker() as s:
@@ -280,9 +376,12 @@ async def test_infra_failure_blocks_without_burning_attempts(_test_db):
 
         assert await reserve_task(s, task.id, agent_id, "in_progress")
 
-    await daemon._run_task(code, agent_id, "in_progress",
-                           {"daemon.timeout_start_seconds": "300",
-                            "daemon.timeout_work_seconds": "1800"})
+    await daemon._run_task(
+        code,
+        agent_id,
+        "in_progress",
+        {"daemon.timeout_start_seconds": "300", "daemon.timeout_work_seconds": "1800"},
+    )
     await asyncio.sleep(0)
 
     async with maker() as s:
@@ -290,11 +389,21 @@ async def test_infra_failure_blocks_without_burning_attempts(_test_db):
         assert task.status_key == "blocked"
         assert task.retry_count == 0, "инфра-сбой не сжигает попытки"
         assert "config.lock" in (task.blocked_reason or ""), "stderr в причине блокировки"
-        chron = (await s.execute(sa.select(Chronicle).where(
-            Chronicle.task_id == task.id, Chronicle.rule_code == "INFRA"))).scalars().all()
+        chron = (
+            (
+                await s.execute(
+                    sa.select(Chronicle).where(
+                        Chronicle.task_id == task.id, Chronicle.rule_code == "INFRA"
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
         assert chron, "rule_code INFRA в хронике"
-        run = (await s.execute(sa.select(TaskRun).where(
-            TaskRun.task_id == task.id))).scalars().one()
+        run = (
+            (await s.execute(sa.select(TaskRun).where(TaskRun.task_id == task.id))).scalars().one()
+        )
         assert run.outcome == "failed"
         assert "config.lock" in (run.detail or "")
 
@@ -312,20 +421,31 @@ async def test_run_limit_blocks_and_warns(_test_db):
     maker = _maker(_test_db)
 
     async with maker() as s:
-        task_id = (await s.execute(
-            sa.text("SELECT id FROM task WHERE code = :c"), {"c": code})).scalar_one()
+        task_id = (
+            await s.execute(sa.text("SELECT id FROM task WHERE code = :c"), {"c": code})
+        ).scalar_one()
         for n in range(3):
-            await s.execute(sa.text(
-                "INSERT INTO task_run (id, task_id, agent_id, status_key, attempt_no, "
-                "finished_at, outcome) SELECT gen_random_uuid(), :t, :a, 'in_progress', :n, "
-                "now() - interval '2 hours', 'failed'"), {"t": str(task_id), "a": str(agent_id), "n": n + 1})
+            await s.execute(
+                sa.text(
+                    "INSERT INTO task_run (id, task_id, agent_id, status_key, attempt_no, "
+                    "finished_at, outcome) SELECT gen_random_uuid(), :t, :a, 'in_progress', :n, "
+                    "now() - interval '2 hours', 'failed'"
+                ),
+                {"t": str(task_id), "a": str(agent_id), "n": n + 1},
+            )
         await s.commit()
 
     daemon = Daemon(maker, runner=None)
-    cfg = {"daemon.max_attempts": "3", "daemon.max_parallel": "4",
-           "daemon.warn_runs_per_task": "2", "daemon.max_runs_per_task": "3",
-           "daemon.timeout_start_seconds": "300", "daemon.timeout_work_seconds": "1800",
-           "daemon.retry_pauses_minutes": "1,5,15", "agents.tools_dir": ""}
+    cfg = {
+        "daemon.max_attempts": "3",
+        "daemon.max_parallel": "4",
+        "daemon.warn_runs_per_task": "2",
+        "daemon.max_runs_per_task": "3",
+        "daemon.timeout_start_seconds": "300",
+        "daemon.timeout_work_seconds": "1800",
+        "daemon.retry_pauses_minutes": "1,5,15",
+        "agents.tools_dir": "",
+    }
 
     async with maker() as s:
         launched = await daemon._launch_ready(s, cfg)
@@ -336,14 +456,31 @@ async def test_run_limit_blocks_and_warns(_test_db):
         assert task.status_key == "blocked"
         assert "лимит прогонов" in (task.blocked_reason or "")
         assert task.retry_count == 0
-        rule = (await s.execute(sa.select(Chronicle).where(
-            Chronicle.task_id == task.id,
-            Chronicle.rule_code == "RUN_LIMIT"))).scalars().all()
+        rule = (
+            (
+                await s.execute(
+                    sa.select(Chronicle).where(
+                        Chronicle.task_id == task.id, Chronicle.rule_code == "RUN_LIMIT"
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
         assert rule, "rule_code RUN_LIMIT в хронике"
-        notifs = (await s.execute(sa.select(Notification).where(
-            Notification.code == code,
-            Notification.event_key == "cycle_not_converging",
-            Notification.resolved_at.is_(None)))).scalars().all()
+        notifs = (
+            (
+                await s.execute(
+                    sa.select(Notification).where(
+                        Notification.code == code,
+                        Notification.event_key == "cycle_not_converging",
+                        Notification.resolved_at.is_(None),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
         assert len(notifs) == 1, "одно открытое предупреждение"
 
 
@@ -356,8 +493,9 @@ async def test_session_id_saved_from_event(_test_db):
 
     class _SidRunner:
         async def run(self, req):
-            await req.emit("system", text="сессия агента запущена",
-                           data={"session_id": "sess-e2e-77"})
+            await req.emit(
+                "system", text="сессия агента запущена", data={"session_id": "sess-e2e-77"}
+            )
             from daemon.runner.agent_runner import RunReport
 
             return RunReport(status="success", summary_md="ок")
@@ -365,11 +503,15 @@ async def test_session_id_saved_from_event(_test_db):
     agent_id, code = await _ready_task(_test_db)
     maker = _maker(_test_db)
     daemon = Daemon(maker, _SidRunner())
-    cfg = {"daemon.timeout_start_seconds": "300", "daemon.timeout_work_seconds": "1800",
-           "daemon.max_attempts": "3"}
+    cfg = {
+        "daemon.timeout_start_seconds": "300",
+        "daemon.timeout_work_seconds": "1800",
+        "daemon.max_attempts": "3",
+    }
     async with maker() as s:
-        task_id = (await s.execute(
-            sa.text("SELECT id FROM task WHERE code = :c"), {"c": code})).scalar_one()
+        task_id = (
+            await s.execute(sa.text("SELECT id FROM task WHERE code = :c"), {"c": code})
+        ).scalar_one()
         from daemon.runner.reservation import reserve_task
 
         assert await reserve_task(s, task_id, agent_id, "in_progress")
@@ -380,8 +522,9 @@ async def test_session_id_saved_from_event(_test_db):
         await s.commit()
     await daemon._run_task(code, agent_id, "in_progress", cfg)
     async with maker() as s:
-        run = (await s.execute(sa.select(TaskRun).where(
-            TaskRun.task_id == task_id))).scalars().one()
+        run = (
+            (await s.execute(sa.select(TaskRun).where(TaskRun.task_id == task_id))).scalars().one()
+        )
         assert run.session_id == "sess-e2e-77"
 
 
@@ -392,12 +535,16 @@ def test_targeted_retry_block_content():
 
     block = targeted_retry_block(
         "чек-лист тестировщика: не закрыто 1 пункт",
-        [{"kind": "tester", "position": 0, "text": "Подготовка окружения", "status": "todo"}])
+        [{"kind": "tester", "position": 0, "text": "Подготовка окружения", "status": "todo"}],
+    )
     assert block and "не закрыто 1 пункт" in block
     assert "Подготовка окружения" in block and "todo" in block
     assert "полный регресс не повторяй" in block
 
-    assert targeted_retry_block(None, [{"kind": "x", "position": 0, "text": "t", "status": "todo"}]) is None
+    assert (
+        targeted_retry_block(None, [{"kind": "x", "position": 0, "text": "t", "status": "todo"}])
+        is None
+    )
     assert targeted_retry_block("причина", []) is None
 
 
@@ -418,8 +565,7 @@ def test_comments_string_not_char_split():
     (дефект 31.10: «К», «у», «т»… в карточке задачи)."""
     from daemon.runner.agent_runner import parse_report
 
-    raw = ('{"status": "blocked", "summary_md": "причина", '
-           '"comments": "Кутнул окружение для Г8"}')
+    raw = '{"status": "blocked", "summary_md": "причина", "comments": "Кутнул окружение для Г8"}'
     report = parse_report(raw)
     assert report.comments == ["Кутнул окружение для Г8"]
 
@@ -437,22 +583,25 @@ async def test_soft_limit_does_not_burn_attempts(_test_db):
     agent_id, code = await _ready_task(_test_db, status="in_testing")
     maker = _maker(_test_db)
     daemon = Daemon(maker, runner=None)
-    report = RunReport(status="failed", summary_md="Мягкий лимит ходов (120) — "
-                       "плановая смена сессии: прогресс в чеклисте и коммитах",
-                       outcome_code="soft_turns")
+    report = RunReport(
+        status="failed",
+        summary_md="Мягкий лимит ходов (120) — "
+        "плановая смена сессии: прогресс в чеклисте и коммитах",
+        outcome_code="soft_turns",
+    )
     async with maker() as s:
         task = (await s.execute(sa.select(Task).where(Task.code == code))).scalar_one()
         from daemon.runner.reservation import reserve_task
 
         assert await reserve_task(s, task.id, agent_id, "in_testing")
     async with maker() as s:
-        agent = await s.get(__import__(
-            "repository.models", fromlist=["User"]).User, agent_id)
+        agent = await s.get(__import__("repository.models", fromlist=["User"]).User, agent_id)
         await daemon._apply_report(s, task, agent, report, {"daemon.max_attempts": "3"})
     async with maker() as s:
         task = (await s.execute(sa.select(Task).where(Task.code == code))).scalar_one()
         assert task.retry_count == 0, "смена сессии не сжигает попытку"
         assert task.status_key == "in_testing", "задача НЕ блокируется"
-        run = (await s.execute(sa.select(TaskRun).where(
-            TaskRun.task_id == task.id))).scalars().one()
+        run = (
+            (await s.execute(sa.select(TaskRun).where(TaskRun.task_id == task.id))).scalars().one()
+        )
         assert run.outcome == "interrupted"

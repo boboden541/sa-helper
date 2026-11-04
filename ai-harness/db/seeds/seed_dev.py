@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from config import get_settings  # noqa: E402
 from database import dispose_engine, init_engine  # noqa: E402
-from repository.models import AppSetting, Project, User  # noqa: Optional import below
+from repository.models import AppSetting, Project, User  # noqa: E402 — импорт после кода
 
 
 async def _one(session, model, **filters):
@@ -39,9 +39,16 @@ async def seed() -> None:
         await ensure_alias_columns(session)
         await session.commit()
 
-        system = await _one(session, User, name="system", is_service=True) or \
-            (await session.execute(sa.insert(User).values(
-                name="system", user_type="agent", is_service=True).returning(User))).scalar_one()
+        system = (
+            await _one(session, User, name="system", is_service=True)
+            or (
+                await session.execute(
+                    sa.insert(User)
+                    .values(name="system", user_type="agent", is_service=True)
+                    .returning(User)
+                )
+            ).scalar_one()
+        )
         await session.commit()
 
         await seed_builtin_flows(session, system)
@@ -52,15 +59,34 @@ async def seed() -> None:
         from repository.models import AgentProfile
 
         PRESET_AGENTS = [
-            ("Планировщик", "декомпозирует истории и задачи, готовит смарт-чеклист разработчика и контекст"),
-            ("Разработчик", "ведёт TDD-разработку в ветке задачи task/<код>, ведёт чеклист, пишет отчёт"),
+            (
+                "Планировщик",
+                "декомпозирует истории и задачи, готовит смарт-чеклист разработчика и контекст",
+            ),
+            (
+                "Разработчик",
+                "ведёт TDD-разработку в ветке задачи task/<код>, ведёт чеклист, пишет отчёт",
+            ),
             ("Ревьюер-подготовщик", "готовит smart-чеклист ревьюера на статусе «Готово к ревью»"),
             ("Ревьюер", "составляет чеклист ревьюера, проверяет диф и отчёт, пишет отчёт о ревью"),
-            ("Ревьюер-критик", "второе независимое ревью: строгость к краевым случаям и расхождениям"),
-            ("Тестировщик-подготовщик", "готовит smart-чеклист тестирования на статусе «Готово к тестированию»"),
-            ("Тестировщик", "составляет чеклист тестирования, проводит тестирование, пишет отчёт (для qa_task — в формате ПСИ)"),
+            (
+                "Ревьюер-критик",
+                "второе независимое ревью: строгость к краевым случаям и расхождениям",
+            ),
+            (
+                "Тестировщик-подготовщик",
+                "готовит smart-чеклист тестирования на статусе «Готово к тестированию»",
+            ),
+            (
+                "Тестировщик",
+                "составляет чеклист тестирования, проводит тестирование, "
+                "пишет отчёт (для qa_task — в формате ПСИ)",
+            ),
             ("Аналитик", "собирает требования, проектирует концепты решения, пишет спецификацию"),
-            ("ПСИ-составитель", "составляет документ ПСИ по истории: элементарное действие + ожидаемый результат"),
+            (
+                "ПСИ-составитель",
+                "составляет документ ПСИ по истории: элементарное действие + ожидаемый результат",
+            ),
         ]
         # скилл на агента (решение владельца 29.10.2026 «под каждый статус — свой
         # скилл и свой пользователь»): подготовка ревью/тестирования вынесена в
@@ -91,16 +117,24 @@ async def seed() -> None:
         for name, role in PRESET_AGENTS:
             agent = await _one(session, User, name=name)
             if agent is None:
-                agent = (await session.execute(
-                    sa.insert(User).values(name=name, user_type="agent").returning(User))).scalar_one()
+                agent = (
+                    await session.execute(
+                        sa.insert(User).values(name=name, user_type="agent").returning(User)
+                    )
+                ).scalar_one()
                 await session.flush()
             profile = await _one(session, AgentProfile, user_id=agent.id)
             if profile is None:
-                session.add(AgentProfile(
-                    user_id=agent.id, role=role, is_preset=True,
-                    model=AGENT_MODELS.get(name),
-                    preset_source={"role": role, "skills": AGENT_SKILLS.get(name, [])},
-                    skills=AGENT_SKILLS.get(name) or None))
+                session.add(
+                    AgentProfile(
+                        user_id=agent.id,
+                        role=role,
+                        is_preset=True,
+                        model=AGENT_MODELS.get(name),
+                        preset_source={"role": role, "skills": AGENT_SKILLS.get(name, [])},
+                        skills=AGENT_SKILLS.get(name) or None,
+                    )
+                )
             else:
                 if not profile.skills:
                     profile.skills = AGENT_SKILLS.get(name) or None
@@ -116,43 +150,65 @@ async def seed() -> None:
         from repository.models import Assignment, TaskType
 
         DEFAULT_MATRIX = {
-            "story": [("todo", "Планировщик", "replacement"),
-                      ("in_testing", "ПСИ-составитель", "parallel"),
-                      ("in_testing", "Тестировщик", "parallel")],
-            "common_task": [("todo", "Планировщик", "replacement"),
-                            ("in_progress", "Разработчик", "replacement"),
-                            ("review_ready", "Ревьюер-подготовщик", "replacement"),
-                            ("in_review", "Ревьюер", "parallel"),
-                            ("in_review", "Ревьюер-критик", "parallel"),
-                            ("qa_ready", "Тестировщик-подготовщик", "replacement"),
-                            ("in_testing", "Тестировщик", "replacement")],
-            "qa_task": [("todo", "Тестировщик-подготовщик", "replacement"),
-                        ("in_testing", "Тестировщик", "replacement")],
-            "bug": [("todo", "Планировщик", "replacement"),
-                    ("in_progress", "Разработчик", "replacement"),
-                    ("qa_ready", "Тестировщик-подготовщик", "replacement"),
-                    ("in_testing", "Тестировщик", "replacement")],
-            "analyse_task": [("todo", "Аналитик", "replacement"),
-                             ("in_progress", "Аналитик", "replacement"),
-                             ("review_ready", "Ревьюер-подготовщик", "replacement"),
-                             ("in_review", "Ревьюер", "replacement")],
+            "story": [
+                ("todo", "Планировщик", "replacement"),
+                ("in_testing", "ПСИ-составитель", "parallel"),
+                ("in_testing", "Тестировщик", "parallel"),
+            ],
+            "common_task": [
+                ("todo", "Планировщик", "replacement"),
+                ("in_progress", "Разработчик", "replacement"),
+                ("review_ready", "Ревьюер-подготовщик", "replacement"),
+                ("in_review", "Ревьюер", "parallel"),
+                ("in_review", "Ревьюер-критик", "parallel"),
+                ("qa_ready", "Тестировщик-подготовщик", "replacement"),
+                ("in_testing", "Тестировщик", "replacement"),
+            ],
+            "qa_task": [
+                ("todo", "Тестировщик-подготовщик", "replacement"),
+                ("in_testing", "Тестировщик", "replacement"),
+            ],
+            "bug": [
+                ("todo", "Планировщик", "replacement"),
+                ("in_progress", "Разработчик", "replacement"),
+                ("qa_ready", "Тестировщик-подготовщик", "replacement"),
+                ("in_testing", "Тестировщик", "replacement"),
+            ],
+            "analyse_task": [
+                ("todo", "Аналитик", "replacement"),
+                ("in_progress", "Аналитик", "replacement"),
+                ("review_ready", "Ревьюер-подготовщик", "replacement"),
+                ("in_review", "Ревьюер", "replacement"),
+            ],
         }
         for type_key, rows in DEFAULT_MATRIX.items():
-            ttype = (await session.execute(
-                sa.select(TaskType).where(TaskType.key == type_key))).scalar_one_or_none()
+            ttype = (
+                await session.execute(sa.select(TaskType).where(TaskType.key == type_key))
+            ).scalar_one_or_none()
             if ttype is None:
                 continue
-            has_any = (await session.execute(
-                sa.select(sa.func.count()).select_from(Assignment)
-                .where(Assignment.task_type_id == ttype.id))).scalar_one()
+            has_any = (
+                await session.execute(
+                    sa.select(sa.func.count())
+                    .select_from(Assignment)
+                    .where(Assignment.task_type_id == ttype.id)
+                )
+            ).scalar_one()
             if has_any:
                 continue
             for position, (status_key, agent_name, mode) in enumerate(rows):
                 agent = await _one(session, User, name=agent_name)
                 if agent is None:
                     continue
-                session.add(Assignment(task_type_id=ttype.id, status_key=status_key,
-                                       user_id=agent.id, mode=mode, position=position))
+                session.add(
+                    Assignment(
+                        task_type_id=ttype.id,
+                        status_key=status_key,
+                        user_id=agent.id,
+                        mode=mode,
+                        position=position,
+                    )
+                )
         await session.commit()
 
         # Пользователи (этап 1: dev-вход без пароля, Argon2id — этап 4)
@@ -160,8 +216,13 @@ async def seed() -> None:
         alexey = await _one(session, User, name="Алексей")
         if alexey is None:
             # Dev-пароль (вход по ФТ-ah-73 заработает в этапе 4)
-            session.add(User(name="Алексей", user_type="human",
-                             password_hash=PasswordHasher().hash("harness")))
+            session.add(
+                User(
+                    name="Алексей",
+                    user_type="human",
+                    password_hash=PasswordHasher().hash("harness"),
+                )
+            )
         eve = await _one(session, User, name="Eve", is_chat_bot=True)
         if eve is None:
             session.add(User(name="Eve", user_type="agent", is_chat_bot=True))
@@ -205,16 +266,27 @@ async def seed() -> None:
             demo_repo = Path(__file__).resolve().parents[2] / ".harness" / "demo-repo"
             demo_repo.mkdir(parents=True, exist_ok=True)
             if not (demo_repo / ".git").exists():
-                subprocess.run(["git", "init", "-b", "main", str(demo_repo)],
-                               check=True, capture_output=True)
+                subprocess.run(
+                    ["git", "init", "-b", "main", str(demo_repo)], check=True, capture_output=True
+                )
                 (demo_repo / "README.md").write_text("# Demo repo (AI-Harness)\n", encoding="utf-8")
-                subprocess.run(["git", "-C", str(demo_repo), "add", "."], check=True, capture_output=True)
-                subprocess.run(["git", "-C", str(demo_repo), "commit", "-m", "init"],
-                               check=True, capture_output=True)
-            session.add(Project(
-                name="AI Harness", mnemonic="AH", path=str(demo_repo), base_branch="main",
-                description="Демо-проект конвейера",
-            ))
+                subprocess.run(
+                    ["git", "-C", str(demo_repo), "add", "."], check=True, capture_output=True
+                )
+                subprocess.run(
+                    ["git", "-C", str(demo_repo), "commit", "-m", "init"],
+                    check=True,
+                    capture_output=True,
+                )
+            session.add(
+                Project(
+                    name="AI Harness",
+                    mnemonic="AH",
+                    path=str(demo_repo),
+                    base_branch="main",
+                    description="Демо-проект конвейера",
+                )
+            )
             await session.commit()
 
     await dispose_engine()

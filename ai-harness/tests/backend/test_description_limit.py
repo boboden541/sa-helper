@@ -8,9 +8,16 @@ from __future__ import annotations
 
 
 async def _mk_task(client) -> str:
-    r = await client.post("/api/v1/tasks", json={
-        "projectId": "AH", "type": "common_task", "title": "Лимит описания",
-        "priority": "medium", "authorTag": "by_human"})
+    r = await client.post(
+        "/api/v1/tasks",
+        json={
+            "projectId": "AH",
+            "type": "common_task",
+            "title": "Лимит описания",
+            "priority": "medium",
+            "authorTag": "by_human",
+        },
+    )
     assert r.status_code == 200, r.text
     return r.json()["code"]
 

@@ -9,8 +9,13 @@ from usecase.task.create_task import CreateTaskInput, create_task
 
 
 def _inp(**kw):
-    base = dict(project_mnemonic="AH", type_key="common_task", title="Дочерняя",
-                priority="medium", author_tag="by_human")
+    base = dict(
+        project_mnemonic="AH",
+        type_key="common_task",
+        title="Дочерняя",
+        priority="medium",
+        author_tag="by_human",
+    )
     base.update(kw)
     return CreateTaskInput(**base)
 
@@ -22,8 +27,7 @@ async def _status(session, code, status):
 
 async def _story(session, actor, title="История зеркала") -> Task:
     s = await create_task(session, actor, _inp(type_key="story", title=title))
-    story = (await session.execute(
-        sa.select(Task).where(Task.code == s.code))).scalar_one()
+    story = (await session.execute(sa.select(Task).where(Task.code == s.code))).scalar_one()
     await _status(session, s.code, "todo")
     story.status_key = "todo"
     return story
@@ -31,8 +35,7 @@ async def _story(session, actor, title="История зеркала") -> Task:
 
 async def _refresh(session, story: Task) -> Task:
     await session.commit()
-    return (await session.execute(
-        sa.select(Task).where(Task.id == story.id))).scalar_one()
+    return (await session.execute(sa.select(Task).where(Task.id == story.id))).scalar_one()
 
 
 async def test_m2_then_m3_two_chronicle_events(session, actor_id):
@@ -59,11 +62,21 @@ async def test_m2_then_m3_two_chronicle_events(session, actor_id):
     story = await _refresh(session, story)
     assert rule == "M3" and story.status_key == "in_testing"
 
-    rules = (await session.execute(
-        sa.select(Chronicle.rule_code).where(Chronicle.task_id == story.id,
-                                             Chronicle.event_type == "transition",
-                                             Chronicle.author_kind == "auto")
-        .order_by(Chronicle.created_at))).scalars().all()
+    rules = (
+        (
+            await session.execute(
+                sa.select(Chronicle.rule_code)
+                .where(
+                    Chronicle.task_id == story.id,
+                    Chronicle.event_type == "transition",
+                    Chronicle.author_kind == "auto",
+                )
+                .order_by(Chronicle.created_at)
+            )
+        )
+        .scalars()
+        .all()
+    )
     assert rules[-2:] == ["M2", "M3"]
 
 
@@ -112,8 +125,9 @@ async def test_m4_cycle_limit(session, actor_id):
     actor = await session.get(User, actor_id)
     story = await _story(session, actor)
     story = await _refresh(session, story)
-    await session.execute(sa.update(Task).where(Task.id == story.id)
-                          .values(status_key="in_testing"))
+    await session.execute(
+        sa.update(Task).where(Task.id == story.id).values(status_key="in_testing")
+    )
     await session.commit()
 
     for cycle in range(5):
@@ -124,8 +138,9 @@ async def test_m4_cycle_limit(session, actor_id):
             assert story.status_key == "blocked"
             assert "цикл" not in (story.blocked_reason or "")
             # работа по багу возобновилась → M1 вернёт in progress
-            await session.execute(sa.update(Task).where(Task.id == story.id)
-                                  .values(status_key="in_progress"))
+            await session.execute(
+                sa.update(Task).where(Task.id == story.id).values(status_key="in_progress")
+            )
             await session.commit()
 
     story = await _refresh(session, story)
@@ -147,14 +162,17 @@ async def test_m2_from_blocked_requires_m5(session, actor_id):
     await _status(session, child.code, "done")
     await recompute_story_mirroring(session, story)  # M1? нет: ребёнок done, история todo → None
     story = await _refresh(session, story)
-    await session.execute(sa.update(Task).where(Task.id == story.id)
-                          .values(status_key="blocked", blocked_rule="RUN_LIMIT",
-                                  blocked_reason="исчерпан лимит прогонов"))
+    await session.execute(
+        sa.update(Task)
+        .where(Task.id == story.id)
+        .values(
+            status_key="blocked", blocked_rule="RUN_LIMIT", blocked_reason="исчерпан лимит прогонов"
+        )
+    )
     await session.commit()
     story = await _refresh(session, story)
 
-    assert await recompute_story_mirroring(session, story) is None, \
-        "самоблок не воскресает M2"
+    assert await recompute_story_mirroring(session, story) is None, "самоблок не воскресает M2"
     story = await _refresh(session, story)
     assert story.status_key == "blocked", "история остаётся в blocked"
 
@@ -166,8 +184,9 @@ async def test_m2_from_blocked_requires_m5(session, actor_id):
 
     # легитимный путь M2-из-blocked: блокер был M5, дети закрыты → qa_ready
     story = await _refresh(session, story)
-    await session.execute(sa.update(Task).where(Task.id == story.id)
-                          .values(status_key="blocked", blocked_rule="M5"))
+    await session.execute(
+        sa.update(Task).where(Task.id == story.id).values(status_key="blocked", blocked_rule="M5")
+    )
     await session.commit()
     await _status(session, child.code, "done")
     rule = await recompute_story_mirroring(session, story)

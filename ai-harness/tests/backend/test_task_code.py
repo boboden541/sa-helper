@@ -8,8 +8,13 @@ from usecase.task.create_task import CreateTaskInput, create_task
 
 
 def _inp(**kw):
-    base = dict(project_mnemonic="AH", type_key="common_task", title="Задача про оплату",
-                priority="high", author_tag="by_human")
+    base = dict(
+        project_mnemonic="AH",
+        type_key="common_task",
+        title="Задача про оплату",
+        priority="high",
+        author_tag="by_human",
+    )
     base.update(kw)
     return CreateTaskInput(**base)
 
@@ -30,9 +35,9 @@ async def test_codes_not_reused_after_delete(session, actor_id):
     actor = await session.get(User, actor_id)
     _c1 = await create_task(session, actor, _inp())
     c2 = await create_task(session, actor, _inp())
-    task = (await session.execute(
-        __import__("sqlalchemy").select(Task).where(Task.code == c2.code)
-    )).scalar_one()
+    task = (
+        await session.execute(__import__("sqlalchemy").select(Task).where(Task.code == c2.code))
+    ).scalar_one()
     await session.delete(task)
     await session.commit()
     c3 = await create_task(session, actor, _inp())

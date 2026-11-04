@@ -20,10 +20,15 @@ from daemon.runner.reservation import release_reservation, reserve_task
 
 async def active_run_id(session, task_id) -> str | None:
     """Id активного прогона задачи (для лога прогона); None — активного нет."""
-    return (await session.execute(
-        sa.select(TaskRun.id)
-        .where(TaskRun.task_id == task_id, TaskRun.finished_at.is_(None))
-        .order_by(TaskRun.started_at.desc()).limit(1))).scalar_one_or_none()
+    return (
+        await session.execute(
+            sa.select(TaskRun.id)
+            .where(TaskRun.task_id == task_id, TaskRun.finished_at.is_(None))
+            .order_by(TaskRun.started_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
 
 from domain.model.enums import GIT_TASK_TYPES
 from repository.models import Assignment, Project, Task, TaskRelation, TaskType, User
@@ -42,15 +47,19 @@ def _queue_sort(rows: list) -> list:
 
     def key(item):
         task, type_key = item[0], item[1]
-        return (rank.get(task.priority, 9),
-                0 if type_key == "bug" else 1,
-                task.created_at, task.code)
+        return (
+            rank.get(task.priority, 9),
+            0 if type_key == "bug" else 1,
+            task.created_at,
+            task.code,
+        )
 
     return sorted(rows, key=key)
 
 
-async def _next_retry_at(session: AsyncSession, task_id, status_key: str,
-                         cfg: dict[str, str]) -> dt.datetime | None:
+async def _next_retry_at(
+    session: AsyncSession, task_id, status_key: str, cfg: dict[str, str]
+) -> dt.datetime | None:
     """Пауза перед повторным запуском (ФТ-ah-33): растущая серия 1 → 5 → 15 мин.
 
     Особые исходы (без выжигания попыток):
@@ -60,13 +69,17 @@ async def _next_retry_at(session: AsyncSession, task_id, status_key: str,
       но ничего не изменил; повтор сразу же означал бы вечный цикл."""
     from repository.models import TaskRun
 
-    row = (await session.execute(
-        sa.select(TaskRun.finished_at, TaskRun.attempt_no,
-                  TaskRun.outcome, TaskRun.status_key)
-        .where(TaskRun.task_id == task_id,
-               TaskRun.outcome.in_(("failed", "interrupted", "success")))
-        .order_by(TaskRun.finished_at.desc()).limit(1)
-    )).first()
+    row = (
+        await session.execute(
+            sa.select(TaskRun.finished_at, TaskRun.attempt_no, TaskRun.outcome, TaskRun.status_key)
+            .where(
+                TaskRun.task_id == task_id,
+                TaskRun.outcome.in_(("failed", "interrupted", "success")),
+            )
+            .order_by(TaskRun.finished_at.desc())
+            .limit(1)
+        )
+    ).first()
     if row is None:
         return None
     return _retry_at_from_run(row, status_key, cfg)
@@ -77,8 +90,7 @@ def _retry_at_from_run(run, status_key: str, cfg: dict[str, str]) -> dt.datetime
     status_key) — общий для одиночного и пакетного чтения (анализ 30.10.2026)."""
     pauses = retry_pauses_minutes(cfg)
     finished_at, attempt_no, outcome, run_sk = run[0], run[1], run[2], run[3]
-    if outcome in ("interrupted", "success") and (
-            outcome == "interrupted" or run_sk == status_key):
+    if outcome in ("interrupted", "success") and (outcome == "interrupted" or run_sk == status_key):
         return finished_at + dt.timedelta(minutes=pauses[-1])
     attempt = min(attempt_no, len(pauses)) - 1
     return finished_at + dt.timedelta(minutes=pauses[max(attempt, 0)])
@@ -97,17 +109,24 @@ class Daemon:
     async def tick(self) -> dict:
         async with self._maker() as session:
             cfg = await load_daemon_settings(session)
-            summary = {"launched": 0, "blocked_no_agent": 0, "mirrored": 0,
-                       "heartbeat_lost": 0, "paused": False}
+            summary = {
+                "launched": 0,
+                "blocked_no_agent": 0,
+                "mirrored": 0,
+                "heartbeat_lost": 0,
+                "paused": False,
+            }
             await self._touch_active(session)
             summary["heartbeat_lost"] = await self._sweep_dead_runs(session, cfg)
             # пауза конвейера (решение владельца 28.10.2026 «подержать задачу
             # в конкретном статусе»): замораживается ВСЯ автоматика статусов —
             # зеркала историй и автоблокировка не исполняются, статусы
             # фиксируются до возобновления. Heartbeat/очистка живут.
-            paused = (await session.execute(sa.text(
-                "SELECT value FROM app_setting WHERE key = 'daemon.paused'"
-            ))).scalar_one_or_none() == "true"
+            paused = (
+                await session.execute(
+                    sa.text("SELECT value FROM app_setting WHERE key = 'daemon.paused'")
+                )
+            ).scalar_one_or_none() == "true"
             summary["paused"] = paused
             if paused:
                 summary["launched"] = 0  # рубильник: новых агентов не запускаем
@@ -139,29 +158,46 @@ class Daemon:
         """Задача на «рабочем» статусе без назначенного агента → blocked (ФТ-ah-63)."""
         # истории не автоблокируются: их статус выводится зеркалом M1–M6
         # (решение владельца 28.10.2026 — правило только для задач-исполнителей)
-        rows = (await session.execute(
-            sa.select(Task, TaskType.key.label("type_key"))
-            .join(TaskType, TaskType.id == Task.task_type_id)
-            .where(Task.status_key.notin_(("pending", "backlog", "todo", "blocked",
-                                           "done", "canceled")),
-                   TaskType.key != "story")
-        )).all()
+        rows = (
+            await session.execute(
+                sa.select(Task, TaskType.key.label("type_key"))
+                .join(TaskType, TaskType.id == Task.task_type_id)
+                .where(
+                    Task.status_key.notin_(
+                        ("pending", "backlog", "todo", "blocked", "done", "canceled")
+                    ),
+                    TaskType.key != "story",
+                )
+            )
+        ).all()
         blocked = 0
         for task, _type_key in rows:
-            has_agent = (await session.execute(
-                sa.select(sa.func.count()).select_from(Assignment)
-                .join(User, User.id == Assignment.user_id)
-                .where(Assignment.task_type_id == task.task_type_id,
-                       Assignment.status_key == task.status_key,
-                       User.user_type == "agent", User.is_service.is_(False))
-            )).scalar_one()
+            has_agent = (
+                await session.execute(
+                    sa.select(sa.func.count())
+                    .select_from(Assignment)
+                    .join(User, User.id == Assignment.user_id)
+                    .where(
+                        Assignment.task_type_id == task.task_type_id,
+                        Assignment.status_key == task.status_key,
+                        User.user_type == "agent",
+                        User.is_service.is_(False),
+                    )
+                )
+            ).scalar_one()
             if has_agent:
                 continue
             former = task.status_key  # статус до блокировки — попадёт в сообщение
             from usecase.task.transition import apply_blocked
-            await apply_blocked(session, task, None,
-                                f"Нет назначенного агента на статус «{former}»",
-                                subject_kind="auto", rule_code="AUTO_BLOCK")
+
+            await apply_blocked(
+                session,
+                task,
+                None,
+                f"Нет назначенного агента на статус «{former}»",
+                subject_kind="auto",
+                rule_code="AUTO_BLOCK",
+            )
             blocked += 1
         await session.commit()
         return blocked
@@ -170,12 +206,17 @@ class Daemon:
         """Пересчёт зеркалирования всех живых историй (постановка: каждый тик)."""
         from usecase.story.mirror import recompute_story_mirroring
 
-        stories = (await session.execute(
-            sa.select(Task)
-            .join(TaskType, TaskType.id == Task.task_type_id)
-            .where(TaskType.key == "story",
-                   Task.status_key.notin_(("done", "canceled")))
-        )).scalars().all()
+        stories = (
+            (
+                await session.execute(
+                    sa.select(Task)
+                    .join(TaskType, TaskType.id == Task.task_type_id)
+                    .where(TaskType.key == "story", Task.status_key.notin_(("done", "canceled")))
+                )
+            )
+            .scalars()
+            .all()
+        )
         changed = 0
         for story in stories:
             if await recompute_story_mirroring(session, story):
@@ -196,52 +237,89 @@ class Daemon:
         from usecase.task.gates import load_gate_data
         from usecase.task.transition import TransitionDenied, apply_transition, task_flow_version_id
 
-        rows = (await session.execute(
-            sa.select(Task, TaskType.key.label("type_key"))
-            .join(TaskType, TaskType.id == Task.task_type_id)
-            .where(Task.status_key == "blocked", TaskType.key != "story",
-                   Task.reserved_by.is_(None)))).all()
+        rows = (
+            await session.execute(
+                sa.select(Task, TaskType.key.label("type_key"))
+                .join(TaskType, TaskType.id == Task.task_type_id)
+                .where(
+                    Task.status_key == "blocked",
+                    TaskType.key != "story",
+                    Task.reserved_by.is_(None),
+                )
+            )
+        ).all()
         returned = 0
         for task, _type_key in rows:
-            blockers = (await session.execute(
-                sa.select(Task.code)
-                .join(TaskRelation, TaskRelation.to_task == Task.id)
-                .where(TaskRelation.from_task == task.id,
-                       TaskRelation.kind == "blocked_by",
-                       Task.status_key.notin_(("done", "canceled"))))).scalars().all()
+            blockers = (
+                (
+                    await session.execute(
+                        sa.select(Task.code)
+                        .join(TaskRelation, TaskRelation.to_task == Task.id)
+                        .where(
+                            TaskRelation.from_task == task.id,
+                            TaskRelation.kind == "blocked_by",
+                            Task.status_key.notin_(("done", "canceled")),
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
             if not blockers:
                 continue  # природа блокера не зависимости — человеку (СТ)
-            still_open = (await session.execute(
-                sa.select(sa.func.count()).select_from(TaskRelation)
+            still_open = await session.execute(
+                sa.select(sa.func.count())
+                .select_from(TaskRelation)
                 .join(Task, Task.id == TaskRelation.to_task)
-                .where(TaskRelation.from_task == task.id,
-                       TaskRelation.kind == "blocked_by",
-                       Task.status_key.notin_(("done", "canceled")))).scalar_one())
+                .where(
+                    TaskRelation.from_task == task.id,
+                    TaskRelation.kind == "blocked_by",
+                    Task.status_key.notin_(("done", "canceled")),
+                )
+            ).scalar_one()
             if still_open:
                 continue
             graph = await load_graph(session, await task_flow_version_id(session, task))
             subject = Subject(kind="auto")
             gates = await load_gate_data(session, task)
-            edges = (await session.execute(
-                sa.select(FlowTransition.to_status)
-                .join(FlowVersion, FlowVersion.id == FlowTransition.flow_version_id)
-                .where(FlowVersion.task_type_id == task.task_type_id,
-                       FlowVersion.is_current.is_(True),
-                       FlowVersion.is_published.is_(True),
-                       FlowTransition.from_status == "blocked"))).scalars().all()
+            edges = (
+                (
+                    await session.execute(
+                        sa.select(FlowTransition.to_status)
+                        .join(FlowVersion, FlowVersion.id == FlowTransition.flow_version_id)
+                        .where(
+                            FlowVersion.task_type_id == task.task_type_id,
+                            FlowVersion.is_current.is_(True),
+                            FlowVersion.is_published.is_(True),
+                            FlowTransition.from_status == "blocked",
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
             # детерминированный выбор: ближайший рабочий статус по порядку стадий
             for target in sorted(set(edges), key=lambda s: STAGE_ORDER.get(s, 99)):
                 decision = check_edge(graph, "blocked", target, subject, gates)
                 if decision.allowed:
                     try:
-                        await apply_transition(session, None, task.code, target,
-                                               subject_kind="auto",
-                                               rule_code="AUTO_UNBLOCK",
-                                               _allow_cascade=False)
-                        session.add(_chronicle(
-                            task.id, "auto",
-                            f"Блокеры сняты ({', '.join(sorted(set(blockers)))}) — "
-                            f"автовозврат из «Заблокировано» в «{target}»"))
+                        await apply_transition(
+                            session,
+                            None,
+                            task.code,
+                            target,
+                            subject_kind="auto",
+                            rule_code="AUTO_UNBLOCK",
+                            _allow_cascade=False,
+                        )
+                        session.add(
+                            _chronicle(
+                                task.id,
+                                "auto",
+                                f"Блокеры сняты ({', '.join(sorted(set(blockers)))}) — "
+                                f"автовозврат из «Заблокировано» в «{target}»",
+                            )
+                        )
                         await session.commit()
                         returned += 1
                     except TransitionDenied:
@@ -256,14 +334,18 @@ class Daemon:
         now = dt.datetime.now(dt.timezone.utc)
         run_ids = list(self._active.keys())
         await session.execute(
-            sa.text("UPDATE task_run SET heartbeat_at = :n WHERE finished_at IS NULL "
-                    "AND id = ANY(:rids)"),
+            sa.text(
+                "UPDATE task_run SET heartbeat_at = :n WHERE finished_at IS NULL "
+                "AND id = ANY(:rids)"
+            ),
             {"n": now, "rids": run_ids},
         )
         codes = sorted({m["task_code"] for m in self._runs.values()})
         await session.execute(
-            sa.text("UPDATE task SET heartbeat_at = :n WHERE reserved_by IS NOT NULL "
-                    "AND code = ANY(:codes)"),
+            sa.text(
+                "UPDATE task SET heartbeat_at = :n WHERE reserved_by IS NOT NULL "
+                "AND code = ANY(:codes)"
+            ),
             {"n": now, "codes": codes},
         )
         await session.commit()
@@ -278,20 +360,27 @@ class Daemon:
         # старта/работы). 90 с на практике убивали живые прогоны (VITRINA).
         threshold = dt.timedelta(seconds=max(300, int(cfg.get("daemon.tick_seconds", "30")) * 3))
         now = dt.datetime.now(dt.timezone.utc)
-        dead = (await session.execute(
-            sa.select(TaskRun, Task)
-            .join(Task, Task.id == TaskRun.task_id)
-            .where(TaskRun.finished_at.is_(None),
-                   TaskRun.heartbeat_at < now - threshold)
-        )).all()
+        dead = (
+            await session.execute(
+                sa.select(TaskRun, Task)
+                .join(Task, Task.id == TaskRun.task_id)
+                .where(TaskRun.finished_at.is_(None), TaskRun.heartbeat_at < now - threshold)
+            )
+        ).all()
         lost = 0
         for run, task in dead:
             # по прогону (parallel: у задачи живёт соседний прогон — не трогаем)
-            await release_reservation(session, task.id, str(run.id), "failed",
-                                      "heartbeat пропал — возврат в очередь")
+            await release_reservation(
+                session, task.id, str(run.id), "failed", "heartbeat пропал — возврат в очередь"
+            )
             task.retry_count += 1
-            session.add(_chronicle(task.id, "heartbeat",
-                                   f"Heartbeat пропал — резерв снят (попытка {run.attempt_no})"))
+            session.add(
+                _chronicle(
+                    task.id,
+                    "heartbeat",
+                    f"Heartbeat пропал — резерв снят (попытка {run.attempt_no})",
+                )
+            )
             lost += 1
         if lost:
             await session.commit()
@@ -301,21 +390,28 @@ class Daemon:
 
     async def _launch_ready(self, session: AsyncSession, cfg: dict[str, str]) -> int:
         # рубильник конвейера (решение владельца 26.10.2026): на паузе новых агентов не запускаем
-        paused = (await session.execute(
-            sa.text("SELECT value FROM app_setting WHERE key = 'daemon.paused'"))).scalar_one_or_none()
+        paused = (
+            await session.execute(
+                sa.text("SELECT value FROM app_setting WHERE key = 'daemon.paused'")
+            )
+        ).scalar_one_or_none()
         if paused == "true":
             return 0
         now = dt.datetime.now(dt.timezone.utc)
         # reserved_by НЕ фильтруем в SQL: параллельные задачи живут с пустым
         # reserved_by при активных прогонах; эксклюзивный резерв отсеивается
         # в python-цикле ниже (анализ 03.11.2026)
-        rows = (await session.execute(
-            sa.select(Task, TaskType.key.label("type_key"))
-            .join(TaskType, TaskType.id == Task.task_type_id)
-            .outerjoin(Project, Project.id == Task.project_id)
-            .where(Task.status_key.notin_(("pending", "blocked", "done", "canceled")),
-                   Project.is_archived.is_(False))
-        )).all()
+        rows = (
+            await session.execute(
+                sa.select(Task, TaskType.key.label("type_key"))
+                .join(TaskType, TaskType.id == Task.task_type_id)
+                .outerjoin(Project, Project.id == Task.project_id)
+                .where(
+                    Task.status_key.notin_(("pending", "blocked", "done", "canceled")),
+                    Project.is_archived.is_(False),
+                )
+            )
+        ).all()
 
         # только статусы с назначенным живым агентом (матрица).
         # Предвыборка пачками (анализ 30.10.2026: на задачу приходилось 3-4
@@ -324,19 +420,27 @@ class Daemon:
 
         paused_conns = await paused_connections(session)
 
-        assign_rows = (await session.execute(
-            sa.select(Assignment.task_type_id, Assignment.status_key,
-                      Assignment.user_id, Assignment.mode, Assignment.position)
-            .join(User, User.id == Assignment.user_id)
-            .where(User.user_type == "agent", User.is_service.is_(False))
-            .order_by(Assignment.position)
-        )).all()
+        assign_rows = (
+            await session.execute(
+                sa.select(
+                    Assignment.task_type_id,
+                    Assignment.status_key,
+                    Assignment.user_id,
+                    Assignment.mode,
+                    Assignment.position,
+                )
+                .join(User, User.id == Assignment.user_id)
+                .where(User.user_type == "agent", User.is_service.is_(False))
+                .order_by(Assignment.position)
+            )
+        ).all()
         assignments: dict[tuple, list] = {}
         for at, sk, uid, mode, pos in assign_rows:
             assignments.setdefault((str(at), sk), []).append((uid, mode, pos))
 
-        conn_rows = (await session.execute(
-            sa.text("SELECT user_id, connection_id FROM agent_profile"))).all()
+        conn_rows = (
+            await session.execute(sa.text("SELECT user_id, connection_id FROM agent_profile"))
+        ).all()
         conn_by_agent = {str(uid): cid for uid, cid in conn_rows}
 
         from repository.models import TaskRun
@@ -345,14 +449,24 @@ class Daemon:
         # одного агента не должна задерживать первого запуска соседа
         last_runs: dict[tuple, tuple] = {}
         if rows:
-            lr = (await session.execute(
-                sa.select(TaskRun.task_id, TaskRun.agent_id, TaskRun.finished_at,
-                          TaskRun.attempt_no, TaskRun.outcome, TaskRun.status_key)
-                .where(TaskRun.task_id.in_([row.Task.id for row in rows]),
-                       TaskRun.outcome.in_(("failed", "interrupted", "success")))
-                .distinct(TaskRun.task_id, TaskRun.agent_id)
-                .order_by(TaskRun.task_id, TaskRun.agent_id, TaskRun.finished_at.desc())
-            )).all()
+            lr = (
+                await session.execute(
+                    sa.select(
+                        TaskRun.task_id,
+                        TaskRun.agent_id,
+                        TaskRun.finished_at,
+                        TaskRun.attempt_no,
+                        TaskRun.outcome,
+                        TaskRun.status_key,
+                    )
+                    .where(
+                        TaskRun.task_id.in_([row.Task.id for row in rows]),
+                        TaskRun.outcome.in_(("failed", "interrupted", "success")),
+                    )
+                    .distinct(TaskRun.task_id, TaskRun.agent_id)
+                    .order_by(TaskRun.task_id, TaskRun.agent_id, TaskRun.finished_at.desc())
+                )
+            ).all()
             last_runs = {(str(r[0]), str(r[1])): tuple(r)[2:] for r in lr}
 
         # счётчик прогонов задачи в целом: retry_count сбрасывается переходами,
@@ -371,32 +485,46 @@ class Daemon:
         psi_stamps: dict = {}
         story_ids = [row.Task.id for row in rows if row.type_key == "story"]
         if story_ids:
-            stamps = (await session.execute(
-                sa.select(_CK.task_id, _CK.source_ref_version)
-                .where(_CK.kind == "psi", _CK.task_id.in_(story_ids)))).all()
+            stamps = (
+                await session.execute(
+                    sa.select(_CK.task_id, _CK.source_ref_version).where(
+                        _CK.kind == "psi", _CK.task_id.in_(story_ids)
+                    )
+                )
+            ).all()
             psi_stamps = {str(tid): (v or 0) for tid, v in stamps}
 
         run_counts: dict = {}
         if rows:
-            rc = (await session.execute(
-                sa.select(_TR.task_id, sa.func.count())
-                .join(_T, _T.id == _TR.task_id)
-                .where(_TR.task_id.in_([row.Task.id for row in rows]),
-                       sa.or_(_TR.reason_code.is_(None),
-                              _TR.reason_code.notin_(("soft_turns", "stale_status"))),
-                       sa.or_(_T.runs_reset_at.is_(None),
-                              _TR.started_at > _T.runs_reset_at))
-                .group_by(_TR.task_id))).all()
+            rc = (
+                await session.execute(
+                    sa.select(_TR.task_id, sa.func.count())
+                    .join(_T, _T.id == _TR.task_id)
+                    .where(
+                        _TR.task_id.in_([row.Task.id for row in rows]),
+                        sa.or_(
+                            _TR.reason_code.is_(None),
+                            _TR.reason_code.notin_(("soft_turns", "stale_status")),
+                        ),
+                        sa.or_(_T.runs_reset_at.is_(None), _TR.started_at > _T.runs_reset_at),
+                    )
+                    .group_by(_TR.task_id)
+                )
+            ).all()
             run_counts = {str(tid): n for tid, n in rc}
 
         # активные прогоны кандидатов — один пакетный запрос (parallel: пара
         # «задача×агент» с живым прогоном не перезапускается)
         active_pairs: set[tuple] = set()
         if rows:
-            act = (await session.execute(
-                sa.select(TaskRun.task_id, TaskRun.agent_id)
-                .where(TaskRun.task_id.in_([row.Task.id for row in rows]),
-                       TaskRun.finished_at.is_(None)))).all()
+            act = (
+                await session.execute(
+                    sa.select(TaskRun.task_id, TaskRun.agent_id).where(
+                        TaskRun.task_id.in_([row.Task.id for row in rows]),
+                        TaskRun.finished_at.is_(None),
+                    )
+                )
+            ).all()
             active_pairs = {(str(tid), str(aid)) for tid, aid in act}
 
         ready = []
@@ -419,9 +547,13 @@ class Daemon:
                 retry_at = _retry_at_from_run(last, task.status_key, cfg) if last else None
                 # план psi устарел (эталон v{ref} > план v{stamp}) на истории
                 # в in_testing: пауза снята — пересмотр плана без простоев
-                if retry_at and retry_at > now and not (
-                        type_key == "story"
-                        and task.ref_version > psi_stamps.get(str(task.id), 0)):
+                if (
+                    retry_at
+                    and retry_at > now
+                    and not (
+                        type_key == "story" and task.ref_version > psi_stamps.get(str(task.id), 0)
+                    )
+                ):
                     continue  # ждёт растущую паузу ретрая
                 # массовый отказ провайдера: задачи ждут, не блокируются (ФТ-ah-35)
                 agent_conn = conn_by_agent.get(str(uid))
@@ -439,36 +571,48 @@ class Daemon:
         do_after_open: set = set()
         if cand_ids:
             blocks_rows = await session.execute(
-                sa.select(TaskRelation.to_task, sa.func.count()).select_from(TaskRelation)
+                sa.select(TaskRelation.to_task, sa.func.count())
+                .select_from(TaskRelation)
                 .join(Task, Task.id == TaskRelation.from_task)
-                .where(TaskRelation.to_task.in_(cand_ids),
-                       TaskRelation.kind == "blocked_by",
-                       Task.status_key.notin_(("done", "canceled")))
-                .group_by(TaskRelation.to_task))
+                .where(
+                    TaskRelation.to_task.in_(cand_ids),
+                    TaskRelation.kind == "blocked_by",
+                    Task.status_key.notin_(("done", "canceled")),
+                )
+                .group_by(TaskRelation.to_task)
+            )
             for to_task, cnt in blocks_rows.all():
                 blocks_count[to_task] = cnt
             do_after_res = await session.execute(
-                sa.select(TaskRelation.from_task).select_from(TaskRelation)
+                sa.select(TaskRelation.from_task)
+                .select_from(TaskRelation)
                 .join(Task, Task.id == TaskRelation.to_task)
-                .where(TaskRelation.from_task.in_(cand_ids),
-                       TaskRelation.kind == "do_after",
-                       Task.status_key.notin_(("done", "canceled"))))
+                .where(
+                    TaskRelation.from_task.in_(cand_ids),
+                    TaskRelation.kind == "do_after",
+                    Task.status_key.notin_(("done", "canceled")),
+                )
+            )
             do_after_open = {r[0] for r in do_after_res.all()}
 
         def _dep_key(item):
             task, type_key = item[0], item[1]
-            return (PRIORITY_RANK.get(task.priority, 9),
-                    -blocks_count.get(task.id, 0),
-                    0 if type_key == "bug" else 1,
-                    1 if task.id in do_after_open else 0,
-                    task.created_at, task.code)
+            return (
+                PRIORITY_RANK.get(task.priority, 9),
+                -blocks_count.get(task.id, 0),
+                0 if type_key == "bug" else 1,
+                1 if task.id in do_after_open else 0,
+                task.created_at,
+                task.code,
+            )
 
         max_attempts = int(cfg["daemon.max_attempts"])
         launched = 0
         for task, _type_key, agent_id, mode, _position in sorted(ready, key=_dep_key):
             # replacement: один активный прогон на задачу; parallel: соседи живут одновременно
             if mode == "replacement" and any(
-                    m["task_code"] == task.code for m in self._runs.values()):
+                m["task_code"] == task.code for m in self._runs.values()
+            ):
                 continue
             total_runs = run_counts.get(str(task.id), 0)
             warn_n = int(cfg.get("daemon.warn_runs_per_task") or 0)
@@ -479,45 +623,70 @@ class Daemon:
                 from usecase.task.transition import apply_blocked
 
                 await apply_blocked(
-                    session, task, None,
+                    session,
+                    task,
+                    None,
                     f"Требуется участие человека: исчерпан лимит прогонов задачи "
                     f"({total_runs} из daemon.max_runs_per_task={max_n}) — цикл "
                     f"разработки не сходится; проверьте ревью/тесты или поднимите лимит. "
                     f"Верните задачу в нужный статус вручную — счётчик прогонов "
                     f"сбросится автоматически",
-                    subject_kind="auto", rule_code="RUN_LIMIT")
-                await raise_event(session, task.code, "cycle_not_converging",
-                                  f"Задача {task.code}: {total_runs} прогонов — цикл не сходится")
+                    subject_kind="auto",
+                    rule_code="RUN_LIMIT",
+                )
+                await raise_event(
+                    session,
+                    task.code,
+                    "cycle_not_converging",
+                    f"Задача {task.code}: {total_runs} прогонов — цикл не сходится",
+                )
                 await session.commit()
                 continue
             if warn_n and total_runs >= warn_n and total_runs < max_n:
                 from usecase.journal.notifications import raise_event
 
                 # идемпотентно (частичный UNIQUE): одно открытое уведомление
-                await raise_event(session, task.code, "cycle_not_converging",
-                                  f"Задача {task.code}: {total_runs}-й прогон — цикл может не сходиться")
+                await raise_event(
+                    session,
+                    task.code,
+                    "cycle_not_converging",
+                    f"Задача {task.code}: {total_runs}-й прогон — цикл может не сходиться",
+                )
             if task.retry_count >= max_attempts:
                 # исчерпание попыток → blocked «требуется участие человека» (ФТ-ah-34).
                 # Прозрачность (решение владельца 30.10.2026): в причину входят
                 # последние сбои прогонов — «что случилось» видно сразу, без
                 # раскопок хроник и лент прогонов.
                 former = task.status_key
-                causes = (await session.execute(
-                    sa.select(sa.text("DISTINCT ON (detail) left(detail, 120) AS d"))
-                    .select_from(sa.text("task_run"))
-                    .where(sa.text(
-                        "task_id = :tid AND outcome = 'failed' AND coalesce(detail,'') <> ''"))
-                    .order_by(sa.text("detail, started_at DESC")).limit(3)
-                    .params(tid=str(task.id)))).scalars().all()
+                causes = (
+                    (
+                        await session.execute(
+                            sa.select(sa.text("DISTINCT ON (detail) left(detail, 120) AS d"))
+                            .select_from(sa.text("task_run"))
+                            .where(
+                                sa.text(
+                                    "task_id = :tid AND outcome = 'failed' "
+                                    "AND coalesce(detail,'') <> ''"
+                                )
+                            )
+                            .order_by(sa.text("detail, started_at DESC"))
+                            .limit(3)
+                            .params(tid=str(task.id))
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
                 cause_txt = ("; последние сбои: " + " | ".join(causes)) if causes else ""
                 task.status_key = "blocked"
                 task.blocked_rule = "AUTO_BLOCK"
                 task.blocked_reason = (
                     "Требуется участие человека: исчерпаны попытки "
-                    f"({task.retry_count} из {max_attempts}) на статусе «{former}»."
-                    + cause_txt)[:500]
-                session.add(_chronicle(task.id, "exhausted",
-                                       f"Автоблокировка: {task.blocked_reason}"))
+                    f"({task.retry_count} из {max_attempts}) на статусе «{former}»." + cause_txt
+                )[:500]
+                session.add(
+                    _chronicle(task.id, "exhausted", f"Автоблокировка: {task.blocked_reason}")
+                )
                 await session.commit()
                 continue
             if len(self._active) >= int(cfg.get("daemon.max_parallel", "4")):
@@ -526,30 +695,50 @@ class Daemon:
             # закрыт (СТ «Влияние связей»). Проверка ДО резерва: агент не
             # сжигает попытки и токены на отказ гейта (VITRINA-36, 29.10.2026)
             hard_blocked_res = await session.execute(
-                sa.select(sa.func.count()).select_from(TaskRelation)
+                sa.select(sa.func.count())
+                .select_from(TaskRelation)
                 .join(Task, Task.id == TaskRelation.to_task)
-                .where(TaskRelation.from_task == task.id,
-                       TaskRelation.kind == "blocked_by",
-                       Task.status_key.notin_(("done", "canceled"))))
+                .where(
+                    TaskRelation.from_task == task.id,
+                    TaskRelation.kind == "blocked_by",
+                    Task.status_key.notin_(("done", "canceled")),
+                )
+            )
             hard_blocked = hard_blocked_res.scalar_one()
             if hard_blocked:
                 continue
-            run_id = await reserve_task(session, task.id, agent_id, task.status_key,
-                                        attempt_no=task.retry_count + 1,
-                                        mode=mode)
+            run_id = await reserve_task(
+                session,
+                task.id,
+                agent_id,
+                task.status_key,
+                attempt_no=task.retry_count + 1,
+                mode=mode,
+            )
             if not run_id:
                 continue  # занято: гонка проиграна (эксклюзив) или агент уже живёт (parallel)
-            self._runs[run_id] = {"task_code": task.code, "task_id": str(task.id),
-                                  "status_key": task.status_key, "agent_id": str(agent_id)}
-            async def _go(task=task, agent_id=agent_id, status_key=task.status_key,
-                          run_id=run_id):
+            self._runs[run_id] = {
+                "task_code": task.code,
+                "task_id": str(task.id),
+                "status_key": task.status_key,
+                "agent_id": str(agent_id),
+            }
+
+            async def _go(task=task, agent_id=agent_id, status_key=task.status_key, run_id=run_id):
                 await self._run_task(task.code, agent_id, status_key, cfg, run_id)
+
             self._active[run_id] = asyncio.create_task(_go())
             launched += 1
         return launched
 
-    async def _run_task(self, task_code: str, agent_id, status_key: str,
-                        cfg: dict[str, str], run_id: str | None = None) -> None:
+    async def _run_task(
+        self,
+        task_code: str,
+        agent_id,
+        status_key: str,
+        cfg: dict[str, str],
+        run_id: str | None = None,
+    ) -> None:
         """Резерв получен: собрать контекст, запустить агента, применить результат.
 
         Подготовка — в короткоживущей сессии; пока агент работает, открытых
@@ -559,16 +748,26 @@ class Daemon:
 
         try:
             async with self._maker() as session:
-                task = (await session.execute(
-                    sa.select(Task).where(Task.code == task_code))).scalar_one()
+                task = (
+                    await session.execute(sa.select(Task).where(Task.code == task_code))
+                ).scalar_one()
                 agent = await session.get(User, agent_id)
-                profile = (await session.execute(
-                    sa.text("SELECT role, model, allowed_tools, mcp_servers, agent_dir, skills "
-                            "FROM agent_profile WHERE user_id = :u"),
-                    {"u": str(agent_id)},
-                )).mappings().one_or_none()
+                profile = (
+                    (
+                        await session.execute(
+                            sa.text(
+                                "SELECT role, model, allowed_tools, mcp_servers, agent_dir, skills "
+                                "FROM agent_profile WHERE user_id = :u"
+                            ),
+                            {"u": str(agent_id)},
+                        )
+                    )
+                    .mappings()
+                    .one_or_none()
+                )
                 # персона агента — одна строка; методологии живут в назначенных скиллах
-                persona = (f"{agent.name} — {(profile or {}).get('role') or 'исполнитель этапа конвейера'}"[:300])
+                role = (profile or {}).get("role") or "исполнитель этапа конвейера"
+                persona = f"{agent.name} — {role}"[:300]
 
                 worktree = await self._ensure_worktree(session, task)
 
@@ -577,46 +776,61 @@ class Daemon:
                 run_id = run_id or await active_run_id(session, task.id)
                 seq = [0]
 
-                async def on_event(kind: str, text: str | None = None,
-                                   data: dict | None = None) -> None:
+                async def on_event(
+                    kind: str, text: str | None = None, data: dict | None = None
+                ) -> None:
                     from repository.models import TaskRunLog
 
                     if kind == "system" and data and data.get("session_id"):
                         # SDK-сессия прогона — для resume после «лимит ходов/таймаут»
                         async with self._maker() as ss:
-                            await ss.execute(sa.text(
-                                "UPDATE task_run SET session_id = :s WHERE id = :r"),
-                                {"s": str(data["session_id"])[:64], "r": str(run_id)})
+                            await ss.execute(
+                                sa.text("UPDATE task_run SET session_id = :s WHERE id = :r"),
+                                {"s": str(data["session_id"])[:64], "r": str(run_id)},
+                            )
                             await ss.commit()
                     if kind == "usage" and data:
                         # накопительные значения за прогон — пишем как есть (идемпотентно),
                         # интерфейс читает их живьём (решение владельца 27.10.2026)
                         async with self._maker() as su:
-                            await su.execute(sa.text(
-                                "UPDATE task_run SET input_tokens = :i, output_tokens = :o, "
-                                "cache_tokens = :c WHERE id = :r"),
-                                {"i": int(data.get("input", 0)),
-                                 "o": int(data.get("output", 0)),
-                                 "c": int(data.get("cache", 0)), "r": str(run_id)})
+                            await su.execute(
+                                sa.text(
+                                    "UPDATE task_run SET input_tokens = :i, output_tokens = :o, "
+                                    "cache_tokens = :c WHERE id = :r"
+                                ),
+                                {
+                                    "i": int(data.get("input", 0)),
+                                    "o": int(data.get("output", 0)),
+                                    "c": int(data.get("cache", 0)),
+                                    "r": str(run_id),
+                                },
+                            )
                             await su.commit()
                         return
                     seq[0] += 1
                     async with self._maker() as s:
-                        s.add(TaskRunLog(run_id=run_id, seq=seq[0], kind=kind,
-                                         text=text, data=data))
+                        s.add(
+                            TaskRunLog(run_id=run_id, seq=seq[0], kind=kind, text=text, data=data)
+                        )
                         await s.commit()
 
                 from infrastructure.paths import host_to_container, task_repo_root
 
                 # приоритет: свой путь агента → глобальная папка инструментов (одна на все проекты)
-                agent_dir = ((profile or {}).get("agent_dir")
-                             or (cfg.get("agents.tools_dir") or "").strip() or None)
+                agent_dir = (
+                    (profile or {}).get("agent_dir")
+                    or (cfg.get("agents.tools_dir") or "").strip()
+                    or None
+                )
                 # cwd прогона: worktree этапа разработки, иначе целевой репозиторий
                 # (мультирепозиторий: task.repo_path, как в merge_task_branch) —
                 # агент не должен блуждать по /app контейнера в поисках кода
-                project_path = (await session.execute(
-                    sa.text("SELECT path FROM project WHERE id = :i"),
-                    {"i": str(task.project_id)})).scalar_one_or_none()
+                project_path = (
+                    await session.execute(
+                        sa.text("SELECT path FROM project WHERE id = :i"),
+                        {"i": str(task.project_id)},
+                    )
+                ).scalar_one_or_none()
                 root = task_repo_root(project_path, task.repo_path)
                 # resume: прошлый прогон той же задачи оборвался лимитом ходов
                 # или таймаутом — продолжаем его SDK-сессию (наработка в разговоре
@@ -624,64 +838,105 @@ class Daemon:
                 # ограничивает цепочку). Инфра-сбои и обычные failed — свежий лист.
                 # прицельный перепрогон: прошлый failed — отказ чеклист-гейта?
                 # (по коду отказа, не подстроками в тексте — анализ 03.11.2026)
-                last_denied = (await session.execute(sa.text(
-                    "SELECT detail FROM task_run "
-                    "WHERE task_id = :t AND outcome = 'failed' AND reason_code IN "
-                    "('checklist_not_closed', 'checklist_failed', 'checklist_not_created') "
-                    "ORDER BY started_at DESC LIMIT 1"),
-                    {"t": str(task.id)})).scalar_one_or_none()
+                last_denied = (
+                    await session.execute(
+                        sa.text(
+                            "SELECT detail FROM task_run "
+                            "WHERE task_id = :t AND outcome = 'failed' AND reason_code IN "
+                            "('checklist_not_closed', 'checklist_failed', 'checklist_not_created') "
+                            "ORDER BY started_at DESC LIMIT 1"
+                        ),
+                        {"t": str(task.id)},
+                    )
+                ).scalar_one_or_none()
                 base_ctx = await self._context_md(session, task)
                 if last_denied:
-                    open_items = (await session.execute(sa.text(
-                        "SELECT ci.kind AS kind, ci.position AS position, "
-                        "ci.text AS text, ci.status AS status "
-                        "FROM checklist_item ci JOIN checklist c ON c.id = ci.checklist_id "
-                        "WHERE c.task_id = :t AND ci.status NOT IN ('done', 'closed') "
-                        "ORDER BY c.kind, ci.position"),
-                        {"t": str(task.id)})).mappings().all()
-                    block = targeted_retry_block(
-                        last_denied.strip(), [dict(r) for r in open_items])
+                    open_items = (
+                        (
+                            await session.execute(
+                                sa.text(
+                                    "SELECT ci.kind AS kind, ci.position AS position, "
+                                    "ci.text AS text, ci.status AS status "
+                                    "FROM checklist_item ci "
+                                    "JOIN checklist c ON c.id = ci.checklist_id "
+                                    "WHERE c.task_id = :t AND ci.status NOT IN ('done', 'closed') "
+                                    "ORDER BY c.kind, ci.position"
+                                ),
+                                {"t": str(task.id)},
+                            )
+                        )
+                        .mappings()
+                        .all()
+                    )
+                    block = targeted_retry_block(last_denied.strip(), [dict(r) for r in open_items])
                     if block:
                         base_ctx = base_ctx + "\n\n" + block
 
                 # handoff: микро-состояние последнего обрыва — последние действия
                 # предыдущего агента (разговор умер вместе с сессией, а чеклист
                 # про это не знает); ~12 записей лога прогона
-                last_run_id = (await session.execute(sa.text(
-                    "SELECT id FROM task_run WHERE task_id = :t "
-                    "AND outcome IN ('failed', 'interrupted') "
-                    "ORDER BY started_at DESC LIMIT 1"), {"t": str(task.id)})).scalar_one_or_none()
+                last_run_id = (
+                    await session.execute(
+                        sa.text(
+                            "SELECT id FROM task_run WHERE task_id = :t "
+                            "AND outcome IN ('failed', 'interrupted') "
+                            "ORDER BY started_at DESC LIMIT 1"
+                        ),
+                        {"t": str(task.id)},
+                    )
+                ).scalar_one_or_none()
                 if last_run_id:
-                    handoff_rows = (await session.execute(sa.text(
-                        "SELECT kind, left(coalesce(text,''),150) AS txt FROM task_run_log "
-                        "WHERE run_id = :r AND kind IN ('tool', 'thinking') "
-                        "AND coalesce(text, '') <> '' "
-                        "ORDER BY seq DESC LIMIT 12"), {"r": str(last_run_id)})).mappings().all()
+                    handoff_rows = (
+                        (
+                            await session.execute(
+                                sa.text(
+                                    "SELECT kind, left(coalesce(text,''),150) AS txt "
+                                    "FROM task_run_log "
+                                    "WHERE run_id = :r AND kind IN ('tool', 'thinking') "
+                                    "AND coalesce(text, '') <> '' "
+                                    "ORDER BY seq DESC LIMIT 12"
+                                ),
+                                {"r": str(last_run_id)},
+                            )
+                        )
+                        .mappings()
+                        .all()
+                    )
                     if handoff_rows:
-                        base_ctx += "\n\n## Handoff — последние действия предыдущего агента " \
-                                    "(сессия оборвана; продолжай с этого места)\n" + \
-                            "\n".join(f"- [{r['kind']}] {r['txt']}"
-                                      for r in reversed(handoff_rows))
+                        base_ctx += (
+                            "\n\n## Handoff — последние действия предыдущего агента "
+                            "(сессия оборвана; продолжай с этого места)\n"
+                            + "\n".join(
+                                f"- [{r['kind']}] {r['txt']}" for r in reversed(handoff_rows)
+                            )
+                        )
                 # resume — только при РАННЕМ обрыве (< 15 мин работы): короткую
                 # сессию продолжить дешевле, чем начинать заново; длинная уже
                 # деградировала (ход дорожал с ростом префикса) — вместо неё
                 # свежая сессия + handoff из лога (решение владельца 31.10.2026)
-                resume_sid = (await session.execute(sa.text(
-                    "SELECT session_id FROM task_run "
-                    "WHERE task_id = :t AND outcome = 'failed' AND session_id IS NOT NULL "
-                    "AND reason_code IN ('turns_limit', 'timeout_work') "
-                    "AND finished_at - started_at < interval '15 minutes' "
-                    "ORDER BY started_at DESC LIMIT 1"),
-                    {"t": str(task.id)})).scalar_one_or_none()
+                resume_sid = (
+                    await session.execute(
+                        sa.text(
+                            "SELECT session_id FROM task_run "
+                            "WHERE task_id = :t AND outcome = 'failed' AND session_id IS NOT NULL "
+                            "AND reason_code IN ('turns_limit', 'timeout_work') "
+                            "AND finished_at - started_at < interval '15 minutes' "
+                            "ORDER BY started_at DESC LIMIT 1"
+                        ),
+                        {"t": str(task.id)},
+                    )
+                ).scalar_one_or_none()
                 req_kwargs: dict = dict(
-                    task_code=task_code, persona=persona,
+                    task_code=task_code,
+                    persona=persona,
                     context_md=base_ctx,
                     worktree_path=worktree,
-                    cwd_path=None if worktree else (
-                        host_to_container(root) if root else None),
+                    cwd_path=None if worktree else (host_to_container(root) if root else None),
                     provider=await self._provider_for(session, agent_id),
-                    timeouts={"start": int(cfg["daemon.timeout_start_seconds"]),
-                              "work": int(cfg["daemon.timeout_work_seconds"])},
+                    timeouts={
+                        "start": int(cfg["daemon.timeout_start_seconds"]),
+                        "work": int(cfg["daemon.timeout_work_seconds"]),
+                    },
                     model=(profile or {}).get("model"),
                     mcp_servers=(profile or {}).get("mcp_servers"),
                     max_turns=int(cfg.get("daemon.max_turns") or 200),
@@ -696,7 +951,8 @@ class Daemon:
                 skill_names = [s for s in ((profile or {}).get("skills") or []) if s]
                 if skill_names:  # явно назначенные скиллы — в промт прогона (вариант 4)
                     req_kwargs["skills_md"] = tuple(
-                        await self._registry_skills_md(session, skill_names))
+                        await self._registry_skills_md(session, skill_names)
+                    )
                 req = RunRequest(**req_kwargs)
         except Exception as err:  # noqa: BLE001 — демон не должен падать
             log.exception("run failed: %s", task_code)
@@ -711,28 +967,46 @@ class Daemon:
             # сразу blocked «требуется участие человека» с причиной-stderr;
             # попытки не сжигаются. Агентские сбои (таймауты, отчёты failed)
             # остаются на ретрай-лестнице.
-            infra = isinstance(err, (GitError, DomainError, NameError,
-                                     ImportError, FileNotFoundError))
+            infra = isinstance(
+                err, (GitError, DomainError, NameError, ImportError, FileNotFoundError)
+            )
             async with self._maker() as s2:
                 task_id = await task_id_by_code(s2, task_code)
                 if infra:
                     try:
                         task_row = await s2.get(Task, task_id)
-                        await apply_blocked(s2, task_row, None, str(err)[:500],
-                                            subject_kind="auto", rule_code="INFRA")
+                        await apply_blocked(
+                            s2,
+                            task_row,
+                            None,
+                            str(err)[:500],
+                            subject_kind="auto",
+                            rule_code="INFRA",
+                        )
                     except Exception:  # noqa: BLE001 — blocked любой ценой
                         log.warning("apply_blocked failed for %s", task_code, exc_info=True)
                         await s2.rollback()
-                        await s2.execute(sa.text(
-                            "UPDATE task SET status_key = 'blocked', blocked_reason = :r "
-                            "WHERE id = :i"), {"r": str(err)[:500], "i": str(task_id)})
+                        await s2.execute(
+                            sa.text(
+                                "UPDATE task SET status_key = 'blocked', blocked_reason = :r "
+                                "WHERE id = :i"
+                            ),
+                            {"r": str(err)[:500], "i": str(task_id)},
+                        )
                 else:
-                    await s2.execute(sa.text(
-                        "UPDATE task SET retry_count = retry_count + 1 WHERE code = :c"),
-                        {"c": task_code})
+                    await s2.execute(
+                        sa.text("UPDATE task SET retry_count = retry_count + 1 WHERE code = :c"),
+                        {"c": task_code},
+                    )
                 await s2.commit()
-                await release_reservation(s2, task_id, run_id, "failed", str(err)[:500],
-                                          reason_code="runner_error" if not infra else "infra")
+                await release_reservation(
+                    s2,
+                    task_id,
+                    run_id,
+                    "failed",
+                    str(err)[:500],
+                    reason_code="runner_error" if not infra else "infra",
+                )
             self._active.pop(run_id, None)
             self._runs.pop(run_id, None)
             return
@@ -747,8 +1021,14 @@ class Daemon:
                 from repository.models import TaskRunLog
 
                 async with self._maker() as sf:
-                    sf.add(TaskRunLog(run_id=run_id, seq=10**6, kind="system",
-                                      text=f"прогон завершён: {report.status}"))
+                    sf.add(
+                        TaskRunLog(
+                            run_id=run_id,
+                            seq=10**6,
+                            kind="system",
+                            text=f"прогон завершён: {report.status}",
+                        )
+                    )
                     await sf.commit()
             # комментарии агента к задаче (решение владельца 26.10.2026)
             if report.comments:
@@ -756,13 +1036,19 @@ class Daemon:
 
                 async with self._maker() as sc:
                     for body in report.comments[:5]:
-                        sc.add(TaskComment(task_id=task.id, author_id=agent.id,
-                                           body=body.strip()[:4000]))
+                        sc.add(
+                            TaskComment(
+                                task_id=task.id, author_id=agent.id, body=body.strip()[:4000]
+                            )
+                        )
                     await sc.commit()
             async with self._maker() as session:
-                conn_id = (await session.execute(
-                    sa.text("SELECT connection_id FROM agent_profile WHERE user_id = :u"),
-                    {"u": str(agent_id)})).scalar_one_or_none()
+                conn_id = (
+                    await session.execute(
+                        sa.text("SELECT connection_id FROM agent_profile WHERE user_id = :u"),
+                        {"u": str(agent_id)},
+                    )
+                ).scalar_one_or_none()
                 if report.status == "success":
                     await record_success(session, conn_id)
                 elif report.status == "failed":
@@ -777,13 +1063,19 @@ class Daemon:
                 # сбой инфраструктуры (worktree/git/провайдер) тоже считается
                 # попыткой: иначе задача ретраится вечно, сжигая токены
                 # (VITRINA-32…35: git-ошибка worktree, ретрай каждый тик)
-                await s2.execute(sa.text(
-                    "UPDATE task SET retry_count = retry_count + 1 WHERE code = :c"),
-                    {"c": task_code})
+                await s2.execute(
+                    sa.text("UPDATE task SET retry_count = retry_count + 1 WHERE code = :c"),
+                    {"c": task_code},
+                )
                 await s2.commit()
-                await release_reservation(s2, await task_id_by_code(s2, task_code),
-                                          run_id, "failed", str(err)[:500],
-                                          reason_code="runner_error")
+                await release_reservation(
+                    s2,
+                    await task_id_by_code(s2, task_code),
+                    run_id,
+                    "failed",
+                    str(err)[:500],
+                    reason_code="runner_error",
+                )
         finally:
             self._active.pop(run_id, None)
             self._runs.pop(run_id, None)
@@ -793,17 +1085,20 @@ class Daemon:
 
         if task.status_key != "in_progress":
             return None
-        type_key = (await session.execute(
-            sa.text("SELECT key FROM task_type WHERE id = :i"),
-            {"i": str(task.task_type_id)})).scalar_one()
+        type_key = (
+            await session.execute(
+                sa.text("SELECT key FROM task_type WHERE id = :i"), {"i": str(task.task_type_id)}
+            )
+        ).scalar_one()
         if type_key not in GIT_TASK_TYPES:
             return None
         project = await session.get(Project, task.project_id)
 
         from infrastructure.git.worktree import ensure_task_worktree
 
-        return await ensure_task_worktree(project.path, task.code, project.base_branch,
-                                          repo_path=task.repo_path)
+        return await ensure_task_worktree(
+            project.path, task.code, project.base_branch, repo_path=task.repo_path
+        )
 
     async def _provider_for(self, session, agent_id) -> dict | None:
         """Расшифрованное подключение агента (ANTHROPIC_* для раннера).
@@ -811,14 +1106,19 @@ class Daemon:
         from repository.models import Connection
         from usecase.settings.connections import get_decrypted_token
 
-        conn_id = (await session.execute(
-            sa.text("SELECT connection_id FROM agent_profile WHERE user_id = :u"),
-            {"u": str(agent_id)})).scalar_one_or_none()
+        conn_id = (
+            await session.execute(
+                sa.text("SELECT connection_id FROM agent_profile WHERE user_id = :u"),
+                {"u": str(agent_id)},
+            )
+        ).scalar_one_or_none()
         conn = await session.get(Connection, conn_id) if conn_id else None
         if conn is None:  # своё подключение не задано — активное глобальное
-            conn = (await session.execute(
-                sa.select(Connection).where(Connection.is_active.is_(True))
-                .limit(1))).scalar_one_or_none()
+            conn = (
+                await session.execute(
+                    sa.select(Connection).where(Connection.is_active.is_(True)).limit(1)
+                )
+            ).scalar_one_or_none()
         if conn is None:
             return None
         if conn.protocol == "openai":
@@ -831,9 +1131,14 @@ class Daemon:
                 "Подключение с протоколом openai не поддерживается прогонами "
                 "агентов: SDK работает только с Anthropic-совместимыми "
                 "эндпоинтами. Назначьте агенту anthropic-совместимое "
-                "подключение (или активное глобальное).")
-        return {"protocol": conn.protocol, "url": conn.url, "model": conn.model,
-                "token": await get_decrypted_token(session, conn)}
+                "подключение (или активное глобальное)."
+            )
+        return {
+            "protocol": conn.protocol,
+            "url": conn.url,
+            "model": conn.model,
+            "token": await get_decrypted_token(session, conn),
+        }
 
     async def _check_interrupts(self, session) -> int:
         """Перехват человеком: прогон помечен outcome='interrupted' -> убить процесс (ФТ-ah-32).
@@ -842,12 +1147,16 @@ class Daemon:
         if not self._active:
             return 0
         now = dt.datetime.now(dt.timezone.utc)
-        rows = (await session.execute(
-            sa.select(TaskRun.id)
-            .where(TaskRun.finished_at.isnot(None),
-                   TaskRun.outcome == "interrupted",
-                   TaskRun.finished_at >= now - dt.timedelta(minutes=10),
-                   TaskRun.id.in_(list(self._active.keys()))))).all()
+        rows = (
+            await session.execute(
+                sa.select(TaskRun.id).where(
+                    TaskRun.finished_at.isnot(None),
+                    TaskRun.outcome == "interrupted",
+                    TaskRun.finished_at >= now - dt.timedelta(minutes=10),
+                    TaskRun.id.in_(list(self._active.keys())),
+                )
+            )
+        ).all()
         killed = 0
         for (rid,) in rows:
             t = self._active.get(str(rid))
@@ -865,16 +1174,18 @@ class Daemon:
 
         key = "runlog.retention_last"
         today = dt.datetime.now(dt.timezone.utc).date().isoformat()
-        last = (await session.execute(
-            sa.select(AppSetting.value).where(AppSetting.key == key))).scalar_one_or_none()
+        last = (
+            await session.execute(sa.select(AppSetting.value).where(AppSetting.key == key))
+        ).scalar_one_or_none()
         if last == today:
             return
         cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=7)
         from repository.models import TaskRunLog
 
         await session.execute(sa.delete(TaskRunLog).where(TaskRunLog.created_at < cutoff))
-        row = (await session.execute(
-            sa.select(AppSetting).where(AppSetting.key == key))).scalar_one_or_none()
+        row = (
+            await session.execute(sa.select(AppSetting).where(AppSetting.key == key))
+        ).scalar_one_or_none()
         if row:
             row.value = today
         else:
@@ -898,57 +1209,96 @@ class Daemon:
             _user, root = await tools_uc._global_dir(session)
         except DomainError:
             return []
-        rows = (await session.execute(sa.select(ToolArtifact).where(
-            ToolArtifact.kind == "skill", ToolArtifact.name.in_(names)))).scalars().all()
+        rows = (
+            (
+                await session.execute(
+                    sa.select(ToolArtifact).where(
+                        ToolArtifact.kind == "skill", ToolArtifact.name.in_(names)
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
         by_name = {r.name: r for r in rows}
         out: list[str] = []
         for n in names:
             r = by_name.get(n)
             path = root / r.rel_path if r else None
             if path and path.is_file():
-                out.append(f"## Скилл: {n}\n\n"
-                           + path.read_text(encoding="utf-8", errors="replace"))
+                out.append(
+                    f"## Скилл: {n}\n\n" + path.read_text(encoding="utf-8", errors="replace")
+                )
             else:
-                out.append(f"## Скилл: {n}\n\n"
-                           "(файл не найден в папке инструментов — скилл пропущен)")
+                out.append(
+                    f"## Скилл: {n}\n\n(файл не найден в папке инструментов — скилл пропущен)"
+                )
         return out
 
-    async def _apply_report(self, session, task, agent, report, cfg,
-                            run_id: str | None = None) -> None:
+    async def _apply_report(
+        self, session, task, agent, report, cfg, run_id: str | None = None
+    ) -> None:
         from repository.models import Chronicle, Task
         from usecase.task.transition import TransitionDenied, apply_transition
 
-        task = (await session.execute(
-            sa.select(Task).where(Task.code == task.code))).scalar_one()
+        task = (await session.execute(sa.select(Task).where(Task.code == task.code))).scalar_one()
         # гвард параллельного режима: задача ушла со статуса прогона (человек,
         # сосед-агент, зеркало) — отчёт чужого статуса не применяется
         run_meta = self._runs.get(str(run_id)) or {}
         if run_meta.get("status_key") and task.status_key != run_meta["status_key"]:
-            await release_reservation(session, task.id, run_id, "interrupted",
-                                      "задача ушла со статуса — прогон остановлен",
-                                      reason_code="stale_status")
+            await release_reservation(
+                session,
+                task.id,
+                run_id,
+                "interrupted",
+                "задача ушла со статуса — прогон остановлен",
+                reason_code="stale_status",
+            )
             await session.commit()
             return
 
-        session.add(Chronicle(
-            task_id=task.id, event_type="agent", author_id=agent.id, author_kind="agent",
-            message=f"Отчёт агента: {report.summary_md[:300]}",
-        ))
+        session.add(
+            Chronicle(
+                task_id=task.id,
+                event_type="agent",
+                author_id=agent.id,
+                author_kind="agent",
+                message=f"Отчёт агента: {report.summary_md[:300]}",
+            )
+        )
         # артефакт этапа (ФТ-ah-38): отчёт из JSON-отчёта агента получает новую
         # версию; без записи гейт cond_artifact честно отклонял переход — агент
         # делал работу, отчёт терялся (дефект 29.10.2026, нашли на AH-130)
-        if report.artifact_md and report.artifact_kind in ("dev_report", "review_report", "qa_report"):
+        if report.artifact_md and report.artifact_kind in (
+            "dev_report",
+            "review_report",
+            "qa_report",
+        ):
             from repository.models import TaskArtifact
 
-            ver = (await session.execute(sa.text(
-                "SELECT coalesce(max(version),0)+1 FROM task_artifact "
-                "WHERE task_id = :t AND kind = :k"),
-                {"t": str(task.id), "k": report.artifact_kind})).scalar_one()
-            session.add(TaskArtifact(task_id=task.id, kind=report.artifact_kind,
-                                     version=ver, body_md=report.artifact_md,
-                                     created_by=agent.id))
-            session.add(_chronicle(task.id, "agent",
-                                   f"Артефакт {report.artifact_kind} v{ver} записан агентом"))
+            ver = (
+                await session.execute(
+                    sa.text(
+                        "SELECT coalesce(max(version),0)+1 FROM task_artifact "
+                        "WHERE task_id = :t AND kind = :k"
+                    ),
+                    {"t": str(task.id), "k": report.artifact_kind},
+                )
+            ).scalar_one()
+            session.add(
+                TaskArtifact(
+                    task_id=task.id,
+                    kind=report.artifact_kind,
+                    version=ver,
+                    body_md=report.artifact_md,
+                    created_by=agent.id,
+                )
+            )
+            session.add(
+                _chronicle(
+                    task.id, "agent", f"Артефакт {report.artifact_kind} v{ver} записан агентом"
+                )
+            )
         await self._apply_relations(session, task, report)
         await self._apply_checklist_updates(session, task, report)
 
@@ -957,18 +1307,30 @@ class Daemon:
             # сжигаем (иначе задача блокируется после 3 «смен», VITRINA-1,
             # 02.11.2026), исход interrupted даёт максимальную паузу до
             # следующей смены; чеклист/артефакт/связи уже применены выше
-            session.add(_chronicle(task.id, "agent",
-                                   "Смена сессии (мягкий лимит ходов) — прогресс сохранён"))
-            await release_reservation(session, task.id, run_id, "interrupted",
-                                      report.summary_md[:200], reason_code="soft_turns")
+            session.add(
+                _chronicle(
+                    task.id, "agent", "Смена сессии (мягкий лимит ходов) — прогресс сохранён"
+                )
+            )
+            await release_reservation(
+                session,
+                task.id,
+                run_id,
+                "interrupted",
+                report.summary_md[:200],
+                reason_code="soft_turns",
+            )
             await session.commit()
             return
 
         if report.status == "success" and not report.proposed_transition:
             # агент не предложил переход — задача остаётся на статусе; повтор
             # откладывается паузой (_next_retry_at: success на том же статусе)
-            session.add(_chronicle(task.id, "agent",
-                                   "Отчёт без предложенного перехода — повторный запуск отложен"))
+            session.add(
+                _chronicle(
+                    task.id, "agent", "Отчёт без предложенного перехода — повторный запуск отложен"
+                )
+            )
         if report.status == "success" and report.proposed_transition:
             to = report.proposed_transition.get("to")
             try:
@@ -983,8 +1345,9 @@ class Daemon:
 
                 subject = await _subject_for(session, agent, task)
                 graph = await load_graph(session, await task_flow_version_id(session, task))
-                decision = check_edge(graph, task.status_key, to, subject,
-                                      await load_gate_data(session, task))
+                decision = check_edge(
+                    graph, task.status_key, to, subject, await load_gate_data(session, task)
+                )
                 if not decision.allowed:
                     raise TransitionDenied(decision.reason)
                 if to == "done" and task.task_type_id:
@@ -992,17 +1355,27 @@ class Daemon:
                 task = await apply_transition(session, agent, task.code, to)
             except TransitionDenied as denied:
                 task.retry_count += 1
-                session.add(_chronicle(task.id, "engine",
-                                       f"Переход отклонён: {denied.reason}"))
-                await release_reservation(session, task.id, run_id, "failed",
-                                          denied.reason,
-                                          reason_code=denied.code or "denied_gate")
+                session.add(_chronicle(task.id, "engine", f"Переход отклонён: {denied.reason}"))
+                await release_reservation(
+                    session,
+                    task.id,
+                    run_id,
+                    "failed",
+                    denied.reason,
+                    reason_code=denied.code or "denied_gate",
+                )
                 return
         elif report.status == "blocked":
             from usecase.task.transition import apply_blocked
-            await apply_blocked(session, task, agent,
-                                blocked_reason_from_summary(report.summary_md),
-                                subject_kind="agent", rule_code="AGENT_REPORT")
+
+            await apply_blocked(
+                session,
+                task,
+                agent,
+                blocked_reason_from_summary(report.summary_md),
+                subject_kind="agent",
+                rule_code="AGENT_REPORT",
+            )
             await release_reservation(session, task.id, run_id, "blocked")
             await session.commit()
             return
@@ -1035,44 +1408,81 @@ class Daemon:
                 continue
             if not kind or not new_status:
                 continue
-            chk = (await session.execute(sa.text(
-                "SELECT id FROM checklist WHERE task_id = :t AND kind = :k"),
-                {"t": str(task.id), "k": kind})).first()
+            chk = (
+                await session.execute(
+                    sa.text("SELECT id FROM checklist WHERE task_id = :t AND kind = :k"),
+                    {"t": str(task.id), "k": kind},
+                )
+            ).first()
             if chk is None:
-                chk = (await session.execute(sa.text(
-                    "INSERT INTO checklist (id, task_id, kind) "
-                    "VALUES (gen_random_uuid(), :t, :k) RETURNING id"),
-                    {"t": str(task.id), "k": kind})).first()
+                chk = (
+                    await session.execute(
+                        sa.text(
+                            "INSERT INTO checklist (id, task_id, kind) "
+                            "VALUES (gen_random_uuid(), :t, :k) RETURNING id"
+                        ),
+                        {"t": str(task.id), "k": kind},
+                    )
+                ).first()
             position = upd.get("item_position")
             if position is not None:
-                updated = (await session.execute(sa.text(
-                    "UPDATE checklist_item ci SET status = :s, text = coalesce(:x, text) "
-                    "FROM checklist c WHERE c.id = ci.checklist_id AND c.task_id = :t "
-                    "AND c.kind = :k AND ci.position = :p RETURNING ci.id"), {
-                        "s": new_status, "t": str(task.id), "k": kind,
-                        "p": position, "x": upd.get("text")})).first()
+                updated = (
+                    await session.execute(
+                        sa.text(
+                            "UPDATE checklist_item ci SET status = :s, text = coalesce(:x, text) "
+                            "FROM checklist c WHERE c.id = ci.checklist_id AND c.task_id = :t "
+                            "AND c.kind = :k AND ci.position = :p RETURNING ci.id"
+                        ),
+                        {
+                            "s": new_status,
+                            "t": str(task.id),
+                            "k": kind,
+                            "p": position,
+                            "x": upd.get("text"),
+                        },
+                    )
+                ).first()
                 if updated is not None:
                     applied += 1
                     continue
             if not upd.get("text"):
                 continue
-            pos = position if position is not None else (await session.execute(
-                sa.text("SELECT coalesce(max(position),0)+1 FROM checklist_item "
-                        "WHERE checklist_id = :c"), {"c": str(chk[0])})).scalar_one()
-            await session.execute(sa.text(
-                "INSERT INTO checklist_item (id, checklist_id, position, kind, text, status) "
-                "VALUES (gen_random_uuid(), :c, :p, 'item', :x, :s) "
-                "ON CONFLICT DO NOTHING"), {
-                    "c": str(chk[0]), "p": pos, "x": upd["text"], "s": new_status})
+            pos = (
+                position
+                if position is not None
+                else (
+                    await session.execute(
+                        sa.text(
+                            "SELECT coalesce(max(position),0)+1 FROM checklist_item "
+                            "WHERE checklist_id = :c"
+                        ),
+                        {"c": str(chk[0])},
+                    )
+                ).scalar_one()
+            )
+            await session.execute(
+                sa.text(
+                    "INSERT INTO checklist_item (id, checklist_id, position, kind, text, status) "
+                    "VALUES (gen_random_uuid(), :c, :p, 'item', :x, :s) "
+                    "ON CONFLICT DO NOTHING"
+                ),
+                {"c": str(chk[0]), "p": pos, "x": upd["text"], "s": new_status},
+            )
             applied += 1
         await session.commit()
         if applied:
-            session.add(_chronicle(task.id, "agent",
-                                   f"Чеклист обновлён агентом ({applied} пункт(ов))"))
+            session.add(
+                _chronicle(task.id, "agent", f"Чеклист обновлён агентом ({applied} пункт(ов))")
+            )
         if skipped_kinds:
-            session.add(_chronicle(task.id, "agent",
-                                   "Типы чеклистов вне реестра пропущены: "
-                                   + ", ".join(sorted(set(skipped_kinds)))[:300]))
+            session.add(
+                _chronicle(
+                    task.id,
+                    "agent",
+                    "Типы чеклистов вне реестра пропущены: "
+                    + ", ".join(sorted(set(skipped_kinds)))[:300],
+                )
+            )
 
     async def _apply_relations(self, session, task, report) -> int:
         """Связи из отчёта агента (relations_updates): blocked_by / do_after.
@@ -1084,22 +1494,29 @@ class Daemon:
             kind, other_code = rel.get("kind"), str(rel.get("task_code") or "").upper()
             if kind not in ("do_after", "blocked_by") or not other_code:
                 continue
-            other = (await session.execute(
-                sa.select(Task).where(Task.code == other_code))).scalar_one_or_none()
+            other = (
+                await session.execute(sa.select(Task).where(Task.code == other_code))
+            ).scalar_one_or_none()
             if other is None or other.id == task.id:
                 continue
-            dup = (await session.execute(
-                sa.select(sa.func.count()).select_from(TaskRelation)
-                .where(TaskRelation.from_task == task.id, TaskRelation.to_task == other.id,
-                       TaskRelation.kind == kind))).scalar_one()
+            dup = (
+                await session.execute(
+                    sa.select(sa.func.count())
+                    .select_from(TaskRelation)
+                    .where(
+                        TaskRelation.from_task == task.id,
+                        TaskRelation.to_task == other.id,
+                        TaskRelation.kind == kind,
+                    )
+                )
+            ).scalar_one()
             if dup:
                 continue
             session.add(TaskRelation(from_task=task.id, to_task=other.id, kind=kind))
             applied += 1
         if applied:
             await session.commit()
-            session.add(_chronicle(task.id, "agent",
-                                   f"Связи обновлены агентом ({applied} шт.)"))
+            session.add(_chronicle(task.id, "agent", f"Связи обновлены агентом ({applied} шт.)"))
         return applied
 
     async def _merge_before_done(self, session, task) -> None:
@@ -1112,8 +1529,12 @@ class Daemon:
         project = await session.get(Project, task.project_id)
         try:
             # путь проекта в БД хранится как на хосте; git-операции идут в контейнере
-            await merge_task_branch(host_to_container(project.path), task.code,
-                                    project.base_branch, repo_path=task.repo_path)
+            await merge_task_branch(
+                host_to_container(project.path),
+                task.code,
+                project.base_branch,
+                repo_path=task.repo_path,
+            )
         except GitError as err:
             # str(GitError) уже включает stderr (диагностика шторма 29.10)
             text = str(err)
@@ -1121,21 +1542,23 @@ class Daemon:
                 raise TransitionDenied(f"{text} Автомат повторит слияние.", status_code=200)
             raise TransitionDenied(
                 f"Слияние не выполнено: {text} — распутайте вручную, автомат повторит.",
-                status_code=200)
+                status_code=200,
+            )
         # уборка: чистый worktree после слияния больше не нужен (ветка сохраняется)
         try:
             from infrastructure.git.worktree import cleanup_task_worktree
 
-            await cleanup_task_worktree(host_to_container(project.path), task.code,
-                                        repo_path=task.repo_path)
+            await cleanup_task_worktree(
+                host_to_container(project.path), task.code, repo_path=task.repo_path
+            )
         except Exception:  # noqa: BLE001 - неуспешная уборка не роняет переход
             log.info("worktree cleanup skipped for %s", task.code, exc_info=True)
+
 
 async def task_id_by_code(session, code):
     from repository.models import Task
 
-    return (await session.execute(
-        sa.select(Task.id).where(Task.code == code))).scalar_one()
+    return (await session.execute(sa.select(Task.id).where(Task.code == code))).scalar_one()
 
 
 def blocked_reason_from_summary(summary: str, limit: int = 500) -> str:
@@ -1146,7 +1569,7 @@ def blocked_reason_from_summary(summary: str, limit: int = 500) -> str:
     reason = (summary or "").strip()
     if len(reason) <= limit:
         return reason
-    return "…" + reason[-(limit - 1):]
+    return "…" + reason[-(limit - 1) :]
 
 
 def targeted_retry_block(denied_reason: str | None, open_items: list[dict]) -> str | None:
@@ -1155,20 +1578,20 @@ def targeted_retry_block(denied_reason: str | None, open_items: list[dict]) -> s
     полный регресс (экономия: 50 мин и ~11М кэша на повтор)."""
     if not (denied_reason and open_items):
         return None
-    lines = [f"{it['kind']}#{it['position']}: {it['text']} ({it['status']})"
-             for it in open_items]
+    lines = [f"{it['kind']}#{it['position']}: {it['text']} ({it['status']})" for it in open_items]
     return (
         "## Прицельный перепрогон (важно)\n"
         f"Прошлый прогон выполнил работу, но переход отклонён гейтом: {denied_reason}.\n"
         f"Единственное препятствие — открытые пункты чеклиста:\n"
         + "\n".join(f"- {line}" for line in lines)
         + "\nВерифицируй ТОЛЬКО эти пункты (полный регресс не повторяй — он уже "
-          "пройден прошлым прогоном), закрой их в checklist_updates и предложи переход."
+        "пройден прошлым прогоном), закрой их в checklist_updates и предложи переход."
     )
 
 
 def _chronicle(task_id, rule: str, message: str):
     from repository.models import Chronicle
 
-    return Chronicle(task_id=task_id, event_type="agent", author_kind="auto",
-                     rule_code=rule, message=message)
+    return Chronicle(
+        task_id=task_id, event_type="agent", author_kind="auto", rule_code=rule, message=message
+    )

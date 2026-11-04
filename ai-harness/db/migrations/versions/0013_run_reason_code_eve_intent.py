@@ -24,14 +24,17 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("task_run",
-                  sa.Column("reason_code", sa.String(32), nullable=True))
+    op.add_column("task_run", sa.Column("reason_code", sa.String(32), nullable=True))
     op.create_table(
         "eve_intent",
         sa.Column("user_id", postgresql.UUID(as_uuid=False), primary_key=True),
         sa.Column("payload", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True),
-                  server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(["user_id"], ["user.id"], ondelete="CASCADE"),
     )

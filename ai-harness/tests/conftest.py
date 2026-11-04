@@ -18,15 +18,15 @@ TEST_DB = "ai_harness_test"
 # Креды переопределяются окружением (TEST_DATABASE_URL); дефолт — локальный
 # docker compose (постгрес на 5433, юзер/пароль из переменных compose)
 TEST_URL = os.environ.get(
-    "TEST_DATABASE_URL",
-    f"postgresql+asyncpg://harness:harness@localhost:5433/{TEST_DB}")
+    "TEST_DATABASE_URL", f"postgresql+asyncpg://harness:harness@localhost:5433/{TEST_DB}"
+)
 os.environ["DATABASE_URL"] = TEST_URL
 # Валидный ключ (не пустой!): иначе активное подключение, оставленное
 # backend-тестами провайдеров, роняло расшифровку в daemon-тестах, которые
 # идут позже (сама расшифровка работает — ключ фиксированный на процесс)
 os.environ.setdefault(
-    "AI_HARNESS_TOKEN_KEY",
-    base64.b64encode(b"harness-test-token-key-32-bytes!").decode())
+    "AI_HARNESS_TOKEN_KEY", base64.b64encode(b"harness-test-token-key-32-bytes!").decode()
+)
 
 import sqlalchemy as sa  # noqa: E402
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine  # noqa: E402
@@ -118,6 +118,4 @@ async def actor_id(_test_db):
     async with maker() as s:
         from repository.models import User
 
-        return (await s.execute(
-            sa.select(User.id).where(User.name == "Алексей")
-        )).scalar_one()
+        return (await s.execute(sa.select(User.id).where(User.name == "Алексей"))).scalar_one()

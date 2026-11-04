@@ -22,8 +22,7 @@ def init_engine(database_url: str) -> AsyncEngine:
         # демона (инцидент 29.10.2026: _run_task держал транзакцию на весь
         # прогон агента — демон замер на 15 минут, пульс и свип встали).
         connect_args["server_settings"] = {"idle_in_transaction_session_timeout": "300000"}
-    _engine = create_async_engine(database_url, pool_pre_ping=True,
-                                  connect_args=connect_args)
+    _engine = create_async_engine(database_url, pool_pre_ping=True, connect_args=connect_args)
     _sessionmaker = async_sessionmaker(_engine, expire_on_commit=False)
     return _engine
 

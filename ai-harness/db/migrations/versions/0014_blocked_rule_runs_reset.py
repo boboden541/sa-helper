@@ -21,8 +21,7 @@ depends_on = None
 
 def upgrade() -> None:
     op.add_column("task", sa.Column("blocked_rule", sa.String(16), nullable=True))
-    op.add_column("task", sa.Column("runs_reset_at", sa.DateTime(timezone=True),
-                                    nullable=True))
+    op.add_column("task", sa.Column("runs_reset_at", sa.DateTime(timezone=True), nullable=True))
 
 
 def downgrade() -> None:

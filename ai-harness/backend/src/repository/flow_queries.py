@@ -24,8 +24,11 @@ def current_flow_version_sq(task_type_id_col):
     fv = FlowVersion.__table__
     return (
         sa.select(fv.c.id)
-        .where(fv.c.task_type_id == task_type_id_col,
-               fv.c.is_current.is_(True), fv.c.is_published.is_(True))
+        .where(
+            fv.c.task_type_id == task_type_id_col,
+            fv.c.is_current.is_(True),
+            fv.c.is_published.is_(True),
+        )
         .correlate(Task)
         .scalar_subquery()
     )
@@ -33,7 +36,12 @@ def current_flow_version_sq(task_type_id_col):
 
 async def current_flow_version_id(session: AsyncSession, task_type_id) -> uuid.UUID | None:
     """Id актуальной версии flow типа задачи; None — не публиковалась."""
-    return (await session.execute(sa.select(FlowVersion.id).where(
-        FlowVersion.task_type_id == task_type_id,
-        FlowVersion.is_current.is_(True), FlowVersion.is_published.is_(True))
-    )).scalar_one_or_none()
+    return (
+        await session.execute(
+            sa.select(FlowVersion.id).where(
+                FlowVersion.task_type_id == task_type_id,
+                FlowVersion.is_current.is_(True),
+                FlowVersion.is_published.is_(True),
+            )
+        )
+    ).scalar_one_or_none()

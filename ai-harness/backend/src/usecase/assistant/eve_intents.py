@@ -46,8 +46,9 @@ async def pop_intent(session, user_id, text: str) -> dict | None:
     """«Да» → намерение достаётся и удаляется (одно использование)."""
     if not _CONFIRM_RE.fullmatch(text or ""):
         return None
-    row = (await session.execute(
-        sa.select(EveIntent).where(EveIntent.user_id == user_id))).scalar_one_or_none()
+    row = (
+        await session.execute(sa.select(EveIntent).where(EveIntent.user_id == user_id))
+    ).scalar_one_or_none()
     if row is None:
         return None
     payload = row.payload or {}
@@ -63,6 +64,7 @@ async def pop_intent(session, user_id, text: str) -> dict | None:
 
 def persist_intent(user_id, intent: dict) -> None:
     """Синхронный callback: fire-and-forget задача в текущем event-loop."""
+
     def _run():
         from database import get_sessionmaker
 

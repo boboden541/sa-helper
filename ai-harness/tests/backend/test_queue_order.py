@@ -10,8 +10,13 @@ from usecase.task.list_tasks import list_tasks
 
 
 def _inp(**kw):
-    base = dict(project_mnemonic="AH", type_key="common_task", title="Очередь",
-                priority="medium", author_tag="by_human")
+    base = dict(
+        project_mnemonic="AH",
+        type_key="common_task",
+        title="Очередь",
+        priority="medium",
+        author_tag="by_human",
+    )
     base.update(kw)
     return CreateTaskInput(**base)
 
@@ -19,8 +24,7 @@ def _inp(**kw):
 async def _set_created(session, code, created_at: datetime):
     from repository.models import Task
 
-    await session.execute(sa.update(Task).where(Task.code == code)
-                          .values(created_at=created_at))
+    await session.execute(sa.update(Task).where(Task.code == code).values(created_at=created_at))
     await session.commit()
 
 
@@ -58,8 +62,7 @@ async def test_priority_beats_age_and_type(session, actor_id):
     actor = await session.get(User, actor_id)
     old_low_bug = await create_task(session, actor, _inp(type_key="bug", priority="low"))
     fresh_critical = await create_task(session, actor, _inp(priority="critical"))
-    await _set_created(session, old_low_bug.code,
-                       datetime.now(timezone.utc) - timedelta(days=5))
+    await _set_created(session, old_low_bug.code, datetime.now(timezone.utc) - timedelta(days=5))
 
     _, cards = await list_tasks(session)
     assert cards[0].code == fresh_critical.code

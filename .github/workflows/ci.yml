@@ -61,7 +61,10 @@ jobs:
       # Конфигурация [tool.ruff] живёт в ai-harness/pyproject.toml — ruff
       # подхватит её сам по дереву файлов
       - name: Линтер (ruff)
-        run: ruff check ai-harness
+        run: |
+          ruff check ai-harness
+          ruff format --check ai-harness
+          python ai-harness/scripts/check_file_length.py
 
       # Тесты сами создают тестовую БД, накатывают миграции и заливают сид
       # (tests/conftest.py, фикстура _test_db). ОБЯЗАТЕЛЬНО из ai-harness/:

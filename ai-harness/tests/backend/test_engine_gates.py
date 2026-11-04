@@ -10,8 +10,13 @@ from usecase.task.transition import TransitionDenied, apply_transition
 
 
 def _inp(**kw):
-    base = dict(project_mnemonic="AH", type_key="common_task", title="Гейты",
-                priority="high", author_tag="by_human")
+    base = dict(
+        project_mnemonic="AH",
+        type_key="common_task",
+        title="Гейты",
+        priority="high",
+        author_tag="by_human",
+    )
     base.update(kw)
     return CreateTaskInput(**base)
 
@@ -23,19 +28,21 @@ async def _to_status(session, code, status):
 
 async def _create_checklist(session, task_id, kind, statuses: list[str]):
     """Чеклист один на вид (uq task_id+kind): создаём или заменяем пункты."""
-    chk = (await session.execute(
-        sa.select(Checklist).where(Checklist.task_id == task_id, Checklist.kind == kind)
-    )).scalar_one_or_none()
+    chk = (
+        await session.execute(
+            sa.select(Checklist).where(Checklist.task_id == task_id, Checklist.kind == kind)
+        )
+    ).scalar_one_or_none()
     if chk is None:
         chk = Checklist(task_id=task_id, kind=kind)
         session.add(chk)
         await session.flush()
     else:
-        await session.execute(
-            sa.delete(ChecklistItem).where(ChecklistItem.checklist_id == chk.id))
+        await session.execute(sa.delete(ChecklistItem).where(ChecklistItem.checklist_id == chk.id))
     for i, s in enumerate(statuses):
-        session.add(ChecklistItem(checklist_id=chk.id, position=i, kind="item",
-                                  text=f"пункт {i}", status=s))
+        session.add(
+            ChecklistItem(checklist_id=chk.id, position=i, kind="item", text=f"пункт {i}", status=s)
+        )
     await session.commit()
 
 
@@ -59,8 +66,7 @@ async def test_forward_move_requires_closed_checklist(session, actor_id):
     actor = await session.get(User, actor_id)
     t = await create_task(session, actor, _inp())
     await _to_status(session, t.code, "in_progress")
-    tid = (await session.execute(
-        sa.select(Task.id).where(Task.code == t.code))).scalar_one()
+    tid = (await session.execute(sa.select(Task.id).where(Task.code == t.code))).scalar_one()
 
     await _create_checklist(session, tid, "developer", ["done", "todo"])
     reason = await _denied_reason(session, actor, t.code, "review_ready")

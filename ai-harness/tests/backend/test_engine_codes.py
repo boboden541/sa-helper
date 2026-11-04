@@ -15,8 +15,13 @@ from usecase.task.transition import apply_transition
 
 
 def _inp(**kw):
-    base = dict(project_mnemonic="AH", type_key="common_task", title="Коды",
-                priority="high", author_tag="by_human")
+    base = dict(
+        project_mnemonic="AH",
+        type_key="common_task",
+        title="Коды",
+        priority="high",
+        author_tag="by_human",
+    )
     base.update(kw)
     return CreateTaskInput(**base)
 
@@ -33,8 +38,7 @@ async def test_denial_codes(_test_db):
 
     maker = async_sessionmaker(_test_db, expire_on_commit=False)
     async with maker() as session:
-        actor = (await session.execute(
-            sa.select(User).where(User.name == "Алексей"))).scalar_one()
+        actor = (await session.execute(sa.select(User).where(User.name == "Алексей"))).scalar_one()
         t = await create_task(session, actor, _inp())
         await _to_status(session, t.code, "todo")
         with pytest.raises(TD) as exc:
@@ -47,8 +51,11 @@ async def test_denial_codes(_test_db):
         chk = Checklist(task_id=t.id, kind="developer")
         session.add(chk)
         await session.flush()
-        session.add(ChecklistItem(checklist_id=chk.id, position=0, kind="item",
-                                  text="п1", status="in_progress"))
+        session.add(
+            ChecklistItem(
+                checklist_id=chk.id, position=0, kind="item", text="п1", status="in_progress"
+            )
+        )
         await session.commit()
         # ребро todo→in_progress теперь легально (вход в работу требует
         # созданного чеклиста — он создан); идём дальше: in_progress→review_ready
@@ -63,8 +70,7 @@ async def test_denial_codes(_test_db):
         from usecase.task.transition import task_flow_version_id
 
         story = await create_task(session, actor, _inp(type_key="story", title="История"))
-        story = (await session.execute(
-            sa.select(Task).where(Task.code == story.code))).scalar_one()
+        story = (await session.execute(sa.select(Task).where(Task.code == story.code))).scalar_one()
         graph = await load_graph(session, await task_flow_version_id(session, story))
         gates = GateData(psi_failed=2)
         d = check_edge(graph, "in_testing", "done", Subject(kind="human"), gates)

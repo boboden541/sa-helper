@@ -8,8 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 
 async def assigned_statuses(session: AsyncSession, user_id, task_type_id) -> frozenset[str]:
-    rows = (await session.execute(
-        sa.select(Assignment.status_key).where(
-            Assignment.user_id == user_id, Assignment.task_type_id == task_type_id)
-    )).scalars()
+    rows = (
+        await session.execute(
+            sa.select(Assignment.status_key).where(
+                Assignment.user_id == user_id, Assignment.task_type_id == task_type_id
+            )
+        )
+    ).scalars()
     return frozenset(rows)

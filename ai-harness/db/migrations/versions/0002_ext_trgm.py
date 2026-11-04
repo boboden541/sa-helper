@@ -4,6 +4,7 @@ Revision ID: 0002
 Revises: 0001
 Create Date: 2026-10-25
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -16,8 +17,12 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     op.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
-    op.execute("CREATE INDEX IF NOT EXISTS idx_task_title_trgm ON task USING gin (title gin_trgm_ops)")
-    op.execute("CREATE INDEX IF NOT EXISTS idx_tag_label_trgm ON tag USING gin (label gin_trgm_ops)")
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_task_title_trgm ON task USING gin (title gin_trgm_ops)"
+    )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tag_label_trgm ON tag USING gin (label gin_trgm_ops)"
+    )
 
 
 def downgrade() -> None:

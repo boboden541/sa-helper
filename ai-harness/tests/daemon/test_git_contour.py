@@ -18,8 +18,10 @@ from infrastructure.git.worktree import (
 def repo(tmp_path: Path) -> Path:
     root = tmp_path / "proj"
     root.mkdir()
+
     def git(*args):
         subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
+
     subprocess.run(["git", "init", "-b", "main", str(root)], check=True, capture_output=True)
     (root / "README.md").write_text("demo\n", encoding="utf-8")
     git("add", ".")
@@ -43,8 +45,12 @@ async def test_merge_before_done(repo):
     wt = await ensure_task_worktree(str(repo), "AH-8", "main")
     (wt / "feature.txt").write_text("изменение\n", encoding="utf-8")
     subprocess.run(["git", "add", "."], cwd=wt, check=True, capture_output=True)
-    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t",
-                    "commit", "-m", "work"], cwd=wt, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "work"],
+        cwd=wt,
+        check=True,
+        capture_output=True,
+    )
     await merge_task_branch(str(repo), "AH-8", "main")
     _readme = (repo / "README.md").read_text(encoding="utf-8")
     assert (repo / "feature.txt").exists()  # слияние попало в базовую
@@ -55,14 +61,22 @@ async def test_merge_conflict_raises(repo):
     wt = await ensure_task_worktree(str(repo), "AH-9", "main")
     (wt / "README.md").write_text("task version\n", encoding="utf-8")
     subprocess.run(["git", "add", "."], cwd=wt, check=True, capture_output=True)
-    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t",
-                    "commit", "-m", "task edit"], cwd=wt, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "task edit"],
+        cwd=wt,
+        check=True,
+        capture_output=True,
+    )
     # базовая ушла вперёд с конфликтом
     subprocess.run(["git", "checkout", "main"], cwd=repo, check=True, capture_output=True)
     (repo / "README.md").write_text("base version\n", encoding="utf-8")
     subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
-    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t",
-                    "commit", "-m", "base edit"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "base edit"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
     with pytest.raises(GitError):
         await merge_task_branch(str(repo), "AH-9", "main")
 
@@ -85,8 +99,9 @@ async def test_merge_refuses_dirty_checkout(repo):
     и сжигал попытки без вины агента."""
     from infrastructure.git.worktree import merge_task_branch
 
-    subprocess.run(["git", "checkout", "-b", "task/AH-10", "main"],
-                   cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "checkout", "-b", "task/AH-10", "main"], cwd=repo, check=True, capture_output=True
+    )
     # грязь = изменение отслеживаемого файла; untracked (.harness и пр.) не считаем
     (repo / "README.md").write_text("human edits\n", encoding="utf-8")
     with pytest.raises(GitError, match="не чиста"):
@@ -100,7 +115,11 @@ async def test_merge_ignores_untracked_files(repo):
     wt = await ensure_task_worktree(str(repo), "AH-11", "main")
     (wt / "feature.txt").write_text("x\n", encoding="utf-8")
     subprocess.run(["git", "add", "."], cwd=wt, check=True, capture_output=True)
-    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t",
-                    "commit", "-m", "work"], cwd=wt, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "work"],
+        cwd=wt,
+        check=True,
+        capture_output=True,
+    )
     await merge_task_branch(str(repo), "AH-11", "main")
     assert (repo / "feature.txt").exists()

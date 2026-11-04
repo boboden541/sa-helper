@@ -9,8 +9,7 @@ from database import get_sessionmaker
 
 from daemon.scheduler.scheduler import Daemon
 
-logging.basicConfig(level=logging.INFO,
-                    format="%(asctime)s %(name)s %(levelname)s %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
 
 async def main() -> None:
@@ -28,14 +27,20 @@ async def main() -> None:
         try:
             runner = ClaudeCodeRunner()
         except RuntimeError:
-            logging.warning("claude-agent-sdk не установлен — демон работает в режиме без запуска агентов")
+            logging.warning(
+                "claude-agent-sdk не установлен — демон работает в режиме без запуска агентов"
+            )
             from daemon.runner.agent_runner import FakeRunner
 
-            runner = FakeRunner(script=lambda req: __import__(
-                "daemon.runner.agent_runner", fromlist=["RunReport"]).RunReport(
-                status="blocked",
-                summary_md="раннер агентов не настроен (claude-agent-sdk не установлен) — "
-                           "требуется участие человека"))
+            runner = FakeRunner(
+                script=lambda req: __import__(
+                    "daemon.runner.agent_runner", fromlist=["RunReport"]
+                ).RunReport(
+                    status="blocked",
+                    summary_md="раннер агентов не настроен (claude-agent-sdk не установлен) — "
+                    "требуется участие человека",
+                )
+            )
 
     daemon = Daemon(get_sessionmaker(), runner)
     # стартовый интервал — из окружения; дальше источник истины —

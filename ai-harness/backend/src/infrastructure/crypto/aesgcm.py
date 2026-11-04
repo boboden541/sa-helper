@@ -32,7 +32,8 @@ def decrypt_token(key: bytes, blob: bytes) -> str:
             "Не удалось расшифровать токен подключения — ключ "
             "AI_HARNESS_TOKEN_KEY изменился с момента сохранения; "
             "пересохраните подключение в настройках",
-            tech="AESGCM InvalidTag") from None
+            tech="AESGCM InvalidTag",
+        ) from None
 
 
 def token_mask(token: str) -> str:

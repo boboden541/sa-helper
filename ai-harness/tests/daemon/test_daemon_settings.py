@@ -20,10 +20,13 @@ def _maker(engine):
 
 async def _set_setting(_test_db, key: str, value: str) -> None:
     async with _maker(_test_db)() as s:
-        await s.execute(sa.text(
-            "INSERT INTO app_setting (key, value) VALUES (:k, :v) "
-            "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"),
-            {"k": key, "v": value})
+        await s.execute(
+            sa.text(
+                "INSERT INTO app_setting (key, value) VALUES (:k, :v) "
+                "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"
+            ),
+            {"k": key, "v": value},
+        )
         await s.commit()
 
 

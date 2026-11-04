@@ -37,10 +37,12 @@ class TaskCard:
     gate: dict = field(default_factory=lambda: {"allowed": [], "denied": []})
 
 
-def build_query(projects: list[str] | None = None,
-                types: list[str] | None = None,
-                q: str | None = None,
-                exclude_terminal: bool = False):
+def build_query(
+    projects: list[str] | None = None,
+    types: list[str] | None = None,
+    q: str | None = None,
+    exclude_terminal: bool = False,
+):
     """SELECT задач с сортировкой очереди: приоритет → баги выше задач → старые выше (ФТ-ah-4).
 
     exclude_terminal (решение владельца 28.10.2026): доска запрашивает без
@@ -53,15 +55,22 @@ def build_query(projects: list[str] | None = None,
     story_sq = (
         sa.select(story_t.c.code)
         .where(story_t.c.id == Task.story_id)
-        .correlate(Task).scalar_subquery()
+        .correlate(Task)
+        .scalar_subquery()
     )
 
     proj_t = Project.__table__
+
     # суммарный расход токенов по всем прогонам задачи (решение владельца 27.10.2026);
     # разбивка вход/выход/кэш — для раскрытия по клику (фича 30.10.2026)
     def _tok_sq(cols):
-        return sa.select(sa.func.coalesce(sa.func.sum(cols), 0)) \
-            .where(TaskRun.task_id == Task.id).correlate(Task).scalar_subquery()
+        return (
+            sa.select(sa.func.coalesce(sa.func.sum(cols), 0))
+            .where(TaskRun.task_id == Task.id)
+            .correlate(Task)
+            .scalar_subquery()
+        )
+
     query = (
         sa.select(
             Task,
@@ -69,7 +78,9 @@ def build_query(projects: list[str] | None = None,
             User.name.label("agent_name"),
             proj_t.c.mnemonic.label("project_mnemonic"),
             story_sq.label("story_code"),
-            _tok_sq(TaskRun.input_tokens + TaskRun.output_tokens + TaskRun.cache_tokens).label("tokens_used"),
+            _tok_sq(TaskRun.input_tokens + TaskRun.output_tokens + TaskRun.cache_tokens).label(
+                "tokens_used"
+            ),
             _tok_sq(TaskRun.input_tokens).label("tokens_input"),
             _tok_sq(TaskRun.output_tokens).label("tokens_output"),
             _tok_sq(TaskRun.cache_tokens).label("tokens_cache"),
@@ -93,10 +104,13 @@ def build_query(projects: list[str] | None = None,
         cur_fv = current_flow_version_sq(Task.task_type_id)
         query = query.outerjoin(
             flow_status_t,
-            sa.and_(flow_status_t.c.flow_version_id == cur_fv,
-                    flow_status_t.c.status_key == Task.status_key),
-        ).where(sa.or_(flow_status_t.c.is_terminal.is_(None),
-                       flow_status_t.c.is_terminal.is_(False)))
+            sa.and_(
+                flow_status_t.c.flow_version_id == cur_fv,
+                flow_status_t.c.status_key == Task.status_key,
+            ),
+        ).where(
+            sa.or_(flow_status_t.c.is_terminal.is_(None), flow_status_t.c.is_terminal.is_(False))
+        )
     if projects:
         query = query.where(proj_t.c.mnemonic.in_([p.upper() for p in projects]))
     if types:
@@ -104,9 +118,7 @@ def build_query(projects: list[str] | None = None,
     if q and q.strip():
         needle = q.strip()
         # Триграммный нечёткий поиск по названию + точный/префиксный по task-code (НФТ-ah-1)
-        query = query.where(
-            sa.or_(Task.title.ilike(f"%{needle}%"), Task.code.ilike(f"{needle}%"))
-        )
+        query = query.where(sa.or_(Task.title.ilike(f"%{needle}%"), Task.code.ilike(f"{needle}%")))
     return query
 
 
@@ -120,11 +132,10 @@ async def list_tasks(
     exclude_terminal: bool = False,
 ) -> tuple[int, list[TaskCard]]:
     """Возвращает (total, карточки) по фильтрам и правилам очереди (ФТ-ah-4)."""
-    base = build_query(projects=projects, types=types, q=q,
-                       exclude_terminal=exclude_terminal)
-    total = (await session.execute(
-        sa.select(sa.func.count()).select_from(base.subquery())
-    )).scalar_one()
+    base = build_query(projects=projects, types=types, q=q, exclude_terminal=exclude_terminal)
+    total = (
+        await session.execute(sa.select(sa.func.count()).select_from(base.subquery()))
+    ).scalar_one()
     rows = (await session.execute(base.limit(limit).offset(offset))).all()
     cards = [
         TaskCard(

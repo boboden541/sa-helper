@@ -16,7 +16,10 @@ def _crypto_key() -> bytes:
     except RuntimeError as err:
         raise DomainError(
             "Шифрование токенов не настроено: задайте AI_HARNESS_TOKEN_KEY в ai-harness/.env",
-            tech=str(err))
+            tech=str(err),
+        )
+
+
 from infrastructure.crypto.aesgcm import decrypt_token, encrypt_token, token_mask
 from repository.models import Connection, ProviderPreset
 
@@ -29,12 +32,19 @@ async def create_connection(session: AsyncSession, data: dict) -> Connection:
             raise DomainError(f"Не заполнено обязательное поле: {field}", field=field)
     if data.get("protocol") not in ("openai", "anthropic"):
         raise DomainError("Протокол: openai или anthropic", field="protocol")
-    if (await session.execute(sa.select(sa.func.count()).select_from(Connection)
-                              .where(Connection.name == data["name"]))).scalar_one():
+    if (
+        await session.execute(
+            sa.select(sa.func.count())
+            .select_from(Connection)
+            .where(Connection.name == data["name"])
+        )
+    ).scalar_one():
         raise DomainError(f"Подключение с именем {data['name']!r} уже есть", field="name")
 
     conn = Connection(
-        name=data["name"], protocol=data["protocol"], url=data["url"],
+        name=data["name"],
+        protocol=data["protocol"],
+        url=data["url"],
         model=data["model"],
         token_encrypted=encrypt_token(_crypto_key(), data["token"]),
         token_tail=token_mask(data["token"]),
@@ -45,8 +55,9 @@ async def create_connection(session: AsyncSession, data: dict) -> Connection:
     return conn
 
 
-async def update_connection(session: AsyncSession, connection_id: uuid.UUID,
-                            fields: dict) -> Connection:
+async def update_connection(
+    session: AsyncSession, connection_id: uuid.UUID, fields: dict
+) -> Connection:
     conn = await session.get(Connection, connection_id)
     if conn is None:
         raise DomainError("Подключение не найдено")
@@ -105,37 +116,50 @@ async def check_connection(session: AsyncSession, data: dict) -> dict:
             if protocol == "anthropic":
                 r = await client.post(
                     f"{url}/v1/messages",
-                    headers={"x-api-key": token, "anthropic-version": "2023-06-01",
-                             "content-type": "application/json"},
-                    json={"model": model, "max_tokens": 1,
-                          "messages": [{"role": "user", "content": "ping"}]},
+                    headers={
+                        "x-api-key": token,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json",
+                    },
+                    json={
+                        "model": model,
+                        "max_tokens": 1,
+                        "messages": [{"role": "user", "content": "ping"}],
+                    },
                 )
             else:
-                r = await client.get(f"{url}/models",
-                                     headers={"Authorization": f"Bearer {token}"})
+                r = await client.get(f"{url}/models", headers={"Authorization": f"Bearer {token}"})
     except httpx.HTTPError as err:
         raise DomainError(
-            "Не удалось связаться с провайдером. Проверьте адрес и сеть",
-            tech=repr(err))
+            "Не удалось связаться с провайдером. Проверьте адрес и сеть", tech=repr(err)
+        )
 
     if r.status_code in (401, 403):
-        raise DomainError("Провайдер отклонил токен. Проверьте API-ключ и его права",
-                          tech=f"HTTP {r.status_code}: {r.text[:300]}")
+        raise DomainError(
+            "Провайдер отклонил токен. Проверьте API-ключ и его права",
+            tech=f"HTTP {r.status_code}: {r.text[:300]}",
+        )
     if r.status_code == 404:
-        raise DomainError("Метод API не найден. Проверьте URL и выбранный протокол",
-                          tech=f"HTTP 404: {r.text[:300]}")
+        raise DomainError(
+            "Метод API не найден. Проверьте URL и выбранный протокол",
+            tech=f"HTTP 404: {r.text[:300]}",
+        )
     if r.status_code == 429:
-        raise DomainError("Лимит запросов исчерпан. Подождите или проверьте квоту токена",
-                          tech="HTTP 429")
+        raise DomainError(
+            "Лимит запросов исчерпан. Подождите или проверьте квоту токена", tech="HTTP 429"
+        )
     if r.status_code >= 500:
-        raise DomainError("Провайдер временно недоступен. Повторите проверку позже",
-                          tech=f"HTTP {r.status_code}")
+        raise DomainError(
+            "Провайдер временно недоступен. Повторите проверку позже", tech=f"HTTP {r.status_code}"
+        )
     if r.status_code >= 400:
-        raise DomainError("Провайдер не принял запрос",
-                          tech=f"HTTP {r.status_code}: {r.text[:300]}")
+        raise DomainError(
+            "Провайдер не принял запрос", tech=f"HTTP {r.status_code}: {r.text[:300]}"
+        )
     return {"ok": True, "message": "Подключение успешно"}
 
 
 async def list_presets(session: AsyncSession) -> list[ProviderPreset]:
-    return list((await session.execute(
-        sa.select(ProviderPreset).order_by(ProviderPreset.name))).scalars())
+    return list(
+        (await session.execute(sa.select(ProviderPreset).order_by(ProviderPreset.name))).scalars()
+    )

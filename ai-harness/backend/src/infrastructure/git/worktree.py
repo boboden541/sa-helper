@@ -29,8 +29,10 @@ class GitError(Exception):
         if not err:
             return msg
         if "dubious ownership" in err:
-            err += " — папка репозитория принадлежит другому пользователю; " \
-                   "в контейнере демона выполните: git config --global --add safe.directory '*'"
+            err += (
+                " — папка репозитория принадлежит другому пользователю; "
+                "в контейнере демона выполните: git config --global --add safe.directory '*'"
+            )
         return f"{msg}: {err[:300]}"
 
 
@@ -42,14 +44,19 @@ _GIT_TIMEOUT = 300  # зависший git не держит прогон веч
 # Оба флага нужны только на Windows.
 import sys as _sys
 
-_GIT_FLAGS = ["-c", "core.longpaths=true", "-c", "core.autocrlf=false"] \
-    if _sys.platform == "win32" else []
+_GIT_FLAGS = (
+    ["-c", "core.longpaths=true", "-c", "core.autocrlf=false"] if _sys.platform == "win32" else []
+)
 
 
 async def _git(args: list[str], cwd: Path | None = None) -> str:
     proc = await asyncio.create_subprocess_exec(
-        "git", *_GIT_FLAGS, *args, cwd=str(cwd) if cwd else None,
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        "git",
+        *_GIT_FLAGS,
+        *args,
+        cwd=str(cwd) if cwd else None,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
     )
     try:
         out, err = await asyncio.wait_for(proc.communicate(), timeout=_GIT_TIMEOUT)
@@ -66,16 +73,17 @@ def worktree_path_for(project_path: str, task_code: str) -> Path:
     return Path(project_path) / ".harness" / "worktrees" / task_code
 
 
-async def ensure_task_worktree(project_path: str, task_code: str,
-                               base_branch: str = "main",
-                               repo_path: str | None = None) -> Path:
+async def ensure_task_worktree(
+    project_path: str, task_code: str, base_branch: str = "main", repo_path: str | None = None
+) -> Path:
     """Создаёт ветку task/<code> от базовой при первом входе в работу;
     повторный вход продолжает ту же ветку (ФТ-ah-37). repo_path — целевой
     репозиторий в мультирепозитории проекта (решение владельца 29.10.2026)."""
     from infrastructure.paths import host_to_container
 
-    root = Path(host_to_container(str(Path(project_path) / repo_path if repo_path
-                                  else project_path)))
+    root = Path(
+        host_to_container(str(Path(project_path) / repo_path if repo_path else project_path))
+    )
     branch = f"task/{task_code}"
     wt = worktree_path_for(str(root), worktree_code(task_code))
     wt.parent.mkdir(parents=True, exist_ok=True)
@@ -88,8 +96,9 @@ async def ensure_task_worktree(project_path: str, task_code: str,
         # детерминированный фолбэк: HEAD-ветка репозитория (его дефолт)
         base = base_branch
         try:
-            head = await _git(["rev-parse", "--verify", "--quiet",
-                               f"refs/heads/{base_branch}"], cwd=root)
+            head = await _git(
+                ["rev-parse", "--verify", "--quiet", f"refs/heads/{base_branch}"], cwd=root
+            )
         except GitError:
             head = ""  # ветки нет в целевом репо — фолбэк на дефолт репо
         if not head.strip():
@@ -109,8 +118,10 @@ async def commit_all(worktree: Path, message: str, author: str) -> str | None:
     status = await _git(["status", "--porcelain"], cwd=worktree)
     if not status.strip():
         return None
-    await _git(["-c", f"user.name={author}", "-c", "user.email=harness@local",
-                "commit", "-m", message], cwd=worktree)
+    await _git(
+        ["-c", f"user.name={author}", "-c", "user.email=harness@local", "commit", "-m", message],
+        cwd=worktree,
+    )
     return await _git(["rev-parse", "HEAD"], cwd=worktree)
 
 
@@ -124,9 +135,9 @@ async def _tracked_status_clean(root) -> bool:
     return not status.strip()
 
 
-async def merge_task_branch(project_path: str, task_code: str,
-                            base_branch: str = "main",
-                            repo_path: str | None = None) -> None:
+async def merge_task_branch(
+    project_path: str, task_code: str, base_branch: str = "main", repo_path: str | None = None
+) -> None:
     """Слияние task/<code> в базовую перед done; конфликт → GitError (→ blocked)."""
     root = Path(task_repo_root(project_path, repo_path))
     branch = f"task/{task_code}"
@@ -136,8 +147,10 @@ async def merge_task_branch(project_path: str, task_code: str,
     # (анализ 30.10.2026). Untracked (в т.ч. .harness/worktrees внутри репо)
     # грязью не считаем.
     if not await _tracked_status_clean(root):
-        raise GitError("Рабочая копия проекта не чиста — закоммитьте или уберите "
-                       "изменения, автомат повторит слияние")
+        raise GitError(
+            "Рабочая копия проекта не чиста — закоммитьте или уберите "
+            "изменения, автомат повторит слияние"
+        )
     # слияние через временный checkout базовой ветки в основном репозитории.
     # Мультирепозиторий: базовой ветки проекта может не быть в целевом репо
     # (tc-admin@develop при base_branch=main) — тогда интеграция идёт в
@@ -145,8 +158,9 @@ async def merge_task_branch(project_path: str, task_code: str,
     current = await _git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=root)
     base = base_branch
     try:
-        head = await _git(["rev-parse", "--verify", "--quiet",
-                           f"refs/heads/{base_branch}"], cwd=root)
+        head = await _git(
+            ["rev-parse", "--verify", "--quiet", f"refs/heads/{base_branch}"], cwd=root
+        )
     except GitError:
         head = ""
     if not head.strip():
@@ -159,16 +173,16 @@ async def merge_task_branch(project_path: str, task_code: str,
         try:
             await _git(["merge", "--abort"], cwd=root)
         except GitError:
-            log.warning("merge --abort не удался; репозиторий может требовать ручной очистки",
-                        exc_info=True)
+            log.warning(
+                "merge --abort не удался; репозиторий может требовать ручной очистки", exc_info=True
+            )
         raise
     finally:
         if current != base:
             await _git(["checkout", current], cwd=root)
 
 
-async def merge_has_conflict(project_path: str, task_code: str,
-                             base_branch: str = "main") -> bool:
+async def merge_has_conflict(project_path: str, task_code: str, base_branch: str = "main") -> bool:
     try:
         await merge_task_branch(project_path, task_code, base_branch)
         return False
@@ -193,8 +207,9 @@ async def worktree_is_clean(wt: Path) -> bool:
     return not status.strip()
 
 
-async def cleanup_task_worktree(project_path: str, task_code: str,
-                                repo_path: str | None = None) -> None:
+async def cleanup_task_worktree(
+    project_path: str, task_code: str, repo_path: str | None = None
+) -> None:
     """Убирает worktree задачи, если в нём нет незакоммиченных изменений.
 
     Ветка task/<code> сохраняется (артефактный контракт: одна задача - одна ветка).

@@ -25,18 +25,24 @@ def desc_hash(text: str | None) -> str:
 
 
 async def is_story(session: AsyncSession, task: Task) -> bool:
-    return (await session.execute(
-        sa.select(TaskType.key).where(TaskType.id == task.task_type_id)
-    )).scalar_one_or_none() == "story"
+    return (
+        await session.execute(sa.select(TaskType.key).where(TaskType.id == task.task_type_id))
+    ).scalar_one_or_none() == "story"
 
 
 async def bump_reference(session: AsyncSession, task: Task, cause: str) -> int:
     """Эталон задачи изменился: версия +1, событие в хроники (rule REF)."""
     task.ref_version = (task.ref_version or 1) + 1
-    session.add(Chronicle(
-        task_id=task.id, event_type="field", author_kind="auto", rule_code="REF",
-        message=f"Эталон постановки → v{task.ref_version} ({cause}); "
-                "зависимые чеклисты подлежат пересмотру"))
+    session.add(
+        Chronicle(
+            task_id=task.id,
+            event_type="field",
+            author_kind="auto",
+            rule_code="REF",
+            message=f"Эталон постановки → v{task.ref_version} ({cause}); "
+            "зависимые чеклисты подлежат пересмотру",
+        )
+    )
     return task.ref_version
 
 
@@ -56,7 +62,10 @@ async def on_description_changed(session: AsyncSession, task: Task) -> None:
 
 async def psi_plan_ref_version(session: AsyncSession, story_id) -> int | None:
     """Версия эталона, которой заверён psi-план (None — плана нет)."""
-    return (await session.execute(
-        sa.select(Checklist.source_ref_version)
-        .where(Checklist.task_id == story_id, Checklist.kind == "psi")
-    )).scalar_one_or_none()
+    return (
+        await session.execute(
+            sa.select(Checklist.source_ref_version).where(
+                Checklist.task_id == story_id, Checklist.kind == "psi"
+            )
+        )
+    ).scalar_one_or_none()

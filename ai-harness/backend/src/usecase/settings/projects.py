@@ -38,17 +38,18 @@ def prepare_path(path: str) -> str:
     user_path = Path(expand_host(path))
     p = Path(host_to_container(str(user_path)))
     if p.exists() and not p.is_dir():
-        raise DomainError(f"Путь указывает на файл, а не на директорию: {p}",
-                          tech="path is a file", field="path")
+        raise DomainError(
+            f"Путь указывает на файл, а не на директорию: {p}", tech="path is a file", field="path"
+        )
     if not p.exists():
         try:
             p.mkdir(parents=True, exist_ok=True)
         except OSError as err:
-            raise DomainError(f"Не удалось создать директорию {p}: {err}",
-                              tech=str(err), field="path")
+            raise DomainError(
+                f"Не удалось создать директорию {p}: {err}", tech=str(err), field="path"
+            )
     if not os.access(p, os.W_OK):
-        raise DomainError(f"Директория не для записи: {p}", tech="no write access",
-                          field="path")
+        raise DomainError(f"Директория не для записи: {p}", tech="no write access", field="path")
 
     def git(*args: str) -> subprocess.CompletedProcess:
         return subprocess.run(["git", *args], cwd=p, capture_output=True, text=True)
@@ -56,17 +57,25 @@ def prepare_path(path: str) -> str:
     if git("rev-parse", "--git-dir").returncode != 0:
         init = git("init", "--initial-branch", "main")
         if init.returncode != 0:
-            raise DomainError(f"git init не удался в {p}: {init.stderr.strip()}",
-                              tech=init.stderr, field="path")
+            raise DomainError(
+                f"git init не удался в {p}: {init.stderr.strip()}", tech=init.stderr, field="path"
+            )
         head = git("rev-parse", "--verify", "HEAD")
         if head.returncode != 0:
             git("config", "user.email", "harness@local")  # noqa: F841 — для эффекта
             git("config", "user.name", "AI Harness")  # noqa: F841 — для эффекта
-            first = git("commit", "--allow-empty", "-m",
-                        "Начальный коммит: рабочая директория проекта AI-Harness")
+            first = git(
+                "commit",
+                "--allow-empty",
+                "-m",
+                "Начальный коммит: рабочая директория проекта AI-Harness",
+            )
             if first.returncode != 0:
-                raise DomainError(f"Не удалось создать начальный коммит в {p}: "
-                                  f"{first.stderr.strip()}", tech=first.stderr, field="path")
+                raise DomainError(
+                    f"Не удалось создать начальный коммит в {p}: {first.stderr.strip()}",
+                    tech=first.stderr,
+                    field="path",
+                )
     return str(user_path)
 
 
@@ -75,25 +84,40 @@ async def create_project(session: AsyncSession, data: ProjectInput) -> Project:
     if not MNEMONIC_RE.match(mnemonic):
         raise DomainError(
             "Мнемоника: 2–10 символов, ЗАГЛАВНЫЕ латиница и цифры",
-            tech=f"mnemonic={mnemonic!r}", field="mnemonic")
-    if (await session.execute(sa.select(sa.func.count()).select_from(DeadMnemonic)
-                              .where(DeadMnemonic.mnemonic == mnemonic))).scalar_one():
+            tech=f"mnemonic={mnemonic!r}",
+            field="mnemonic",
+        )
+    if (
+        await session.execute(
+            sa.select(sa.func.count())
+            .select_from(DeadMnemonic)
+            .where(DeadMnemonic.mnemonic == mnemonic)
+        )
+    ).scalar_one():
         raise DomainError(
             f"Мнемоника {mnemonic} принадлежала удалённому проекту и не переиспользуется",
-            field="mnemonic")
-    if (await session.execute(sa.select(sa.func.count()).select_from(Project)
-                              .where(Project.mnemonic == mnemonic))).scalar_one():
+            field="mnemonic",
+        )
+    if (
+        await session.execute(
+            sa.select(sa.func.count()).select_from(Project).where(Project.mnemonic == mnemonic)
+        )
+    ).scalar_one():
         raise DomainError(f"Мнемоника {mnemonic} уже занята", field="mnemonic")
     data.path = prepare_path(data.path)
-    project = Project(name=data.name.strip()[:64], mnemonic=mnemonic, path=data.path,
-                      base_branch=data.base_branch or "main", description=data.description)
+    project = Project(
+        name=data.name.strip()[:64],
+        mnemonic=mnemonic,
+        path=data.path,
+        base_branch=data.base_branch or "main",
+        description=data.description,
+    )
     session.add(project)
     await session.commit()
     return project
 
 
-async def update_project(session: AsyncSession, project_id: uuid.UUID,
-                         fields: dict) -> Project:
+async def update_project(session: AsyncSession, project_id: uuid.UUID, fields: dict) -> Project:
     project = await session.get(Project, project_id)
     if project is None:
         raise DomainError("Проект не найден")
@@ -111,8 +135,7 @@ async def update_project(session: AsyncSession, project_id: uuid.UUID,
     return project
 
 
-async def set_archived(session: AsyncSession, project_id: uuid.UUID,
-                       archived: bool) -> Project:
+async def set_archived(session: AsyncSession, project_id: uuid.UUID, archived: bool) -> Project:
     project = await session.get(Project, project_id)
     if project is None:
         raise DomainError("Проект не найден")
@@ -126,11 +149,15 @@ async def delete_project(session: AsyncSession, project_id: uuid.UUID) -> None:
     project = await session.get(Project, project_id)
     if project is None:
         raise DomainError("Проект не найден")
-    tasks = (await session.execute(sa.select(sa.func.count()).select_from(Task)
-                                   .where(Task.project_id == project_id))).scalar_one()
+    tasks = (
+        await session.execute(
+            sa.select(sa.func.count()).select_from(Task).where(Task.project_id == project_id)
+        )
+    ).scalar_one()
     if tasks:
         raise DomainError(
-            f"Удаление невозможно: у проекта {tasks} задач — используйте архивирование")
+            f"Удаление невозможно: у проекта {tasks} задач — используйте архивирование"
+        )
     session.add(DeadMnemonic(mnemonic=project.mnemonic))
     await session.delete(project)
     await session.commit()

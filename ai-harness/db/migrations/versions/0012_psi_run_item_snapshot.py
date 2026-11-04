@@ -16,16 +16,23 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.drop_constraint("fk_psi_run_item_item_id_checklist_item",
-                       "psi_run_item", type_="foreignkey")
+    op.drop_constraint("fk_psi_run_item_item_id_checklist_item", "psi_run_item", type_="foreignkey")
     op.create_foreign_key(
-        "fk_psi_run_item_item_id_checklist_item", "psi_run_item",
-        "checklist_item", ["item_id"], ["id"], ondelete="SET NULL")
+        "fk_psi_run_item_item_id_checklist_item",
+        "psi_run_item",
+        "checklist_item",
+        ["item_id"],
+        ["id"],
+        ondelete="SET NULL",
+    )
 
 
 def downgrade() -> None:
-    op.drop_constraint("fk_psi_run_item_item_id_checklist_item",
-                       "psi_run_item", type_="foreignkey")
+    op.drop_constraint("fk_psi_run_item_item_id_checklist_item", "psi_run_item", type_="foreignkey")
     op.create_foreign_key(
-        "fk_psi_run_item_item_id_checklist_item", "psi_run_item",
-        "checklist_item", ["item_id"], ["id"])
+        "fk_psi_run_item_item_id_checklist_item",
+        "psi_run_item",
+        "checklist_item",
+        ["item_id"],
+        ["id"],
+    )

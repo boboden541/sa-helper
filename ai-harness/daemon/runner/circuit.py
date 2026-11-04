@@ -34,8 +34,9 @@ def _load(row: AppSetting | None) -> dict:
 async def record_failure(session, connection_id: str | None) -> None:
     """Подряд неудач +1 (коммит — за вызывающим)."""
     key = _key(connection_id)
-    row = (await session.execute(
-        sa.select(AppSetting).where(AppSetting.key == key))).scalar_one_or_none()
+    row = (
+        await session.execute(sa.select(AppSetting).where(AppSetting.key == key))
+    ).scalar_one_or_none()
     failures = _load(row).get("failures", 0)
     payload = json.dumps({"failures": failures + 1})
     if row is None:
@@ -53,8 +54,11 @@ async def paused_connections(session) -> set[str]:
     """Подключения на паузе; истёкшие — снимаются на чтении."""
     now = dt.datetime.now(dt.timezone.utc)
     out: set[str] = set()
-    rows = (await session.execute(sa.select(AppSetting).where(
-        AppSetting.key.like("circuit:%")))).scalars().all()
+    rows = (
+        (await session.execute(sa.select(AppSetting).where(AppSetting.key.like("circuit:%"))))
+        .scalars()
+        .all()
+    )
     for row in rows:
         conn_id = row.key.removeprefix("circuit:")
         state = _load(row)
@@ -74,8 +78,9 @@ async def paused_connections(session) -> set[str]:
 async def maybe_trip(session, connection_id: str | None) -> bool:
     """Порог набран → пауза подключения + уведомление (однократно)."""
     key = _key(connection_id)
-    row = (await session.execute(
-        sa.select(AppSetting).where(AppSetting.key == key))).scalar_one_or_none()
+    row = (
+        await session.execute(sa.select(AppSetting).where(AppSetting.key == key))
+    ).scalar_one_or_none()
     failures = int(_load(row).get("failures", 0))
     if failures < _THRESHOLD:
         return False
@@ -91,9 +96,12 @@ async def maybe_trip(session, connection_id: str | None) -> bool:
     from usecase.journal.notifications import raise_event
 
     await raise_event(
-        session, "SYSTEM", "provider_or_path_down",
+        session,
+        "SYSTEM",
+        "provider_or_path_down",
         f"Провайдер недоступен: {failures} подряд неудачных запусков — "
         "конвейер по подключению приостановлен на 10 минут",
-        tech_detail=f"connection={key}")
+        tech_detail=f"connection={key}",
+    )
     await session.commit()
     return True

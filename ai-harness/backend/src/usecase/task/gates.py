@@ -10,11 +10,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 async def load_gate_data(session: AsyncSession, task: Task) -> GateData:
     checklists: dict[str, ChecklistState] = {}
-    rows = (await session.execute(
-        sa.select(Checklist.kind, ChecklistItem.status)
-        .join(ChecklistItem, ChecklistItem.checklist_id == Checklist.id)
-        .where(Checklist.task_id == task.id, ChecklistItem.kind == "item")
-    )).all()
+    rows = (
+        await session.execute(
+            sa.select(Checklist.kind, ChecklistItem.status)
+            .join(ChecklistItem, ChecklistItem.checklist_id == Checklist.id)
+            .where(Checklist.task_id == task.id, ChecklistItem.kind == "item")
+        )
+    ).all()
     for kind, status in rows:
         st = checklists.setdefault(kind, ChecklistState(exists=True))
         total = st.total + 1
@@ -23,50 +25,70 @@ async def load_gate_data(session: AsyncSession, task: Task) -> GateData:
         failed = st.failed + (1 if status == "failed" else 0)
         checklists[kind] = ChecklistState(exists=True, total=total, open=open_count, failed=failed)
     # созданный, но пустой чеклист — «существует»
-    kinds = (await session.execute(
-        sa.select(Checklist.kind).where(Checklist.task_id == task.id)
-    )).scalars()
+    kinds = (
+        await session.execute(sa.select(Checklist.kind).where(Checklist.task_id == task.id))
+    ).scalars()
     for kind in kinds:
         checklists.setdefault(kind, ChecklistState(exists=True))
 
     # жёсткие связи: каноническая запись (this blocked_by other) — other не закрыт
-    blockers = (await session.execute(
-        sa.select(Task.code, Task.title)
-        .join(TaskRelation, TaskRelation.to_task == Task.id)
-        .where(TaskRelation.from_task == task.id, TaskRelation.kind == "blocked_by",
-               Task.status_key.notin_(("done", "canceled")))
-    )).all()
+    blockers = (
+        await session.execute(
+            sa.select(Task.code, Task.title)
+            .join(TaskRelation, TaskRelation.to_task == Task.id)
+            .where(
+                TaskRelation.from_task == task.id,
+                TaskRelation.kind == "blocked_by",
+                Task.status_key.notin_(("done", "canceled")),
+            )
+        )
+    ).all()
 
     # артефакты этапов: какие kind уже записаны (гейт cond_artifact, engine.py)
-    artifact_kinds = (await session.execute(
-        sa.select(TaskArtifact.kind).where(TaskArtifact.task_id == task.id)
-    )).scalars()
+    artifact_kinds = (
+        await session.execute(sa.select(TaskArtifact.kind).where(TaskArtifact.task_id == task.id))
+    ).scalars()
 
     # непройденные пункты ПСИ истории (гейт входа в done)
-    psi_failed = (await session.execute(
-        sa.select(sa.func.count()).select_from(ChecklistItem)
-        .join(Checklist, Checklist.id == ChecklistItem.checklist_id)
-        .where(Checklist.task_id == task.id, Checklist.kind == "psi",
-               ChecklistItem.status == "failed")
-    )).scalar_one()
+    psi_failed = (
+        await session.execute(
+            sa.select(sa.func.count())
+            .select_from(ChecklistItem)
+            .join(Checklist, Checklist.id == ChecklistItem.checklist_id)
+            .where(
+                Checklist.task_id == task.id,
+                Checklist.kind == "psi",
+                ChecklistItem.status == "failed",
+            )
+        )
+    ).scalar_one()
 
     # свежесть плана (версионирование эталона, 03.11.2026): у истории —
     # psi-план (заверяется регистрацией версии документа), у остальных —
     # чеклист разработчика (заверяется обновлением). Плана нет у истории —
     # тоже дрейф (0 < ref_version)
-    tkey = (await session.execute(
-        sa.select(TaskType.key).where(TaskType.id == task.task_type_id))).scalar_one()
+    tkey = (
+        await session.execute(sa.select(TaskType.key).where(TaskType.id == task.task_type_id))
+    ).scalar_one()
     plan_stale: tuple[int, int] | None = None
     if tkey == "story":
-        stamp = (await session.execute(
-            sa.select(Checklist.source_ref_version)
-            .where(Checklist.task_id == task.id, Checklist.kind == "psi"))).scalar_one_or_none()
+        stamp = (
+            await session.execute(
+                sa.select(Checklist.source_ref_version).where(
+                    Checklist.task_id == task.id, Checklist.kind == "psi"
+                )
+            )
+        ).scalar_one_or_none()
         if stamp is None or stamp < task.ref_version:
             plan_stale = (task.ref_version, stamp or 0)
     else:
-        dev = (await session.execute(
-            sa.select(Checklist.source_ref_version)
-            .where(Checklist.task_id == task.id, Checklist.kind == "developer"))).scalar_one_or_none()
+        dev = (
+            await session.execute(
+                sa.select(Checklist.source_ref_version).where(
+                    Checklist.task_id == task.id, Checklist.kind == "developer"
+                )
+            )
+        ).scalar_one_or_none()
         if dev is not None and dev < task.ref_version:
             plan_stale = (task.ref_version, dev)
 

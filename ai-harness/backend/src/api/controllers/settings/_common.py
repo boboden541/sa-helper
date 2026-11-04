@@ -12,6 +12,8 @@ def _domain(fn):
         try:
             return await fn(*args, **kw)
         except DomainError as err:
-            raise ApiError(err.status if hasattr(err, "status") else 400,
-                           err.message, tech=err.tech)
+            raise ApiError(
+                err.status if hasattr(err, "status") else 400, err.message, tech=err.tech
+            )
+
     return wrapper

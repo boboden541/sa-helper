@@ -40,15 +40,16 @@ class _FakeSDK:
         final.usage = None
         final.message = None
         final.content = None
-        final.result = ('{"status": "success", "summary_md": "готово", '
-                        '"proposed_transition": {"to": "review", "reason": "ok"}}')
+        final.result = (
+            '{"status": "success", "summary_md": "готово", '
+            '"proposed_transition": {"to": "review", "reason": "ok"}}'
+        )
         yield final
 
 
 async def test_runner_end_to_end_fake_sdk():
     runner = ClaudeCodeRunner(sdk_module=_FakeSDK())
-    req = RunRequest(task_code="AH-T", context_md="контекст",
-                     timeouts={"start": 5, "work": 10})
+    req = RunRequest(task_code="AH-T", context_md="контекст", timeouts={"start": 5, "work": 10})
     report = await runner.run(req)
     assert report.status == "success"
     assert report.proposed_transition == {"to": "review", "reason": "ok"}
@@ -66,8 +67,7 @@ async def test_runner_timeout_aborts():
             yield None  # pragma: no cover
 
     runner = ClaudeCodeRunner(sdk_module=SlowSDK())
-    req = RunRequest(task_code="AH-T", context_md="контекст",
-                     timeouts={"start": 1, "work": 2})
+    req = RunRequest(task_code="AH-T", context_md="контекст", timeouts={"start": 1, "work": 2})
     report = await runner.run(req)
     assert report.status == "failed"
     assert "Таймаут" in report.summary_md
@@ -125,9 +125,13 @@ async def test_resume_passed_and_session_captured():
         events.append((kind, data))
 
     runner = ClaudeCodeRunner(sdk_module=_ResumeCaptureSDK())
-    req = RunRequest(task_code="AH-T", context_md="контекст",
-                     timeouts={"start": 5, "work": 10},
-                     resume_session_id="sess-prev-42", on_event=on_event)
+    req = RunRequest(
+        task_code="AH-T",
+        context_md="контекст",
+        timeouts={"start": 5, "work": 10},
+        resume_session_id="sess-prev-42",
+        on_event=on_event,
+    )
     report = await runner.run(req)
     assert report.status == "success"
     opts = _ResumeCaptureSDK.last_options
@@ -143,9 +147,12 @@ async def test_resume_dropped_when_sdk_unsupported():
         pass
 
     runner = ClaudeCodeRunner(sdk_module=_OldSDK())
-    req = RunRequest(task_code="AH-T", context_md="к",
-                     timeouts={"start": 5, "work": 10},
-                     resume_session_id="sess-x")
+    req = RunRequest(
+        task_code="AH-T",
+        context_md="к",
+        timeouts={"start": 5, "work": 10},
+        resume_session_id="sess-x",
+    )
     report = await runner.run(req)
     assert report.status == "success"
 
@@ -159,8 +166,7 @@ class _DataStyleSDK(_ResumeCaptureSDK):
 
         class Msg:
             subtype = "init"
-            data = {"model": "fake", "cwd": ".", "tools": [],
-                    "session_id": "sess-data-99"}
+            data = {"model": "fake", "cwd": ".", "tools": [], "session_id": "sess-data-99"}
             content = None
 
         yield Msg()
@@ -183,8 +189,9 @@ async def test_session_id_from_data_dict():
         events.append((kind, data))
 
     runner = ClaudeCodeRunner(sdk_module=_DataStyleSDK())
-    req = RunRequest(task_code="AH-T", context_md="к",
-                     timeouts={"start": 5, "work": 10}, on_event=on_event)
+    req = RunRequest(
+        task_code="AH-T", context_md="к", timeouts={"start": 5, "work": 10}, on_event=on_event
+    )
     report = await runner.run(req)
     assert report.status == "success"
     assert ("system", "sess-data-99") in [(k, (d or {}).get("session_id")) for k, d in events]
@@ -197,6 +204,7 @@ class _ManyTurnsSDK(_ResumeCaptureSDK):
     async def query(*, prompt, options):
         _ResumeCaptureSDK.last_options = options
         for _i in range(50):
+
             class Msg:
                 subtype = None
                 usage = None
@@ -216,8 +224,9 @@ async def test_soft_limit_stops_session():
     """Мягкий лимит ходов: длинная сессия завершается плановой сменой
     (не жёстким падением), отчёт объясняет продолжение."""
     runner = ClaudeCodeRunner(sdk_module=_ManyTurnsSDK())
-    req = RunRequest(task_code="AH-T", context_md="к",
-                     timeouts={"start": 5, "work": 10}, soft_turns=5)
+    req = RunRequest(
+        task_code="AH-T", context_md="к", timeouts={"start": 5, "work": 10}, soft_turns=5
+    )
     report = await runner.run(req)
     assert report.status == "failed"
     assert "Мягкий лимит ходов" in report.summary_md

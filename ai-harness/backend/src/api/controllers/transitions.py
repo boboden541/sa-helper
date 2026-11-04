@@ -34,9 +34,7 @@ class TransitionResult(BaseModel):
 
 
 async def _load_task_or_404(session: AsyncSession, code: str) -> Task:
-    task = (await session.execute(
-        sa_select_task(code)
-    )).scalar_one_or_none()
+    task = (await session.execute(sa_select_task(code))).scalar_one_or_none()
     if task is None:
         raise ApiError(404, f"Задача {code} не найдена")
     return task
@@ -49,9 +47,12 @@ def sa_select_task(code: str):
 
 
 @router.post("/{code}/transitions", response_model=TransitionResult)
-async def transition_view(code: str, payload: TransitionIn,
-                          session: AsyncSession = Depends(get_session),
-                          actor: User = Depends(get_actor)):
+async def transition_view(
+    code: str,
+    payload: TransitionIn,
+    session: AsyncSession = Depends(get_session),
+    actor: User = Depends(get_actor),
+):
     task = await _load_task_or_404(session, code)
     try:
         await apply_transition(session, actor, task.code, payload.to)
@@ -65,9 +66,12 @@ async def transition_view(code: str, payload: TransitionIn,
 
 
 @router.post("/{code}/force", response_model=TransitionResult)
-async def force_view(code: str, payload: ForceIn,
-                     session: AsyncSession = Depends(get_session),
-                     actor: User = Depends(get_actor)):
+async def force_view(
+    code: str,
+    payload: ForceIn,
+    session: AsyncSession = Depends(get_session),
+    actor: User = Depends(get_actor),
+):
     task = await _load_task_or_404(session, code)
     try:
         await apply_force(session, actor, task.code, payload.to, payload.reason or "")
@@ -77,9 +81,9 @@ async def force_view(code: str, payload: ForceIn,
 
 
 @router.get("/{code}", response_model=TaskCardOut)
-async def card_view(code: str,
-                    session: AsyncSession = Depends(get_session),
-                    actor: User = Depends(get_actor)):
+async def card_view(
+    code: str, session: AsyncSession = Depends(get_session), actor: User = Depends(get_actor)
+):
     """Карточка: сборка в usecase/task/card_view (анализ 03.11.2026)."""
     from usecase.task.card_view import build_task_card
 

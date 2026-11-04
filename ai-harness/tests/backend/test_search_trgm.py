@@ -7,8 +7,13 @@ from usecase.task.list_tasks import list_tasks
 
 
 def _inp(**kw):
-    base = dict(project_mnemonic="AH", type_key="common_task", title="Настройка оплаты счетов",
-                priority="high", author_tag="by_human")
+    base = dict(
+        project_mnemonic="AH",
+        type_key="common_task",
+        title="Настройка оплаты счетов",
+        priority="high",
+        author_tag="by_human",
+    )
     base.update(kw)
     return CreateTaskInput(**base)
 

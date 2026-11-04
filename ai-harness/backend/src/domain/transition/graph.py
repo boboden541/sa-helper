@@ -84,24 +84,36 @@ async def load_graph(session: AsyncSession, flow_version_id) -> FlowGraph:
 
     statuses = {
         s.status_key: StatusDef(
-            key=s.status_key, label=s.label, checklist_gate=s.checklist_gate,
-            is_entry=s.is_entry, is_terminal=s.is_terminal, is_blocking=s.is_blocking,
+            key=s.status_key,
+            label=s.label,
+            checklist_gate=s.checklist_gate,
+            is_entry=s.is_entry,
+            is_terminal=s.is_terminal,
+            is_blocking=s.is_blocking,
             alias=None,
         )
-        for s in (await session.execute(
-            sa.select(FlowStatus).where(FlowStatus.flow_version_id == flow_version_id)
-        )).scalars()
+        for s in (
+            await session.execute(
+                sa.select(FlowStatus).where(FlowStatus.flow_version_id == flow_version_id)
+            )
+        ).scalars()
     }
     edges = tuple(
         Edge(
-            from_status=t.from_status, to_status=t.to_status, runner=t.runner,
-            display=t.display, rule_code=t.rule_code,
-            cond_checklist=t.cond_checklist, cond_links=t.cond_links,
+            from_status=t.from_status,
+            to_status=t.to_status,
+            runner=t.runner,
+            display=t.display,
+            rule_code=t.rule_code,
+            cond_checklist=t.cond_checklist,
+            cond_links=t.cond_links,
             cond_artifact=t.cond_artifact,
         )
-        for t in (await session.execute(
-            sa.select(FlowTransition).where(FlowTransition.flow_version_id == flow_version_id)
-        )).scalars()
+        for t in (
+            await session.execute(
+                sa.select(FlowTransition).where(FlowTransition.flow_version_id == flow_version_id)
+            )
+        ).scalars()
     )
     by_from: dict[str, tuple[Edge, ...]] = {}
     for e in edges:

@@ -17,6 +17,7 @@ router = APIRouter()
 
 # ---------- проекты ----------
 
+
 class ProjectIn(BaseModel):
     name: str | None = None
     mnemonic: str | None = None
@@ -27,8 +28,9 @@ class ProjectIn(BaseModel):
 
 
 @router.get("/projects")
-async def projects_list(session: AsyncSession = Depends(get_session),
-                        actor: User = Depends(get_actor)):
+async def projects_list(
+    session: AsyncSession = Depends(get_session), actor: User = Depends(get_actor)
+):
     import sqlalchemy as sa
     from repository.models import Task
 
@@ -40,51 +42,85 @@ async def projects_list(session: AsyncSession = Depends(get_session),
     from repository.models import FlowStatus
 
     fs = FlowStatus.__table__
-    counts = dict((await session.execute(
-        sa.select(Project.mnemonic, sa.func.count(Task.id))
-        .join(Task, Task.project_id == Project.id)
-        .outerjoin(fs, sa.and_(fs.c.flow_version_id == current_flow_version_sq(Task.task_type_id),
-                               fs.c.status_key == Task.status_key))
-        .where(sa.or_(fs.c.is_terminal.is_(None), fs.c.is_terminal.is_(False)))
-        .group_by(Project.mnemonic))).all())
-    return [{"id": str(p.id), "name": p.name, "mnemonic": p.mnemonic, "path": p.path,
-             "baseBranch": p.base_branch, "isArchived": p.is_archived,
-             "description": p.description,
-             "openCount": counts.get(p.mnemonic, 0)} for p in rows]
+    counts = dict(
+        (
+            await session.execute(
+                sa.select(Project.mnemonic, sa.func.count(Task.id))
+                .join(Task, Task.project_id == Project.id)
+                .outerjoin(
+                    fs,
+                    sa.and_(
+                        fs.c.flow_version_id == current_flow_version_sq(Task.task_type_id),
+                        fs.c.status_key == Task.status_key,
+                    ),
+                )
+                .where(sa.or_(fs.c.is_terminal.is_(None), fs.c.is_terminal.is_(False)))
+                .group_by(Project.mnemonic)
+            )
+        ).all()
+    )
+    return [
+        {
+            "id": str(p.id),
+            "name": p.name,
+            "mnemonic": p.mnemonic,
+            "path": p.path,
+            "baseBranch": p.base_branch,
+            "isArchived": p.is_archived,
+            "description": p.description,
+            "openCount": counts.get(p.mnemonic, 0),
+        }
+        for p in rows
+    ]
 
 
 @router.post("/projects")
-async def projects_create(payload: ProjectIn,
-                          session: AsyncSession = Depends(get_session),
-                          actor: User = Depends(get_actor)):
+async def projects_create(
+    payload: ProjectIn,
+    session: AsyncSession = Depends(get_session),
+    actor: User = Depends(get_actor),
+):
     try:
-        p = await projects_uc.create_project(session, projects_uc.ProjectInput(
-            name=payload.name or "", mnemonic=payload.mnemonic or "",
-            path=payload.path or "", base_branch=payload.baseBranch or "main",
-            description=payload.description))
+        p = await projects_uc.create_project(
+            session,
+            projects_uc.ProjectInput(
+                name=payload.name or "",
+                mnemonic=payload.mnemonic or "",
+                path=payload.path or "",
+                base_branch=payload.baseBranch or "main",
+                description=payload.description,
+            ),
+        )
     except DomainError as err:
         raise ApiError(400, err.message, tech=err.tech)
     return {"id": str(p.id), "mnemonic": p.mnemonic}
 
 
 @router.patch("/projects/{project_id}")
-async def projects_update(project_id: str, payload: ProjectIn,
-                          session: AsyncSession = Depends(get_session),
-                          actor: User = Depends(get_actor)):
+async def projects_update(
+    project_id: str,
+    payload: ProjectIn,
+    session: AsyncSession = Depends(get_session),
+    actor: User = Depends(get_actor),
+):
     import uuid as uuid_mod
 
     try:
-        await projects_uc.update_project(session, uuid_mod.UUID(project_id),
-                                         payload.model_dump(exclude_none=True))
+        await projects_uc.update_project(
+            session, uuid_mod.UUID(project_id), payload.model_dump(exclude_none=True)
+        )
     except DomainError as err:
         raise ApiError(400, err.message)
     return {"ok": True}
 
 
 @router.post("/projects/{project_id}/archive")
-async def projects_archive(project_id: str, archived: bool = True,
-                           session: AsyncSession = Depends(get_session),
-                           actor: User = Depends(get_actor)):
+async def projects_archive(
+    project_id: str,
+    archived: bool = True,
+    session: AsyncSession = Depends(get_session),
+    actor: User = Depends(get_actor),
+):
     import uuid as uuid_mod
 
     try:
@@ -95,8 +131,9 @@ async def projects_archive(project_id: str, archived: bool = True,
 
 
 @router.delete("/projects/{project_id}")
-async def projects_delete(project_id: str, session: AsyncSession = Depends(get_session),
-                          actor: User = Depends(get_actor)):
+async def projects_delete(
+    project_id: str, session: AsyncSession = Depends(get_session), actor: User = Depends(get_actor)
+):
     import uuid as uuid_mod
 
     try:
@@ -107,8 +144,9 @@ async def projects_delete(project_id: str, session: AsyncSession = Depends(get_s
 
 
 @router.get("/projects/{key}/repos")
-async def project_repos(key: str, session: AsyncSession = Depends(get_session),
-                        actor: User = Depends(get_actor)):
+async def project_repos(
+    key: str, session: AsyncSession = Depends(get_session), actor: User = Depends(get_actor)
+):
     """Git-репозитории внутри папки проекта (мультирепозиторий, решение
     владельца 29.10.2026). Корень-репозиторий (если проект — одиночный репо)
     возвращается первым с repoPath=null."""
@@ -119,8 +157,9 @@ async def project_repos(key: str, session: AsyncSession = Depends(get_session),
 
     proj = None
     if key.upper() == key and len(key) <= 10:  # мнемоника
-        proj = (await session.execute(
-            sa.select(Project).where(Project.mnemonic == key.upper()))).scalar_one_or_none()
+        proj = (
+            await session.execute(sa.select(Project).where(Project.mnemonic == key.upper()))
+        ).scalar_one_or_none()
     if proj is None:
         try:
             proj = await session.get(Project, uuid_mod.UUID(key))
@@ -145,13 +184,24 @@ async def project_repos(key: str, session: AsyncSession = Depends(get_session),
 
 
 @router.get("/users")
-async def users_list(session: AsyncSession = Depends(get_session),
-                     actor: User = Depends(get_actor)):
+async def users_list(
+    session: AsyncSession = Depends(get_session), actor: User = Depends(get_actor)
+):
     """Единый список людей и агентов (ФТ-ah-72) — матрица назначений и адресаты."""
     import sqlalchemy as sa
 
-    rows = (await session.execute(
-        sa.select(User).where(User.is_service.is_(False))
-        .order_by(User.user_type, User.name))).scalars().all()
-    return [{"id": str(u.id), "name": u.name, "userType": u.user_type,
-             "isChatBot": u.is_chat_bot} for u in rows]
+    rows = (
+        (
+            await session.execute(
+                sa.select(User)
+                .where(User.is_service.is_(False))
+                .order_by(User.user_type, User.name)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [
+        {"id": str(u.id), "name": u.name, "userType": u.user_type, "isChatBot": u.is_chat_bot}
+        for u in rows
+    ]

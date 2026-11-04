@@ -24,34 +24,46 @@ def _total(run: TaskRun) -> int:
 
 def _item(run: TaskRun, code: str, title: str, agent: str, now: dt.datetime) -> dict:
     hb = run.heartbeat_at
-    return {"code": code, "title": title, "agent": agent,
-            "minutes": int((now - run.started_at).total_seconds() // 60),
-            "stale": hb is not None and (now - hb).total_seconds() > STALE_SECONDS,
-            "input": run.input_tokens or 0, "output": run.output_tokens or 0,
-            "cache": run.cache_tokens or 0, "total": _total(run)}
+    return {
+        "code": code,
+        "title": title,
+        "agent": agent,
+        "minutes": int((now - run.started_at).total_seconds() // 60),
+        "stale": hb is not None and (now - hb).total_seconds() > STALE_SECONDS,
+        "input": run.input_tokens or 0,
+        "output": run.output_tokens or 0,
+        "cache": run.cache_tokens or 0,
+        "total": _total(run),
+    }
 
 
 async def activity_snapshot(session: AsyncSession) -> list[dict]:
     """Все задачи, над которыми прямо сейчас работает агент (доска, список, шапка)."""
     now = dt.datetime.now(dt.timezone.utc)
-    rows = (await session.execute(
-        sa.select(TaskRun, Task.code, Task.title, User.name)
-        .join(Task, Task.id == TaskRun.task_id)
-        .join(User, User.id == TaskRun.agent_id)
-        .where(TaskRun.finished_at.is_(None))
-        .order_by(TaskRun.started_at))).all()
-    return [_item(run, code, title, agent, now)
-            for run, code, title, agent in rows]
+    rows = (
+        await session.execute(
+            sa.select(TaskRun, Task.code, Task.title, User.name)
+            .join(Task, Task.id == TaskRun.task_id)
+            .join(User, User.id == TaskRun.agent_id)
+            .where(TaskRun.finished_at.is_(None))
+            .order_by(TaskRun.started_at)
+        )
+    ).all()
+    return [_item(run, code, title, agent, now) for run, code, title, agent in rows]
 
 
 async def task_activity(session: AsyncSession, task_id) -> dict | None:
     """Активный прогон одной задачи (карточка, живая шапка и хроника)."""
     now = dt.datetime.now(dt.timezone.utc)
-    row = (await session.execute(
-        sa.select(TaskRun, User.name)
-        .join(User, User.id == TaskRun.agent_id)
-        .where(TaskRun.task_id == task_id, TaskRun.finished_at.is_(None))
-        .order_by(TaskRun.started_at.desc()).limit(1))).first()
+    row = (
+        await session.execute(
+            sa.select(TaskRun, User.name)
+            .join(User, User.id == TaskRun.agent_id)
+            .where(TaskRun.task_id == task_id, TaskRun.finished_at.is_(None))
+            .order_by(TaskRun.started_at.desc())
+            .limit(1)
+        )
+    ).first()
     if row is None:
         return None
     run, agent = row
@@ -60,9 +72,9 @@ async def task_activity(session: AsyncSession, task_id) -> dict | None:
     return item
 
 
-async def chronicle_after(session: AsyncSession, task_id,
-                          after: dt.datetime | None, seen: set[str]
-                          ) -> tuple[list[dict], dt.datetime | None]:
+async def chronicle_after(
+    session: AsyncSession, task_id, after: dt.datetime | None, seen: set[str]
+) -> tuple[list[dict], dt.datetime | None]:
     """Записи хроники новее watermark; seen отсекает повторы в ту же секунду."""
     q = sa.select(Chronicle).where(Chronicle.task_id == task_id)
     if after is not None:
@@ -73,16 +85,31 @@ async def chronicle_after(session: AsyncSession, task_id,
         if str(c.id) in seen:
             continue
         seen.add(str(c.id))
-        out.append({"id": str(c.id), "type": c.event_type, "authorKind": c.author_kind,
-                    "ruleCode": c.rule_code, "message": c.message,
-                    "at": c.created_at.isoformat()})
+        out.append(
+            {
+                "id": str(c.id),
+                "type": c.event_type,
+                "authorKind": c.author_kind,
+                "ruleCode": c.rule_code,
+                "message": c.message,
+                "at": c.created_at.isoformat(),
+            }
+        )
     return out, (rows[-1].created_at if rows else after)
 
 
 async def log_after(session: AsyncSession, run_id, after_seq: int) -> list[dict]:
     """Новые строки живого лога активного прогона (для строки «что делает сейчас»)."""
-    rows = (await session.execute(
-        sa.select(TaskRunLog)
-        .where(TaskRunLog.run_id == run_id, TaskRunLog.seq > after_seq)
-        .order_by(TaskRunLog.seq).limit(50))).scalars().all()
+    rows = (
+        (
+            await session.execute(
+                sa.select(TaskRunLog)
+                .where(TaskRunLog.run_id == run_id, TaskRunLog.seq > after_seq)
+                .order_by(TaskRunLog.seq)
+                .limit(50)
+            )
+        )
+        .scalars()
+        .all()
+    )
     return [{"seq": r.seq, "kind": r.kind, "text": r.text} for r in rows]

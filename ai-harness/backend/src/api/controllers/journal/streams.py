@@ -15,6 +15,7 @@ router = APIRouter()
 
 # ---------- живые события интерфейса (решение владельца 27.10.2026) ----------
 
+
 @router.get("/activity/stream")
 async def activity_stream(actor: User = Depends(actor_snapshot)):
     """SSE: задачи «агент работает сейчас» — индикаторы на доске, в списке, в шапке.
@@ -39,9 +40,11 @@ async def activity_stream(actor: User = Depends(actor_snapshot)):
                 yield ": keep-alive\n\n"
             await asyncio.sleep(2.0)
 
-    return StreamingResponse(gen(), media_type="text/event-stream",
-                             headers={"X-Accel-Buffering": "no",
-                                      "Cache-Control": "no-cache"})
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+    )
 
 
 @router.get("/tasks/{code}/live")
@@ -65,8 +68,9 @@ async def task_live_stream(code: str, actor: User = Depends(actor_snapshot)):
         last_run = ""
         for _ in range(600):  # ~15 мин по 1.5 с
             async with get_sessionmaker()() as s:
-                task = (await s.execute(
-                    sa.select(Task).where(Task.code == code.upper()))).scalar_one_or_none()
+                task = (
+                    await s.execute(sa.select(Task).where(Task.code == code.upper()))
+                ).scalar_one_or_none()
                 if task is None:
                     yield "event: end\ndata: not-found\n\n"
                     return
@@ -91,9 +95,11 @@ async def task_live_stream(code: str, actor: User = Depends(actor_snapshot)):
             await asyncio.sleep(1.5)
         yield "event: end\ndata: cycle\n\n"
 
-    return StreamingResponse(gen(), media_type="text/event-stream",
-                             headers={"X-Accel-Buffering": "no",
-                                      "Cache-Control": "no-cache"})
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+    )
 
 
 @router.get("/tasks/{code}/run-log/stream")
@@ -117,15 +123,20 @@ async def run_log_stream(code: str, actor: User = Depends(actor_snapshot)):
             # переподключается сам; без предела while True держал фоновый поллинг
             # БД бесконечно (анализ 03.11.2026, линейный рост числа фоновых запросов)
             async with get_sessionmaker()() as s:
-                task = (await s.execute(
-                    sa.select(Task).where(Task.code == code.upper()))).scalar_one_or_none()
+                task = (
+                    await s.execute(sa.select(Task).where(Task.code == code.upper()))
+                ).scalar_one_or_none()
                 if task is None:
                     yield "event: end\ndata: not-found\n\n"
                     return
-                run = (await s.execute(
-                    sa.select(TaskRun)
-                    .where(TaskRun.task_id == task.id, TaskRun.finished_at.is_(None))
-                    .order_by(TaskRun.started_at.desc()).limit(1))).scalar_one_or_none()
+                run = (
+                    await s.execute(
+                        sa.select(TaskRun)
+                        .where(TaskRun.task_id == task.id, TaskRun.finished_at.is_(None))
+                        .order_by(TaskRun.started_at.desc())
+                        .limit(1)
+                    )
+                ).scalar_one_or_none()
                 if run is None:
                     idle += 1
                     if idle > 30:  # ~1 мин без активного прогона — закрываем поток
@@ -135,18 +146,33 @@ async def run_log_stream(code: str, actor: User = Depends(actor_snapshot)):
                     await asyncio.sleep(2.0)
                     continue
                 idle = 0
-                rows = (await s.execute(
-                    sa.select(TaskRunLog)
-                    .where(TaskRunLog.run_id == run.id, TaskRunLog.seq > last)
-                    .order_by(TaskRunLog.seq).limit(200))).scalars().all()
+                rows = (
+                    (
+                        await s.execute(
+                            sa.select(TaskRunLog)
+                            .where(TaskRunLog.run_id == run.id, TaskRunLog.seq > last)
+                            .order_by(TaskRunLog.seq)
+                            .limit(200)
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
                 for r in rows:
                     last = r.seq
-                    payload = {"seq": r.seq, "kind": r.kind, "text": r.text,
-                               "data": r.data, "at": r.created_at.isoformat()}
+                    payload = {
+                        "seq": r.seq,
+                        "kind": r.kind,
+                        "text": r.text,
+                        "data": r.data,
+                        "at": r.created_at.isoformat(),
+                    }
                     yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
             await asyncio.sleep(1.0)
         yield "event: end\ndata: cycle\n\n"
 
-    return StreamingResponse(gen(), media_type="text/event-stream",
-                             headers={"X-Accel-Buffering": "no",
-                                      "Cache-Control": "no-cache"})
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+    )

@@ -26,8 +26,9 @@ class TransitionDenied(Exception):
         self.code = code  # машиночитаемый код из Decision.code (миграция 0013)
 
 
-async def _subject_for(session: AsyncSession, actor: User | None, task: Task,
-                       kind: str | None = None) -> Subject:
+async def _subject_for(
+    session: AsyncSession, actor: User | None, task: Task, kind: str | None = None
+) -> Subject:
     if kind:
         return Subject(kind=kind)
     if actor is None:
@@ -36,7 +37,8 @@ async def _subject_for(session: AsyncSession, actor: User | None, task: Task,
         if actor.is_chat_bot:
             return Subject(kind="eve", user_id=str(actor.id))
         return Subject(
-            kind="agent", user_id=str(actor.id),
+            kind="agent",
+            user_id=str(actor.id),
             assigned_statuses=await assigned_statuses(session, actor.id, task.task_type_id),
         )
     return Subject(kind="human", user_id=str(actor.id))
@@ -44,9 +46,9 @@ async def _subject_for(session: AsyncSession, actor: User | None, task: Task,
 
 async def _load_task(session: AsyncSession, code: str) -> Task:
     # FOR UPDATE: два параллельных перевода не проходят проверку одного статуса
-    task = (await session.execute(
-        sa.select(Task).where(Task.code == code.upper()).with_for_update()
-    )).scalar_one_or_none()
+    task = (
+        await session.execute(sa.select(Task).where(Task.code == code.upper()).with_for_update())
+    ).scalar_one_or_none()
     if task is None:
         raise DomainError(f"Задача {code} не найдена", tech="task not found")
     return task
@@ -62,10 +64,16 @@ async def task_flow_version_id(session: AsyncSession, task) -> uuid.UUID:
     return row or task.flow_version_id
 
 
-async def apply_transition(session: AsyncSession, actor: User | None, code: str,
-                           to: str, *, subject_kind: str | None = None,
-                           rule_code: str | None = None,
-                           _allow_cascade: bool = True) -> Task:
+async def apply_transition(
+    session: AsyncSession,
+    actor: User | None,
+    code: str,
+    to: str,
+    *,
+    subject_kind: str | None = None,
+    rule_code: str | None = None,
+    _allow_cascade: bool = True,
+) -> Task:
     """Валидный переход по flow. Отказ по гейту → TransitionDenied (applied=False);
     отказ по правам агента → 403 + событие «запрет» (ФТ-ah-27); недопустимое ребро → 400."""
     task = await _load_task(session, code)
@@ -83,9 +91,9 @@ async def apply_transition(session: AsyncSession, actor: User | None, code: str,
     if not decision.allowed:
         if subject.kind == "agent":
             await _record_denial(session, task, actor, decision.reason)
-        raise TransitionDenied(decision.reason,
-                               status_code=403 if subject.kind == "agent" else 200,
-                               code=decision.code)
+        raise TransitionDenied(
+            decision.reason, status_code=403 if subject.kind == "agent" else 200, code=decision.code
+        )
 
     prev_label = graph.statuses[task.status_key].label
     prev_key = task.status_key
@@ -107,13 +115,17 @@ async def apply_transition(session: AsyncSession, actor: User | None, code: str,
         task.reserved_at = None
         task.heartbeat_at = None
 
-    session.add(Chronicle(
-        task_id=task.id, event_type="transition",
-        author_id=None if subject.kind == "auto" else (actor.id if actor else None),
-        author_kind=subject.kind, rule_code=rule_code,
-        message=f"Перевод: «{prev_label}» → «{graph.statuses[to].label}»"
-                + (f" (правило {rule_code})" if rule_code else ""),
-    ))
+    session.add(
+        Chronicle(
+            task_id=task.id,
+            event_type="transition",
+            author_id=None if subject.kind == "auto" else (actor.id if actor else None),
+            author_kind=subject.kind,
+            rule_code=rule_code,
+            message=f"Перевод: «{prev_label}» → «{graph.statuses[to].label}»"
+            + (f" (правило {rule_code})" if rule_code else ""),
+        )
+    )
     from usecase.journal.notifications import on_transition
 
     task_for_hook = task
@@ -123,15 +135,26 @@ async def apply_transition(session: AsyncSession, actor: User | None, code: str,
 
     # каскад терминального статуса по связям (решение владельца 26.10.2026):
     # при отмене/закрытии задачи связанные с ней задачи получают тот же статус
-    if (to in ("done", "canceled") and _allow_cascade
-            and subject.kind in ("human", "eve") and actor is not None):
+    if (
+        to in ("done", "canceled")
+        and _allow_cascade
+        and subject.kind in ("human", "eve")
+        and actor is not None
+    ):
         await _cascade_terminal(session, task, to, actor, visited={task.code})
 
     return task
 
 
-async def apply_blocked(session: AsyncSession, task: Task, actor: User | None,
-                        reason: str, *, subject_kind: str, rule_code: str) -> Task:
+async def apply_blocked(
+    session: AsyncSession,
+    task: Task,
+    actor: User | None,
+    reason: str,
+    *,
+    subject_kind: str,
+    rule_code: str,
+) -> Task:
     """Единственная точка автоблокировки: сначала легальное ребро
     <статус>→blocked движком (с правами субъекта и уведомлениями), при его
     отсутствии — прямой write с rule_code в хронику (escape-семантика engine,
@@ -152,45 +175,67 @@ async def apply_blocked(session: AsyncSession, task: Task, actor: User | None,
     # мусор в хронике VITRINA-1, ночь 02→03.11.2026.
     if graph.edge(task.status_key, "blocked") is not None and subject_kind != "agent":
         gates = await load_gate_data(session, task)
-        decision = check_edge(graph, task.status_key, "blocked",
-                              await _subject_for(session, actor, task, subject_kind),
-                              gates)
+        decision = check_edge(
+            graph,
+            task.status_key,
+            "blocked",
+            await _subject_for(session, actor, task, subject_kind),
+            gates,
+        )
         if decision.allowed:
             task.blocked_reason = reason[:500]
-            return await apply_transition(session, actor, task.code, "blocked",
-                                          subject_kind=subject_kind,
-                                          rule_code=rule_code)
+            return await apply_transition(
+                session, actor, task.code, "blocked", subject_kind=subject_kind, rule_code=rule_code
+            )
     task.status_key = "blocked"
     task.blocked_rule = rule_code[:16] if rule_code else None
     task.updated_at = dt.datetime.now(dt.timezone.utc)
     task.blocked_reason = reason[:500]
     denial = decision and not decision.allowed
-    session.add(Chronicle(
-        task_id=task.id, event_type="transition",
-        author_id=actor.id if actor is not None else None,
-        author_kind=subject_kind if subject_kind in ("agent", "eve") else "auto",
-        rule_code=rule_code,
-        message="Автоблокировка: " + (f"{decision.reason} " if denial else "") + reason,
-    ))
+    session.add(
+        Chronicle(
+            task_id=task.id,
+            event_type="transition",
+            author_id=actor.id if actor is not None else None,
+            author_kind=subject_kind if subject_kind in ("agent", "eve") else "auto",
+            rule_code=rule_code,
+            message="Автоблокировка: " + (f"{decision.reason} " if denial else "") + reason,
+        )
+    )
     return task
 
 
-async def _cascade_terminal(session: AsyncSession, task: Task, to: str,
-                            actor: User, visited: set[str]) -> None:
+async def _cascade_terminal(
+    session: AsyncSession, task: Task, to: str, actor: User, visited: set[str]
+) -> None:
     """Связанные задачи (оба направления, кроме историй) получают тот же статус:
     движком, а при отсутствии ребра — форсом с причиной-каскадом. Истории
     исключены: их жизненным циклом управляют зеркала M1–M6 и зачёт ПСИ."""
     import sqlalchemy as sa
     from repository.models import TaskRelation, TaskType
 
-    rels = (await session.execute(
-        sa.select(TaskRelation)
-        .join(Task, Task.id == TaskRelation.to_task)
-        .where(TaskRelation.from_task == task.id))).scalars().all()
-    rels += (await session.execute(
-        sa.select(TaskRelation)
-        .join(Task, Task.id == TaskRelation.from_task)
-        .where(TaskRelation.to_task == task.id))).scalars().all()
+    rels = (
+        (
+            await session.execute(
+                sa.select(TaskRelation)
+                .join(Task, Task.id == TaskRelation.to_task)
+                .where(TaskRelation.from_task == task.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    rels += (
+        (
+            await session.execute(
+                sa.select(TaskRelation)
+                .join(Task, Task.id == TaskRelation.from_task)
+                .where(TaskRelation.to_task == task.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
     seen_ids: set = set()
     neighbor_ids: list = []
     failed: list[tuple[str, str]] = []  # (код соседа, причина) — попадают в хронику
@@ -205,23 +250,26 @@ async def _cascade_terminal(session: AsyncSession, task: Task, to: str,
     # соседи одним joined-запросом (анализ 30.10.2026: 3-4 запроса на каждого)
     if not neighbor_ids:
         return
-    neighbors = (await session.execute(
-        sa.select(Task, TaskType.key)
-        .join(TaskType, TaskType.id == Task.task_type_id)
-        .where(Task.id.in_(neighbor_ids)))).all()
+    neighbors = (
+        await session.execute(
+            sa.select(Task, TaskType.key)
+            .join(TaskType, TaskType.id == Task.task_type_id)
+            .where(Task.id.in_(neighbor_ids))
+        )
+    ).all()
     for neighbor, tkey in neighbors:
         if neighbor.status_key == to or tkey == "story":
             continue
         visited.add(neighbor.code)
         try:
-            await apply_transition(session, actor, neighbor.code, to,
-                                   _allow_cascade=False)
+            await apply_transition(session, actor, neighbor.code, to, _allow_cascade=False)
         except TransitionDenied:
             if to == "done":
                 # ребра до done из произвольного статуса обычно нет — каскад форсом
                 try:
-                    await apply_force(session, actor, neighbor.code, to,
-                                      f"каскад при закрытии {task.code}")
+                    await apply_force(
+                        session, actor, neighbor.code, to, f"каскад при закрытии {task.code}"
+                    )
                 except (TransitionDenied, DomainError) as err:
                     failed.append((neighbor.code, str(err)))
             else:
@@ -231,17 +279,22 @@ async def _cascade_terminal(session: AsyncSession, task: Task, to: str,
     # прозрачность каскада (было: молчаливый `except … pass` — отказ оставлял
     # соседа в старом статусе без следа в хронике; анализ 03.11.2026)
     if failed:
-        session.add(Chronicle(
-            task_id=task.id, event_type="transition", author_id=actor.id,
-            author_kind="human",
-            rule_code="CASCADE",
-            message="Каскад «" + to + "» не прошёл для: "
-                    + "; ".join(f"{c} — {r}" for c, r in failed)[:450],
-        ))
+        session.add(
+            Chronicle(
+                task_id=task.id,
+                event_type="transition",
+                author_id=actor.id,
+                author_kind="human",
+                rule_code="CASCADE",
+                message="Каскад «"
+                + to
+                + "» не прошёл для: "
+                + "; ".join(f"{c} — {r}" for c, r in failed)[:450],
+            )
+        )
 
 
-async def apply_force(session: AsyncSession, actor: User, code: str, to: str,
-                      reason: str) -> Task:
+async def apply_force(session: AsyncSession, actor: User, code: str, to: str, reason: str) -> Task:
     """Форс-переход: только человек, причина обязательна, любой статус (ФТ-ah-28)."""
     task = await _load_task(session, code)
     subject = await _subject_for(session, actor, task)
@@ -249,7 +302,9 @@ async def apply_force(session: AsyncSession, actor: User, code: str, to: str,
 
     decision = check_force(graph, task.status_key, to, subject, reason)
     if not decision.allowed:
-        raise TransitionDenied(decision.reason, status_code=403 if subject.kind in ("agent", "auto") else 400)
+        raise TransitionDenied(
+            decision.reason, status_code=403 if subject.kind in ("agent", "auto") else 400
+        )
 
     prev_key = task.status_key
     prev_label = graph.statuses[prev_key].label
@@ -265,12 +320,16 @@ async def apply_force(session: AsyncSession, actor: User, code: str, to: str,
     task.reserved_by = None
     task.reserved_at = None
     task.heartbeat_at = None
-    session.add(Chronicle(
-        task_id=task.id, event_type="force", author_id=actor.id,
-        author_kind="human",
-        message=f"Форс: «{prev_label}» → «{graph.statuses[to].label}» — {reason.strip()} "
-                "(ручное вмешательство)",
-    ))
+    session.add(
+        Chronicle(
+            task_id=task.id,
+            event_type="force",
+            author_id=actor.id,
+            author_kind="human",
+            message=f"Форс: «{prev_label}» → «{graph.statuses[to].label}» — {reason.strip()} "
+            "(ручное вмешательство)",
+        )
+    )
     from usecase.journal.notifications import on_transition
 
     await on_transition(session, task, to)
@@ -278,25 +337,37 @@ async def apply_force(session: AsyncSession, actor: User, code: str, to: str,
     return task
 
 
-async def _record_denial(session: AsyncSession, task: Task, actor: User | None,
-                         reason: str) -> None:
+async def _record_denial(
+    session: AsyncSession, task: Task, actor: User | None, reason: str
+) -> None:
     """Событие «запрет»; повторное нарушение → blocked (ФТ-ah-27)."""
-    session.add(Chronicle(
-        task_id=task.id, event_type="denied",
-        author_id=actor.id if actor else None, author_kind="agent",
-        message=f"Попытка агента отклонена: {reason}",
-    ))
-    denials = (await session.execute(
-        sa.select(sa.func.count()).select_from(Chronicle)
-        .where(Chronicle.task_id == task.id, Chronicle.event_type == "denied")
-    )).scalar_one()
+    session.add(
+        Chronicle(
+            task_id=task.id,
+            event_type="denied",
+            author_id=actor.id if actor else None,
+            author_kind="agent",
+            message=f"Попытка агента отклонена: {reason}",
+        )
+    )
+    denials = (
+        await session.execute(
+            sa.select(sa.func.count())
+            .select_from(Chronicle)
+            .where(Chronicle.task_id == task.id, Chronicle.event_type == "denied")
+        )
+    ).scalar_one()
     if denials >= 2:
         task.status_key = "blocked"
         task.blocked_reason = "Повторные нарушения прав агента"
         task.blocked_rule = "DENY"
-        session.add(Chronicle(
-            task_id=task.id, event_type="transition", author_kind="auto",
-            rule_code="DENY",
-            message="Автоблокировка: повторные нарушения прав агента",
-        ))
+        session.add(
+            Chronicle(
+                task_id=task.id,
+                event_type="transition",
+                author_kind="auto",
+                rule_code="DENY",
+                message="Автоблокировка: повторные нарушения прав агента",
+            )
+        )
     await session.commit()

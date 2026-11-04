@@ -23,8 +23,12 @@ class CreateTaskInput:
     tags: list[str] = field(default_factory=list)
     description_md: str = ""
     story_code: str | None = None
-    psi_path: str | None = None  # путь сохранения psi.md (только истории; null — дефолт .harness/psi/<код>/)
-    repo_path: str | None = None  # целевой репозиторий в мультирепозитории проекта (относительный путь)
+    psi_path: str | None = (
+        None  # путь сохранения psi.md (только истории; null — дефолт .harness/psi/<код>/)
+    )
+    repo_path: str | None = (
+        None  # целевой репозиторий в мультирепозитории проекта (относительный путь)
+    )
     # Модерация состоялась в чате Eve (ФТ-ah-19, третье исключение); проставляет только контур Eve
     eve_confirmed: bool = False
 
@@ -73,7 +77,8 @@ async def create_task(session: AsyncSession, actor: User, data: CreateTaskInput)
     ).first()
     if flow_version is None:
         raise DomainError(
-            f"У типа {data.type_key!r} нет опубликованной версии flow — опубликуйте её в настройках",
+            f"У типа {data.type_key!r} нет опубликованной версии flow — "
+            "опубликуйте её в настройках",
             field="type",
         )
 
@@ -192,6 +197,8 @@ async def _validate_repo_path(project, repo_path: str | None) -> str | None:
     except ValueError as err:
         raise DomainError("Репозиторий задачи должен лежать внутри папки проекта") from err
     if not (candidate / ".git").exists():
-        raise DomainError(f"«{clean}» — не git-репозиторий внутри проекта (нет .git); "
-                          "укажите подпапку с репозиторием")
+        raise DomainError(
+            f"«{clean}» — не git-репозиторий внутри проекта (нет .git); "
+            "укажите подпапку с репозиторием"
+        )
     return clean

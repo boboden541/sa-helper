@@ -7,8 +7,13 @@ from usecase.task.create_task import CreateTaskInput, create_task
 
 
 def _inp(**kw):
-    base = dict(project_mnemonic="AH", type_key="common_task", title="Модерация",
-                priority="medium", author_tag="by_human")
+    base = dict(
+        project_mnemonic="AH",
+        type_key="common_task",
+        title="Модерация",
+        priority="medium",
+        author_tag="by_human",
+    )
     base.update(kw)
     return CreateTaskInput(**base)
 
@@ -26,10 +31,13 @@ async def test_human_creates_pending_with_notification(session, actor_id):
     actor = await session.get(User, actor_id)
     created = await create_task(session, actor, _inp())
     assert created.status == "pending"
-    notif = (await session.execute(
-        sa.select(Notification).where(Notification.code == created.code,
-                                      Notification.event_key == "pending_moderation")
-    )).scalar_one()
+    notif = (
+        await session.execute(
+            sa.select(Notification).where(
+                Notification.code == created.code, Notification.event_key == "pending_moderation"
+            )
+        )
+    ).scalar_one()
     assert notif.resolved_at is None
 
 
@@ -40,13 +48,10 @@ async def test_agent_subtask_of_story_skips_pending(session, actor_id):
     human = await session.get(User, actor_id)
     story = await create_task(session, human, _inp(type_key="story", title="История про оплаты"))
     # апрув истории → to do напрямую (пресет без бэклога, решение владельца 29.10.2026)
-    await session.execute(sa.update(Task).where(Task.code == story.code)
-                          .values(status_key="todo"))
+    await session.execute(sa.update(Task).where(Task.code == story.code).values(status_key="todo"))
     await session.commit()
 
-    agent = (await session.execute(
-        sa.select(User).where(User.name == "Разработчик")
-    )).scalar_one()
+    agent = (await session.execute(sa.select(User).where(User.name == "Разработчик"))).scalar_one()
     sub = await create_task(session, agent, _inp(title="Подзадача", story_code=story.code))
     assert await _status_of(session, sub.code) == "todo"
 
@@ -57,11 +62,13 @@ async def test_bug_with_parent_in_testing_skips_pending(session, actor_id):
 
     human = await session.get(User, actor_id)
     story = await create_task(session, human, _inp(type_key="story", title="История на тесте"))
-    await session.execute(sa.update(Task).where(Task.code == story.code)
-                          .values(status_key="in_testing"))
+    await session.execute(
+        sa.update(Task).where(Task.code == story.code).values(status_key="in_testing")
+    )
     await session.commit()
-    bug = await create_task(session, human, _inp(type_key="bug", title="Баг из теста",
-                                                 story_code=story.code))
+    bug = await create_task(
+        session, human, _inp(type_key="bug", title="Баг из теста", story_code=story.code)
+    )
     assert await _status_of(session, bug.code) == "todo"
 
 

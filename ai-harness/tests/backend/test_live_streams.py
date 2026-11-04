@@ -11,34 +11,52 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from usecase.journal.live import activity_snapshot, chronicle_after, task_activity
 
 
-async def _mk_run(_test_db, code: str, tokens: tuple[int, int, int],
-                  finished: bool = False) -> None:
+async def _mk_run(
+    _test_db, code: str, tokens: tuple[int, int, int], finished: bool = False
+) -> None:
     maker = async_sessionmaker(_test_db, expire_on_commit=False)
     async with maker() as s:
-        task = (await s.execute(
-            sa.select(Task).where(Task.code == code))).scalar_one()
-        agent = (await s.execute(
-            sa.select(User).where(User.user_type == "agent"))).scalars().first()
-        s.add(TaskRun(task_id=task.id, agent_id=agent.id, status_key=task.status_key,
-                      input_tokens=tokens[0], output_tokens=tokens[1],
-                      cache_tokens=tokens[2],
-                      finished_at=dt.datetime.now(dt.timezone.utc) if finished else None))
+        task = (await s.execute(sa.select(Task).where(Task.code == code))).scalar_one()
+        agent = (
+            (await s.execute(sa.select(User).where(User.user_type == "agent"))).scalars().first()
+        )
+        s.add(
+            TaskRun(
+                task_id=task.id,
+                agent_id=agent.id,
+                status_key=task.status_key,
+                input_tokens=tokens[0],
+                output_tokens=tokens[1],
+                cache_tokens=tokens[2],
+                finished_at=dt.datetime.now(dt.timezone.utc) if finished else None,
+            )
+        )
         await s.commit()
 
 
 async def _clean(_test_db) -> None:
     async with async_sessionmaker(_test_db, expire_on_commit=False)() as s:
-        await s.execute(sa.text(
-            "TRUNCATE task, task_run, task_tag, tag, chronicle, notification, "
-            "task_relation RESTART IDENTITY CASCADE"))
+        await s.execute(
+            sa.text(
+                "TRUNCATE task, task_run, task_tag, tag, chronicle, notification, "
+                "task_relation RESTART IDENTITY CASCADE"
+            )
+        )
         await s.execute(sa.text("UPDATE project SET next_number = 1"))
         await s.commit()
 
 
 async def _mk_task(client, title="Живая задача") -> str:
-    r = await client.post("/api/v1/tasks", json={
-        "projectId": "AH", "type": "common_task", "title": title,
-        "priority": "high", "authorTag": "by_human"})
+    r = await client.post(
+        "/api/v1/tasks",
+        json={
+            "projectId": "AH",
+            "type": "common_task",
+            "title": title,
+            "priority": "high",
+            "authorTag": "by_human",
+        },
+    )
     assert r.status_code == 200, r.text
     return r.json()["code"]
 
@@ -83,8 +101,11 @@ async def test_chronicle_after_watermark(client, _test_db):
         assert items2 == [], "без новых записей прироста нет (seen отсекает повторы)"
         from repository.models import Chronicle
 
-        s.add(Chronicle(task_id=task.id, event_type="agent", author_kind="agent",
-                        message="живая запись"))
+        s.add(
+            Chronicle(
+                task_id=task.id, event_type="agent", author_kind="agent", message="живая запись"
+            )
+        )
         await s.commit()
         items3, _ = await chronicle_after(s, task.id, after, seen)
         assert len(items3) == 1 and items3[0]["message"] == "живая запись"

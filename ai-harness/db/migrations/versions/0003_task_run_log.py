@@ -22,8 +22,12 @@ def upgrade() -> None:
     op.create_table(
         "task_run_log",
         sa.Column("id", UUID(as_uuid=True), primary_key=True),
-        sa.Column("run_id", UUID(as_uuid=True),
-                  sa.ForeignKey("task_run.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "run_id",
+            UUID(as_uuid=True),
+            sa.ForeignKey("task_run.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("seq", sa.Integer(), nullable=False),
         sa.Column("kind", sa.String(16), nullable=False),
         sa.Column("text", sa.Text()),

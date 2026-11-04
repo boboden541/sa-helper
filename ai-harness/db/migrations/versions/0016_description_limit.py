@@ -15,11 +15,9 @@ depends_on = None
 
 def upgrade() -> None:
     op.drop_constraint("ck_task_desc_len", "task", type_="check")
-    op.create_check_constraint("ck_task_desc_len", "task",
-                               "char_length(description_md) <= 150000")
+    op.create_check_constraint("ck_task_desc_len", "task", "char_length(description_md) <= 150000")
 
 
 def downgrade() -> None:
     op.drop_constraint("ck_task_desc_len", "task", type_="check")
-    op.create_check_constraint("ck_task_desc_len", "task",
-                               "char_length(description_md) <= 20000")
+    op.create_check_constraint("ck_task_desc_len", "task", "char_length(description_md) <= 20000")

@@ -47,16 +47,25 @@ def main() -> int:
     run([PY, "-m", "db.seeds.seed_dev"])
 
     env = {**os.environ}
-    api = subprocess.Popen([PY, "-m", "uvicorn", "main:app", "--port", "8124"],
-                           cwd=ROOT / "backend" / "src", env=env,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    api = subprocess.Popen(
+        [PY, "-m", "uvicorn", "main:app", "--port", "8124"],
+        cwd=ROOT / "backend" / "src",
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
     try:
         if not wait_http("http://localhost:8124/api/v1/tasks"):
             print("FAIL: API не поднялся")
             return 3
-        for path in ("/api/v1/notifications", "/api/v1/queue",
-                     "/api/v1/alias-columns", "/api/v1/projects",
-                     "/api/v1/matrix/common_task", "/api/v1/settings-journal"):
+        for path in (
+            "/api/v1/notifications",
+            "/api/v1/queue",
+            "/api/v1/alias-columns",
+            "/api/v1/projects",
+            "/api/v1/matrix/common_task",
+            "/api/v1/settings-journal",
+        ):
             with urllib.request.urlopen(f"http://localhost:8124{path}") as r:
                 assert r.status == 200, path
         print("SMOKE OK: API отвечает на всех контурах")

@@ -10,7 +10,9 @@ KEY = "agents.tools_dir"
 
 
 async def _set_dir(session, path) -> None:
-    row = (await session.execute(sa.select(AppSetting).where(AppSetting.key == KEY))).scalar_one_or_none()
+    row = (
+        await session.execute(sa.select(AppSetting).where(AppSetting.key == KEY))
+    ).scalar_one_or_none()
     if row:
         row.value = str(path)
     else:
@@ -23,15 +25,20 @@ def _mk_tools(tmp_path):
     (root / "commands").mkdir(parents=True)
     (root / "skills" / "demo").mkdir(parents=True)
     (root / "commands" / "hello.md").write_text(
-        '---\ndescription: "Сказать привет"\n---\n# hello\nТело команды', encoding="utf-8")
-    (root / "skills" / "demo" / "SKILL.md").write_text("# Демо-навык\nДелает демо", encoding="utf-8")
+        '---\ndescription: "Сказать привет"\n---\n# hello\nТело команды', encoding="utf-8"
+    )
+    (root / "skills" / "demo" / "SKILL.md").write_text(
+        "# Демо-навык\nДелает демо", encoding="utf-8"
+    )
     return root
 
 
 async def test_tools_scan_list_read(client, session, tmp_path):
     from usecase.settings import tools as tools_uc
 
-    saved = (await session.execute(sa.select(AppSetting.value).where(AppSetting.key == KEY))).scalar_one_or_none()
+    saved = (
+        await session.execute(sa.select(AppSetting.value).where(AppSetting.key == KEY))
+    ).scalar_one_or_none()
     root = _mk_tools(tmp_path)
     await _set_dir(session, root)
     try:
@@ -42,8 +49,7 @@ async def test_tools_scan_list_read(client, session, tmp_path):
         assert listing["drift"] == 0 and listing["counts"]["commands"] == 1
 
         (root / "commands" / "hello.md").write_text("# hello v2", encoding="utf-8")
-        st = {i["name"]: i["status"] for i in
-              (await tools_uc.list_artifacts(session))["items"]}
+        st = {i["name"]: i["status"] for i in (await tools_uc.list_artifacts(session))["items"]}
         assert st["hello"] == "changed"
 
         (root / "commands" / "extra.md").write_text("# extra", encoding="utf-8")
@@ -57,8 +63,7 @@ async def test_tools_scan_list_read(client, session, tmp_path):
         assert art["content"].startswith("# hello v2") and art["changed"] is False
 
         (root / "skills" / "demo" / "SKILL.md").unlink()
-        st4 = {i["name"]: i["status"] for i in
-               (await tools_uc.list_artifacts(session))["items"]}
+        st4 = {i["name"]: i["status"] for i in (await tools_uc.list_artifacts(session))["items"]}
         assert st4["demo"] == "missing"
         s3 = await tools_uc.scan(session)
         assert s3["removed"] == 1
@@ -67,7 +72,9 @@ async def test_tools_scan_list_read(client, session, tmp_path):
 
 
 async def test_tools_api(client, session, tmp_path):
-    saved = (await session.execute(sa.select(AppSetting.value).where(AppSetting.key == KEY))).scalar_one_or_none()
+    saved = (
+        await session.execute(sa.select(AppSetting.value).where(AppSetting.key == KEY))
+    ).scalar_one_or_none()
     root = _mk_tools(tmp_path)
     from repository.models import ToolArtifact
 
@@ -93,11 +100,14 @@ async def test_tools_api(client, session, tmp_path):
 
 # ---------- обратная запись (два входа: файл и веб) ----------
 
+
 async def test_tools_write_roundtrip(client, session, tmp_path):
     from domain.model.validators import DomainError
     from usecase.settings import tools as tools_uc
 
-    saved = (await session.execute(sa.select(AppSetting.value).where(AppSetting.key == KEY))).scalar_one_or_none()
+    saved = (
+        await session.execute(sa.select(AppSetting.value).where(AppSetting.key == KEY))
+    ).scalar_one_or_none()
     root = _mk_tools(tmp_path)
     from repository.models import ToolArtifact
 
@@ -106,9 +116,14 @@ async def test_tools_write_roundtrip(client, session, tmp_path):
     await _set_dir(session, root)
     try:
         await tools_uc.scan(session)
-        who = (await session.execute(sa.text('SELECT id FROM "user" WHERE user_type = :t'),
-                                     {"t": "human"})).scalar_one()
-        res = await tools_uc.write_artifact(session, who, "command", "hello", "# hello v3\nОбновлено")
+        who = (
+            await session.execute(
+                sa.text('SELECT id FROM "user" WHERE user_type = :t'), {"t": "human"}
+            )
+        ).scalar_one()
+        res = await tools_uc.write_artifact(
+            session, who, "command", "hello", "# hello v3\nОбновлено"
+        )
         assert res["ok"] is True
         assert (root / "commands" / "hello.md").read_text(encoding="utf-8").startswith("# hello v3")
 
@@ -129,11 +144,14 @@ async def test_tools_write_roundtrip(client, session, tmp_path):
 
 # ---------- назначение скиллов агентам ----------
 
+
 async def test_agent_skills_assign(client, session, tmp_path):
     from repository.models import AgentProfile, ToolArtifact
     from usecase.settings.agents import create_agent, update_agent
 
-    saved = (await session.execute(sa.select(AppSetting.value).where(AppSetting.key == KEY))).scalar_one_or_none()
+    saved = (
+        await session.execute(sa.select(AppSetting.value).where(AppSetting.key == KEY))
+    ).scalar_one_or_none()
     root = _mk_tools(tmp_path)
     await session.execute(sa.delete(ToolArtifact))
     await session.commit()
@@ -142,18 +160,21 @@ async def test_agent_skills_assign(client, session, tmp_path):
         from usecase.settings import tools as tools_uc
 
         await tools_uc.scan(session)
-        user = await create_agent(session, {"name": "Скилловый", "role": "тест",
-                                            "skills": ["demo"]})
-        p = (await session.execute(sa.select(AgentProfile)
-             .where(AgentProfile.user_id == user.id))).scalar_one()
+        user = await create_agent(
+            session, {"name": "Скилловый", "role": "тест", "skills": ["demo"]}
+        )
+        p = (
+            await session.execute(sa.select(AgentProfile).where(AgentProfile.user_id == user.id))
+        ).scalar_one()
         assert p.skills == ["demo"]
 
         with pytest.raises(Exception, match="нет в реестре"):
             await update_agent(session, user.id, {"skills": ["нет-такого"]})
 
         await update_agent(session, user.id, {"skills": []})
-        p2 = (await session.execute(sa.select(AgentProfile)
-              .where(AgentProfile.user_id == user.id))).scalar_one()
+        p2 = (
+            await session.execute(sa.select(AgentProfile).where(AgentProfile.user_id == user.id))
+        ).scalar_one()
         assert p2.skills is None
     finally:
         await _set_dir(session, saved or "")

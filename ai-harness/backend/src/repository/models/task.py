@@ -45,7 +45,9 @@ class Task(Base):
     reserved_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("user.id"))
     reserved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    psi_path: Mapped[str | None] = mapped_column(String(500))  # путь сохранения psi.md истории (null — дефолт)
+    psi_path: Mapped[str | None] = mapped_column(
+        String(500)
+    )  # путь сохранения psi.md истории (null — дефолт)
     # целевой репозиторий в мультирепозитории проекта (относительный путь)
     repo_path: Mapped[str | None] = mapped_column(String(200))
     retry_count: Mapped[int] = mapped_column(SmallInteger, default=0)
@@ -90,7 +92,9 @@ class ChecklistItem(Base):
     kind: Mapped[str] = mapped_column(String(8), default="item")  # heading|item
     level: Mapped[int | None] = mapped_column(SmallInteger)  # 1..5 для заголовков
     text: Mapped[str] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(String(12), default="todo")  # todo|in_progress|closed|done|failed
+    status: Mapped[str] = mapped_column(
+        String(12), default="todo"
+    )  # todo|in_progress|closed|done|failed
     psi_expected: Mapped[str | None] = mapped_column(Text)
     psi_actual: Mapped[str | None] = mapped_column(Text)
     bug_task_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("task.id"))
@@ -119,7 +123,9 @@ class Tag(Base):
 class TaskTag(Base):
     __tablename__ = "task_tag"
 
-    task_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("task.id", ondelete="CASCADE"), primary_key=True)
+    task_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("task.id", ondelete="CASCADE"), primary_key=True
+    )
     tag_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tag.id"), primary_key=True)
 
 
@@ -128,7 +134,9 @@ class TaskAssignee(Base):
 
     __tablename__ = "task_assignee"
 
-    task_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("task.id", ondelete="CASCADE"), primary_key=True)
+    task_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("task.id", ondelete="CASCADE"), primary_key=True
+    )
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("user.id"), primary_key=True)
 
 
@@ -176,8 +184,11 @@ class TaskRun(Base):
     __tablename__ = "task_run"
     __table_args__ = (
         Index(
-            "uq_task_run_active", "task_id", "agent_id",
-            unique=True, postgresql_where=text("finished_at IS NULL"),
+            "uq_task_run_active",
+            "task_id",
+            "agent_id",
+            unique=True,
+            postgresql_where=text("finished_at IS NULL"),
         ),
         Index("idx_task_run_task", "task_id"),
     )
@@ -188,7 +199,9 @@ class TaskRun(Base):
     status_key: Mapped[str] = mapped_column(String(32))
     attempt_no: Mapped[int] = mapped_column(SmallInteger, default=1)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    heartbeat_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    heartbeat_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     outcome: Mapped[str | None] = mapped_column(String(16))  # success|failed|blocked|interrupted
     detail: Mapped[str | None] = mapped_column(Text)
@@ -201,7 +214,9 @@ class TaskRun(Base):
     input_tokens: Mapped[int] = mapped_column(BigInteger, default=0, server_default=text("0"))
     output_tokens: Mapped[int] = mapped_column(BigInteger, default=0, server_default=text("0"))
     cache_tokens: Mapped[int] = mapped_column(BigInteger, default=0, server_default=text("0"))
-    session_id: Mapped[str | None] = mapped_column(String(64))  # SDK-сессия прогона — для resume (30.10.2026)
+    session_id: Mapped[str | None] = mapped_column(
+        String(64)
+    )  # SDK-сессия прогона — для resume (30.10.2026)
 
 
 # Ссылки на UUID-диалект используются миграциями; держим импорт живым для mypy-полноты

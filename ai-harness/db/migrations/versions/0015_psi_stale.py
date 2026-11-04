@@ -17,8 +17,10 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("task", sa.Column("psi_stale", sa.Boolean(), nullable=False,
-                                    server_default=sa.text("false")))
+    op.add_column(
+        "task",
+        sa.Column("psi_stale", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+    )
 
 
 def downgrade() -> None:

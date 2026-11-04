@@ -60,7 +60,9 @@ extend-exclude = [".venv", ".pgdata", "node_modules", "ai_harness.egg-info", "di
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "B"]
 ignore = [
-    "E501",  # длина строк — комментарии репо часто длинные
+    # E501 (длина строки) больше НЕ игнорируется: репо отформатирован ruff
+    # format (canonical, 03.11.2026), лимит 100 enforced — новые длинные
+    # строки ломают линт
     "B008",  # Depends() в сигнатурах FastAPI
     "E402",  # импорты после кода — паттерн репо (проверка конфига, docstring-контракты)
     "B904",  # raise … from err — стилистика репо

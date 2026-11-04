@@ -29,22 +29,34 @@ def _squeeze(text: str, limit: int = 4000) -> str:
     text = (text or "").strip()
     if len(text) <= limit:
         return text
-    head, tail = text[:1200], text[-(limit - 1200):]
+    head, tail = text[:1200], text[-(limit - 1200) :]
     return f"{head}\n…[сокращено]…\n{tail}"
 
 
 async def build_context_md(session: AsyncSession, task: Task) -> str:
-    type_key = (await session.execute(
-        sa.select(TaskType.key).where(TaskType.id == task.task_type_id))).scalar_one()
-    tags = (await session.execute(
-        sa.select(Tag.label).join(TaskTag, TaskTag.tag_id == Tag.id)
-        .where(TaskTag.task_id == task.id))).scalars().all()
+    type_key = (
+        await session.execute(sa.select(TaskType.key).where(TaskType.id == task.task_type_id))
+    ).scalar_one()
+    tags = (
+        (
+            await session.execute(
+                sa.select(Tag.label)
+                .join(TaskTag, TaskTag.tag_id == Tag.id)
+                .where(TaskTag.task_id == task.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
 
     parts = [
         f"Задача {task.code} [{type_key}] — {task.title}",
         f"Статус: {task.status_key}; приоритет: {task.priority}; теги: {', '.join(tags)}",
-        *( [f"Репозиторий доработки: {task.repo_path} (worktree и ветка task/<код> — в нём)"]
-           if task.repo_path else [] ),
+        *(
+            [f"Репозиторий доработки: {task.repo_path} (worktree и ветка task/<код> — в нём)"]
+            if task.repo_path
+            else []
+        ),
         f"\n## Постановка\n{_squeeze(task.description_md or '(описание пусто)', 60000)}",
     ]
 
@@ -55,26 +67,36 @@ async def build_context_md(session: AsyncSession, task: Task) -> str:
 
         plan_ref = await psi_plan_ref_version(session, task.id)
         if plan_ref is None:
-            parts.append("\n⚠ PSI-ПЛАНА НЕТ: документ ПСИ не зарегистрирован. "
-                         "Составь документ и зарегистрируй версию "
-                         "(POST /stories/{код}/psi через host.docker.internal:8000) — "
-                         "чеклист psi станет планом прогона. Методология psi-methodology.")
+            parts.append(
+                "\n⚠ PSI-ПЛАНА НЕТ: документ ПСИ не зарегистрирован. "
+                "Составь документ и зарегистрируй версию "
+                "(POST /stories/{код}/psi через host.docker.internal:8000) — "
+                "чеклист psi станет планом прогона. Методология psi-methodology."
+            )
         elif plan_ref < task.ref_version:
-            parts.append(f"\n⚠ ПЛАН ПСИ УСТАРЕЛ: эталон постановки v{task.ref_version}, "
-                         f"план заверен v{plan_ref}. Сначала пересмотри план под текущий "
-                         "эталон (сверь с psi.md, дополни/убери пункты) и зарегистрируй "
-                         "новую версию документа — потом прогон. "
-                         "Методология psi-methodology: «Полный прогон обязателен».")
+            parts.append(
+                f"\n⚠ ПЛАН ПСИ УСТАРЕЛ: эталон постановки v{task.ref_version}, "
+                f"план заверен v{plan_ref}. Сначала пересмотри план под текущий "
+                "эталон (сверь с psi.md, дополни/убери пункты) и зарегистрируй "
+                "новую версию документа — потом прогон. "
+                "Методология psi-methodology: «Полный прогон обязателен»."
+            )
         else:
-            parts.append(f"\nПлан ПСИ актуален: эталон v{task.ref_version}, план заверен v{plan_ref}.")
+            parts.append(
+                f"\nПлан ПСИ актуален: эталон v{task.ref_version}, план заверен v{plan_ref}."
+            )
 
     # Чеклисты — ИСТОЧНИК ИСТИНЫ о прогрессе: открытые пункты = точка продолжения
-    checks = (await session.execute(
-        sa.select(Checklist.kind, ChecklistItem.position, ChecklistItem.text,
-                  ChecklistItem.status)
-        .join(ChecklistItem, ChecklistItem.checklist_id == Checklist.id)
-        .where(Checklist.task_id == task.id)
-        .order_by(Checklist.kind, ChecklistItem.position))).all()
+    checks = (
+        await session.execute(
+            sa.select(
+                Checklist.kind, ChecklistItem.position, ChecklistItem.text, ChecklistItem.status
+            )
+            .join(ChecklistItem, ChecklistItem.checklist_id == Checklist.id)
+            .where(Checklist.task_id == task.id)
+            .order_by(Checklist.kind, ChecklistItem.position)
+        )
+    ).all()
     if checks:
         by_kind: dict[str, list] = {}
         for kind, position, text, status in checks:
@@ -88,56 +110,84 @@ async def build_context_md(session: AsyncSession, task: Task) -> str:
             if closed:
                 lines.append(f"- ✓ закрыты: №{', №'.join(closed)}")
             blocks.append("\n".join(lines))
-        parts.append("\n## Чеклисты — источник истины: открытые пункты = с чего продолжить\n"
-                     + "\n".join(blocks))
+        parts.append(
+            "\n## Чеклисты — источник истины: открытые пункты = с чего продолжить\n"
+            + "\n".join(blocks)
+        )
 
     # Отчёты этапов: последние версии — итоги прошлых прогонов (вердикты, найденное)
-    last_v = (sa.select(TaskArtifact.kind,
-                        sa.func.max(TaskArtifact.version).label("v"))
-              .where(TaskArtifact.task_id == task.id)
-              .group_by(TaskArtifact.kind).subquery())
-    arts = (await session.execute(
-        sa.select(TaskArtifact.kind, TaskArtifact.version, TaskArtifact.body_md)
-        .join(last_v, (TaskArtifact.kind == last_v.c.kind)
-             & (TaskArtifact.version == last_v.c.v))
-        .order_by(TaskArtifact.kind))).all()
+    last_v = (
+        sa.select(TaskArtifact.kind, sa.func.max(TaskArtifact.version).label("v"))
+        .where(TaskArtifact.task_id == task.id)
+        .group_by(TaskArtifact.kind)
+        .subquery()
+    )
+    arts = (
+        await session.execute(
+            sa.select(TaskArtifact.kind, TaskArtifact.version, TaskArtifact.body_md)
+            .join(
+                last_v, (TaskArtifact.kind == last_v.c.kind) & (TaskArtifact.version == last_v.c.v)
+            )
+            .order_by(TaskArtifact.kind)
+        )
+    ).all()
     if arts:
-        blocks = [f"### Отчёт {kind} (v{version})\n{_squeeze(body)}"
-                  for kind, version, body in arts]
-        parts.append("\n## Отчёты этапов (итоги прошлых прогонов — не повторяй подтверждённое)\n"
-                     + "\n\n".join(blocks))
+        blocks = [
+            f"### Отчёт {kind} (v{version})\n{_squeeze(body)}" for kind, version, body in arts
+        ]
+        parts.append(
+            "\n## Отчёты этапов (итоги прошлых прогонов — не повторяй подтверждённое)\n"
+            + "\n\n".join(blocks)
+        )
 
     # Комментарии: последние 8 — прямой канал человека и прошлых агентов
-    comments = (await session.execute(
-        sa.select(TaskComment.body, User.name, User.user_type)
-        .join(User, User.id == TaskComment.author_id)
-        .where(TaskComment.task_id == task.id)
-        .order_by(TaskComment.created_at.desc()).limit(8))).all()
+    comments = (
+        await session.execute(
+            sa.select(TaskComment.body, User.name, User.user_type)
+            .join(User, User.id == TaskComment.author_id)
+            .where(TaskComment.task_id == task.id)
+            .order_by(TaskComment.created_at.desc())
+            .limit(8)
+        )
+    ).all()
     if comments:
-        lines = [f"- «{body[:2000]}» — {name} ({'человек' if ut == 'human' else 'агент'})"
-                 for body, name, ut in reversed(comments)]
-        parts.append("\n## Комментарии (последние; человеческие — приоритетны)\n"
-                     + "\n".join(lines))
+        lines = [
+            f"- «{body[:2000]}» — {name} ({'человек' if ut == 'human' else 'агент'})"
+            for body, name, ut in reversed(comments)
+        ]
+        parts.append(
+            "\n## Комментарии (последние; человеческие — приоритетны)\n" + "\n".join(lines)
+        )
 
-    relations = (await session.execute(
-        sa.select(TaskRelation.kind, Task.code, Task.title)
-        .join(Task, Task.id == TaskRelation.to_task)
-        .where(TaskRelation.from_task == task.id))).all()
+    relations = (
+        await session.execute(
+            sa.select(TaskRelation.kind, Task.code, Task.title)
+            .join(Task, Task.id == TaskRelation.to_task)
+            .where(TaskRelation.from_task == task.id)
+        )
+    ).all()
     if relations:
         lines = [f"- {kind} {code} «{title}»" for kind, code, title in relations]
         parts.append("\n## Связи\n" + "\n".join(lines))
 
     # индекс задач проекта: коды соседей для declarations связей (relations_updates)
-    siblings = (await session.execute(
+    siblings = await session.execute(
         sa.select(Task.code, Task.title, Task.status_key)
         .join(Project, Project.id == Task.project_id)
-        .where(Task.project_id == task.project_id,
-               Task.status_key.notin_(("done", "canceled")), Task.id != task.id)
-        .order_by(Task.code).limit(12)))
+        .where(
+            Task.project_id == task.project_id,
+            Task.status_key.notin_(("done", "canceled")),
+            Task.id != task.id,
+        )
+        .order_by(Task.code)
+        .limit(12)
+    )
     if siblings:
         lines = [f"- {code} «{title}» — {status}" for code, title, status in siblings]
-        parts.append("\n## Задачи проекта (для связей: что сначала, что потом, кто кого блокирует)\n"
-                     + "\n".join(lines))
+        parts.append(
+            "\n## Задачи проекта (для связей: что сначала, что потом, кто кого блокирует)\n"
+            + "\n".join(lines)
+        )
 
     # Допустимые переходы из текущего статуса: агент предлагает только их,
     # не догадывается о ключах статусов (инцидент AH-130: агент выдумал
@@ -148,26 +198,47 @@ async def build_context_md(session: AsyncSession, task: Task) -> str:
     # fv_id заранее: подзапрос в ON джойна путал SQLAlchemy разрешение FROM
     # (анализ 03.11.2026); двухшаговое получение id — детерминированный план
     fv_id = await current_flow_version_id(session, task.task_type_id)
-    edges = (await session.execute(
-        sa.select(FlowTransition.to_status, FlowTransition.runner, FlowTransition.display,
-                  FlowStatus.label)
-        .join(FlowVersion, FlowVersion.id == FlowTransition.flow_version_id)
-        .join(FlowStatus, (FlowStatus.flow_version_id == FlowTransition.flow_version_id)
-              & (FlowStatus.status_key == FlowTransition.to_status))
-        .where(FlowVersion.id == fv_id,
-               FlowTransition.from_status == task.status_key))).all()
+    edges = (
+        await session.execute(
+            sa.select(
+                FlowTransition.to_status,
+                FlowTransition.runner,
+                FlowTransition.display,
+                FlowStatus.label,
+            )
+            .join(FlowVersion, FlowVersion.id == FlowTransition.flow_version_id)
+            .join(
+                FlowStatus,
+                (FlowStatus.flow_version_id == FlowTransition.flow_version_id)
+                & (FlowStatus.status_key == FlowTransition.to_status),
+            )
+            .where(FlowVersion.id == fv_id, FlowTransition.from_status == task.status_key)
+        )
+    ).all()
     if edges:
-        lines = [f"- → {to} «{label}» — исполнитель: {runner}"
-                 + (f" ({display})" if display else "") for to, runner, display, label in edges]
-        parts.append("\n## Куда можно предлагать переход (только эти ключи статусов)\n"
-                     + "\n".join(lines))
+        lines = [
+            f"- → {to} «{label}» — исполнитель: {runner}" + (f" ({display})" if display else "")
+            for to, runner, display, label in edges
+        ]
+        parts.append(
+            "\n## Куда можно предлагать переход (только эти ключи статусов)\n" + "\n".join(lines)
+        )
 
-    tail = (await session.execute(
-        sa.select(Chronicle.message)
-        .where(Chronicle.task_id == task.id)
-        .order_by(Chronicle.created_at.desc()).limit(12))).scalars().all()
+    tail = (
+        (
+            await session.execute(
+                sa.select(Chronicle.message)
+                .where(Chronicle.task_id == task.id)
+                .order_by(Chronicle.created_at.desc())
+                .limit(12)
+            )
+        )
+        .scalars()
+        .all()
+    )
     if tail:
-        parts.append("\n## Хроника (последние события)\n" +
-                     "\n".join(f"- {m}" for m in reversed(tail)))
+        parts.append(
+            "\n## Хроника (последние события)\n" + "\n".join(f"- {m}" for m in reversed(tail))
+        )
 
     return "\n".join(parts)

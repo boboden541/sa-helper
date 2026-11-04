@@ -31,10 +31,11 @@ _DEFAULTS = {
 
 
 async def load_daemon_settings(session: AsyncSession) -> dict[str, str]:
-    rows = (await session.execute(
-        sa.select(AppSetting.key, AppSetting.value).where(
-            AppSetting.key.in_(_DEFAULTS.keys()))
-    )).all()
+    rows = (
+        await session.execute(
+            sa.select(AppSetting.key, AppSetting.value).where(AppSetting.key.in_(_DEFAULTS.keys()))
+        )
+    ).all()
     cfg = dict(_DEFAULTS)
     cfg.update(dict(rows))
     return cfg

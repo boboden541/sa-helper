@@ -28,7 +28,9 @@ class Chronicle(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     task_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("task.id", ondelete="CASCADE"))
-    event_type: Mapped[str] = mapped_column(String(16))  # field|transition|force|agent|denied|psi|bug
+    event_type: Mapped[str] = mapped_column(
+        String(16)
+    )  # field|transition|force|agent|denied|psi|bug
     author_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("user.id"))
     author_kind: Mapped[str] = mapped_column(String(8))  # human|agent|eve|auto
     rule_code: Mapped[str | None] = mapped_column(String(16))  # обязателен для author_kind=auto
@@ -84,14 +86,19 @@ class Notification(Base):
     __tablename__ = "notification"
     __table_args__ = (
         Index(
-            "uq_notification_open", "code", "event_key",
-            unique=True, postgresql_where=text("resolved_at IS NULL"),
+            "uq_notification_open",
+            "code",
+            "event_key",
+            unique=True,
+            postgresql_where=text("resolved_at IS NULL"),
         ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     code: Mapped[str] = mapped_column(String(16))  # task-code источника состояния
-    recipient_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("user.id"))  # NULL = всем людям проекта
+    recipient_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("user.id")
+    )  # NULL = всем людям проекта
     event_key: Mapped[str] = mapped_column(String(32))  # ключ одного из 9 событий контракта
     message: Mapped[str] = mapped_column(Text)
     tech_detail: Mapped[str | None] = mapped_column(Text)
@@ -135,7 +142,8 @@ class EveIntent(Base):
     __tablename__ = "eve_intent"
 
     user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("user.id", ondelete="CASCADE"), primary_key=True)
+        ForeignKey("user.id", ondelete="CASCADE"), primary_key=True
+    )
     payload: Mapped[dict] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

@@ -20,6 +20,7 @@ router = APIRouter()
 
 # ---------- Eve ----------
 
+
 class MessageIn(BaseModel):
     text: str
     screenTaskCode: str | None = None
@@ -27,17 +28,20 @@ class MessageIn(BaseModel):
 
 
 @router.post("/assistant/messages")
-async def assistant_message(payload: MessageIn,
-                            session: AsyncSession = Depends(get_session),
-                            actor: User = Depends(get_actor)):
-    return await eve_uc.handle_message(session, actor, payload.text,
-                                       payload.screenTaskCode)
+async def assistant_message(
+    payload: MessageIn,
+    session: AsyncSession = Depends(get_session),
+    actor: User = Depends(get_actor),
+):
+    return await eve_uc.handle_message(session, actor, payload.text, payload.screenTaskCode)
 
 
 @router.post("/assistant/messages/stream")
-async def assistant_message_stream(payload: MessageIn,
-                                   session: AsyncSession = Depends(get_session),
-                                   actor: User = Depends(get_actor)):
+async def assistant_message_stream(
+    payload: MessageIn,
+    session: AsyncSession = Depends(get_session),
+    actor: User = Depends(get_actor),
+):
     """SSE-поток формирования ответа Eve (решение владельца 28.10.2026):
     события progress (что делает агент), delta (куски ответа), done (итог
     с action/intent для интерфейса). Детерминированные ветки отвечают
@@ -57,9 +61,9 @@ async def assistant_message_stream(payload: MessageIn,
 
     async def run():
         try:
-            result = await eve_uc.handle_message(session, actor, payload.text,
-                                                 payload.screenTaskCode, emit=emit,
-                                                 turn_id=turn)
+            result = await eve_uc.handle_message(
+                session, actor, payload.text, payload.screenTaskCode, emit=emit, turn_id=turn
+            )
         except Exception:  # noqa: BLE001 — ошибка уходит в чат
             log.warning("Eve stream failed", exc_info=True)
             result = {"reply": "Внутренняя ошибка — попробуйте ещё раз"}
@@ -83,9 +87,11 @@ async def assistant_message_stream(payload: MessageIn,
             with contextlib.suppress(Exception):
                 await task
 
-    return StreamingResponse(gen(), media_type="text/event-stream",
-                             headers={"X-Accel-Buffering": "no",
-                                      "Cache-Control": "no-cache"})
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+    )
 
 
 class TurnAbortIn(BaseModel):
@@ -94,8 +100,7 @@ class TurnAbortIn(BaseModel):
 
 
 @router.post("/assistant/messages/abort")
-async def assistant_message_abort(payload: TurnAbortIn,
-                                  actor: User = Depends(get_actor)):
+async def assistant_message_abort(payload: TurnAbortIn, actor: User = Depends(get_actor)):
     """Стоп-кнопка чата Eve: прерывает формирующийся ответ (решение 28.10.2026)."""
     from usecase.assistant import eve_agent
 
@@ -104,13 +109,18 @@ async def assistant_message_abort(payload: TurnAbortIn,
 
 @router.post("/assistant/force")
 @_400
-async def assistant_force(code: str, to: str, reason: str,
-                          session: AsyncSession = Depends(get_session),
-                          actor: User = Depends(get_actor)):
+async def assistant_force(
+    code: str,
+    to: str,
+    reason: str,
+    session: AsyncSession = Depends(get_session),
+    actor: User = Depends(get_actor),
+):
     return await eve_uc.plan_force(session, actor, code, to, reason)
 
 
 @router.get("/assistant/history")
-async def assistant_history(session: AsyncSession = Depends(get_session),
-                            actor: User = Depends(get_actor)):
+async def assistant_history(
+    session: AsyncSession = Depends(get_session), actor: User = Depends(get_actor)
+):
     return {"items": await eve_uc.history(session, actor)}

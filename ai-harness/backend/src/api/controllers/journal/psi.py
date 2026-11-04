@@ -16,6 +16,7 @@ router = APIRouter()
 
 # ---------- ПСИ ----------
 
+
 class PsiSectionIn(BaseModel):
     heading: str = ""
     items: list[dict] = []
@@ -35,28 +36,38 @@ class PsiRunIn(BaseModel):
 
 @router.get("/stories/{code}/psi")
 @_400
-async def psi_get(code: str, session: AsyncSession = Depends(get_session),
-                  actor: User = Depends(get_actor)):
+async def psi_get(
+    code: str, session: AsyncSession = Depends(get_session), actor: User = Depends(get_actor)
+):
     return await psi_uc.get_document(session, code)
 
 
 @router.post("/stories/{code}/psi")
 @_400
-async def psi_create(code: str, payload: PsiCreateIn,
-                     session: AsyncSession = Depends(get_session),
-                     actor: User = Depends(get_actor)):
+async def psi_create(
+    code: str,
+    payload: PsiCreateIn,
+    session: AsyncSession = Depends(get_session),
+    actor: User = Depends(get_actor),
+):
     version = await psi_uc.create_version(
-        session, code, actor,
+        session,
+        code,
+        actor,
         [s.model_dump() for s in payload.sections],
-        preamble_md=payload.preambleMd)
+        preamble_md=payload.preambleMd,
+    )
     return {"version": version}
 
 
 @router.post("/stories/{code}/psi/runs")
 @_400
-async def psi_run(code: str, payload: PsiRunIn,
-                  session: AsyncSession = Depends(get_session),
-                  actor: User = Depends(get_actor)):
+async def psi_run(
+    code: str,
+    payload: PsiRunIn,
+    session: AsyncSession = Depends(get_session),
+    actor: User = Depends(get_actor),
+):
     return await psi_uc.run_psi(session, code, actor, payload.results)
 
 
@@ -68,15 +79,19 @@ class PsiLinkIn(BaseModel):
 
 @router.post("/stories/{code}/psi/link-bug")
 @_400
-async def psi_link(code: str, payload: PsiLinkIn,
-                   session: AsyncSession = Depends(get_session),
-                   actor: User = Depends(get_actor)):
+async def psi_link(
+    code: str,
+    payload: PsiLinkIn,
+    session: AsyncSession = Depends(get_session),
+    actor: User = Depends(get_actor),
+):
     await psi_uc.link_bug(session, code, payload.position, payload.bugCode)
     return {"ok": True}
 
 
 @router.post("/stories/{code}/psi/new-cycle")
 @_400
-async def psi_new_cycle(code: str, session: AsyncSession = Depends(get_session),
-                        actor: User = Depends(get_actor)):
+async def psi_new_cycle(
+    code: str, session: AsyncSession = Depends(get_session), actor: User = Depends(get_actor)
+):
     return {"reset": await psi_uc.new_cycle(session, code)}

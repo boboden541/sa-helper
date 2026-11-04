@@ -13,25 +13,46 @@ from usecase.task.create_task import CreateTaskInput, create_task
 
 
 async def _mk_progress(session, actor_id):
-    human = await session.get(__import__(
-        "repository.models", fromlist=["User"]).User, actor_id)
-    created = await create_task(session, human, CreateTaskInput(
-        project_mnemonic="AH", type_key="common_task", title="Контекст-тест",
-        priority="medium", author_tag="by_human"))
+    human = await session.get(__import__("repository.models", fromlist=["User"]).User, actor_id)
+    created = await create_task(
+        session,
+        human,
+        CreateTaskInput(
+            project_mnemonic="AH",
+            type_key="common_task",
+            title="Контекст-тест",
+            priority="medium",
+            author_tag="by_human",
+        ),
+    )
     # create_task отдаёт CreatedTask-датакласс; для контекста нужен ORM-объект
-    task = (await session.execute(
-        sa.select(Task).where(Task.code == created.code))).scalar_one()
+    task = (await session.execute(sa.select(Task).where(Task.code == created.code))).scalar_one()
     from usecase.journal.checklists import put_checklist
 
-    await put_checklist(session, human, task, "developer",
-                        "# План\n- подготовить окружение\nx закрытый пункт\n~ веду тесты")
-    _agent = (await session.execute(sa.text(
-        "SELECT id FROM \"user\" WHERE name = 'Тестировщик'"))).scalar_one()
-    session.add(TaskArtifact(task_id=task.id, kind="dev_report", version=1,
-                             created_by=human.id,
-                             body_md="## Вердикт\nGREEN — тесты прошли, всё подтверждено."))
-    session.add(TaskComment(task_id=task.id, author_id=human.id,
-                            body="Продолжай с тестов, сборку я уже сделал"))
+    await put_checklist(
+        session,
+        human,
+        task,
+        "developer",
+        "# План\n- подготовить окружение\nx закрытый пункт\n~ веду тесты",
+    )
+    _agent = (
+        await session.execute(sa.text("SELECT id FROM \"user\" WHERE name = 'Тестировщик'"))
+    ).scalar_one()
+    session.add(
+        TaskArtifact(
+            task_id=task.id,
+            kind="dev_report",
+            version=1,
+            created_by=human.id,
+            body_md="## Вердикт\nGREEN — тесты прошли, всё подтверждено.",
+        )
+    )
+    session.add(
+        TaskComment(
+            task_id=task.id, author_id=human.id, body="Продолжай с тестов, сборку я уже сделал"
+        )
+    )
     await session.commit()
     return task
 
@@ -59,11 +80,16 @@ async def test_context_artifact_squeezed(_test_db, actor_id):
     async with maker() as session:
         task = await _mk_progress(session, actor_id)
         task.body_md = None
-        human = await session.get(__import__(
-            "repository.models", fromlist=["User"]).User, actor_id)
-        session.add(TaskArtifact(task_id=task.id, kind="qa_report", version=1,
-                                 created_by=human.id,
-                                 body_md="строка падений\n" * 3000))
+        human = await session.get(__import__("repository.models", fromlist=["User"]).User, actor_id)
+        session.add(
+            TaskArtifact(
+                task_id=task.id,
+                kind="qa_report",
+                version=1,
+                created_by=human.id,
+                body_md="строка падений\n" * 3000,
+            )
+        )
         await session.commit()
         ctx = await build_context_md(session, task)
 

@@ -37,9 +37,11 @@ async def _resolve_actor(request: Request, session: AsyncSession) -> "User | Non
         from api.middleware.errors import ApiError
 
         raise ApiError(401, "Требуется вход в систему", tech="no valid session cookie")
-    return (await session.execute(
-        sa.select(User).where(User.user_type == "human").order_by(User.created_at).limit(1)
-    )).scalar_one_or_none()
+    return (
+        await session.execute(
+            sa.select(User).where(User.user_type == "human").order_by(User.created_at).limit(1)
+        )
+    ).scalar_one_or_none()
 
 
 async def get_actor(request: Request, session: AsyncSession = Depends(get_session)) -> "User":

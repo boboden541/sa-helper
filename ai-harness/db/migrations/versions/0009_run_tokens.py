@@ -17,8 +17,9 @@ depends_on = None
 
 def upgrade() -> None:
     for col in ("input_tokens", "output_tokens", "cache_tokens"):
-        op.add_column("task_run",
-                      sa.Column(col, sa.BigInteger(), nullable=False, server_default="0"))
+        op.add_column(
+            "task_run", sa.Column(col, sa.BigInteger(), nullable=False, server_default="0")
+        )
 
 
 def downgrade() -> None:
