@@ -2,7 +2,7 @@
 // и матрица назначений table.mx с ag-cell/AgCellPopover. Перенесено из монолита
 // Settings.tsx разметка 1:1.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../../../api/client'
 import { toast } from '../../../shared/toast'
 import { FLOW_TYPES } from '../shared'
@@ -221,30 +221,123 @@ function AgCellPopover({ statusKey, people, entries, defaultMode, onApply }: {
   onApply: (entries: { userId: string; mode: string }[]) => void
 }) {
   const [open, setOpen] = useState(false)
-  const [picked, setPicked] = useState<Record<string, boolean>>(
-    Object.fromEntries(entries.map((e) => [e.userId, true])))
+  const [picked, setPicked] = useState<Record<string, boolean>>({})
+  const [search, setSearch] = useState('')
+  const [placement, setPlacement] = useState<'down' | 'up'>('down')
+  const [align, setAlign] = useState<'left' | 'right'>('left')
+  const containerRef = useRef<HTMLSpanElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+
+  const toggleOpen = () => {
+    if (!open) {
+      setPicked(Object.fromEntries(entries.map((e) => [e.userId, true])))
+      setSearch('')
+      if (triggerRef.current) {
+        const rect = triggerRef.current.getBoundingClientRect()
+        const spaceBelow = window.innerHeight - rect.bottom
+        const spaceAbove = rect.top
+        setPlacement(spaceBelow < 300 && spaceAbove > spaceBelow ? 'up' : 'down')
+        setAlign(rect.left + 330 > window.innerWidth ? 'right' : 'left')
+      }
+      setOpen(true)
+    } else {
+      setOpen(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent | TouchEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const filteredPeople = people.filter((p) => {
+    if (!search.trim()) return true
+    const q = search.toLowerCase()
+    const typeLabel = p.userType === 'agent' ? 'агент' : 'человек'
+    return p.name.toLowerCase().includes(q) || typeLabel.includes(q)
+  })
 
   return (
-    <span style={{ position: 'relative' }}>
-      <button className="btn small" onClick={() => setOpen(!open)}>＋ назначить</button>
+    <span ref={containerRef} style={{ position: 'relative' }}>
+      <button ref={triggerRef} className="btn small" onClick={toggleOpen}>＋ назначить</button>
       {open && (
-        <div className="ag-pop" onClick={(e) => e.stopPropagation()}>
-          {people.map((p) => (
-            <label key={p.id} className="f-check" style={{ display: 'flex' }}>
-              <input type="checkbox" checked={Boolean(picked[p.id])}
-                onChange={(e) => setPicked((prev) => ({ ...prev, [p.id]: e.target.checked }))} />
-              {p.name} <span className="muted">({p.userType === 'agent' ? 'агент' : 'человек'})</span>
-            </label>
-          ))}
-          <div className="edit-actions">
-            <button className="btn small primary" onClick={() => {
-              onApply(Object.entries(picked).filter(([, on]) => on)
-                .map(([userId]) => ({ userId, mode: defaultMode })))
-              setOpen(false)
-            }}>Применить</button>
-            <button className="btn small" onClick={() => setOpen(false)}>Отмена</button>
+        <div
+          className={`ag-pop ag-pop-${placement} ag-pop-${align}`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="ag-pop-head">
+            <span style={{ fontWeight: 600 }}>Назначить на статус</span>
+            <span className="muted mono" style={{ fontSize: 11 }}>{statusKey}</span>
           </div>
-          <div className="muted" style={{ fontSize: 11 }}>Статус: {statusKey}</div>
+
+          {people.length > 5 && (
+            <div className="ag-pop-search-wrap">
+              <input
+                type="text"
+                className="ag-pop-search"
+                placeholder="Поиск агента или человека..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                autoFocus
+              />
+            </div>
+          )}
+
+          <div className="ag-pop-list">
+            {filteredPeople.map((p) => (
+              <label key={p.id} className="f-check ag-pop-item">
+                <input
+                  type="checkbox"
+                  checked={Boolean(picked[p.id])}
+                  onChange={(e) => setPicked((prev) => ({ ...prev, [p.id]: e.target.checked }))}
+                />
+                <span className="ag-pop-name">{p.name}</span>
+                <span className="muted" style={{ fontSize: 11, flexShrink: 0 }}>
+                  ({p.userType === 'agent' ? 'агент' : 'человек'})
+                </span>
+              </label>
+            ))}
+            {filteredPeople.length === 0 && (
+              <div className="muted" style={{ fontSize: 12, padding: '8px 4px', textAlign: 'center' }}>
+                Ничего не найдено
+              </div>
+            )}
+          </div>
+
+          <div className="ag-pop-actions">
+            <button
+              className="btn small primary"
+              onClick={() => {
+                onApply(
+                  Object.entries(picked)
+                    .filter(([, on]) => on)
+                    .map(([userId]) => ({
+                      userId,
+                      mode: entries.find((e) => e.userId === userId)?.mode ?? defaultMode,
+                    }))
+                )
+                setOpen(false)
+              }}
+            >
+              Применить
+            </button>
+            <button className="btn small" onClick={() => setOpen(false)}>
+              Отмена
+            </button>
+          </div>
         </div>
       )}
     </span>
