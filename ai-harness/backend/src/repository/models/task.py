@@ -68,6 +68,9 @@ class Task(Base):
     # момент последнего выхода из blocked (человек разобрался): счётчик
     # daemon.max_runs_per_task считается по прогонам позже этого момента
     runs_reset_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # валидация тестового стенда (ФТ-FNR14-05)
+    stand_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    stand_health_status: Mapped[str | None] = mapped_column(String(16))
 
 
 class Checklist(Base):
@@ -175,6 +178,10 @@ class TaskBranch(Base):
     worktree_path: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     merged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # прослеживаемость коммитов дочерней задачи (ФТ-FNR14-03)
+    head_commit: Mapped[str | None] = mapped_column(String(64))
+    merge_commit: Mapped[str | None] = mapped_column(String(64))
+    diff_stats: Mapped[dict | None] = mapped_column(JSONB)
 
 
 class TaskRun(Base):

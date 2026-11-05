@@ -321,12 +321,26 @@ class ReportMixin:
         project = await session.get(Project, task.project_id)
         try:
             # путь проекта в БД хранится как на хосте; git-операции идут в контейнере
-            await merge_task_branch(
+            git_info = await merge_task_branch(
                 host_to_container(project.path),
                 task.code,
                 project.base_branch,
                 repo_path=task.repo_path,
             )
+            if git_info:
+                from repository.models import TaskBranch
+
+                tb = (
+                    await session.execute(
+                        sa.select(TaskBranch).where(TaskBranch.task_id == task.id)
+                    )
+                ).scalar_one_or_none()
+                if tb:
+                    tb.head_commit = git_info.get("head_commit")
+                    tb.merge_commit = git_info.get("merge_commit")
+                    tb.diff_stats = git_info.get("diff_stats")
+                    tb.merged_at = sa.func.now()
+                    await session.commit()
         except GitError as err:
             # str(GitError) уже включает stderr (диагностика шторма 29.10)
             text = str(err)

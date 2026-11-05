@@ -23,7 +23,13 @@ async def recompute_story_mirroring(session: AsyncSession, story: Task) -> str |
         .scalars()
         .all()
     )
-    rule = evaluate(story.status_key, list(children), story.blocked_rule)
+    # проверка актуальности ПСИ-плана для правила M3 (ФТ-FNR14-04)
+    from usecase.story.reference import psi_plan_ref_version
+
+    plan_ref = await psi_plan_ref_version(session, story.id)
+    psi_ready = plan_ref is not None and plan_ref >= (story.ref_version or 1)
+
+    rule = evaluate(story.status_key, list(children), story.blocked_rule, psi_ready=psi_ready)
     if rule is None:
         return None
     rule_code, to_status = rule

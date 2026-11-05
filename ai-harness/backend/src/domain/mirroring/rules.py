@@ -12,7 +12,10 @@ CHILD_BLOCKED = frozenset({"blocked"})
 
 
 def evaluate(
-    story_status: str, children_statuses: list[str], blocked_rule: str | None = None
+    story_status: str,
+    children_statuses: list[str],
+    blocked_rule: str | None = None,
+    psi_ready: bool = False,
 ) -> tuple[str, str] | None:
     """(rule_code, to_status) первого применимого правила или None.
 
@@ -21,6 +24,9 @@ def evaluate(
     Самоблок (своё тестирование, лимит прогонов, исчерпание попыток) не
     воскресает сам — иначе вечный цикл blocked → qa ready → in testing
     (инцидент VITRINA-1, ночь 02→03.11.2026).
+
+    psi_ready — актуален ли план ПСИ (ФТ-FNR14-04): M3 переводит в in_testing
+    только когда ПСИ-составитель зарегистрировал актуальную версию плана.
     """
     has_children = len(children_statuses) > 0
     any_active = any(s in CHILD_ACTIVE for s in children_statuses)
@@ -35,8 +41,8 @@ def evaluate(
         story_status == "in_progress" or (story_status == "blocked" and blocked_rule == "M5")
     ):
         return ("M2", "qa_ready")
-    # M3: история в qa ready → in testing
-    if story_status == "qa_ready":
+    # M3: история в qa ready → in testing (ФТ-FNR14-04: только при актуальном плане ПСИ)
+    if story_status == "qa_ready" and psi_ready:
         return ("M3", "in_testing")
     # M5: все дети заблокированы → blocked (из in progress)
     if all_blocked and story_status == "in_progress":

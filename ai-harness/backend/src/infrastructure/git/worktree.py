@@ -137,8 +137,9 @@ async def _tracked_status_clean(root) -> bool:
 
 async def merge_task_branch(
     project_path: str, task_code: str, base_branch: str = "main", repo_path: str | None = None
-) -> None:
-    """Слияние task/<code> в базовую перед done; конфликт → GitError (→ blocked)."""
+) -> dict[str, str | dict | None]:
+    """Слияние task/<code> в базовую перед done; конфликт → GitError (→ blocked).
+    Возвращает словарь с head_commit, merge_commit, diff_stats (ФТ-FNR14-03)."""
     root = Path(task_repo_root(project_path, repo_path))
     branch = f"task/{task_code}"
     # Слияние идёт в живой checkout человека — сначала проверяем чистоту
@@ -165,10 +166,28 @@ async def merge_task_branch(
         head = ""
     if not head.strip():
         base = current
+
+    # фиксируем коммит ветки задачи и diff_stats до слияния
+    head_commit = ""
+    try:
+        head_commit = await _git(["rev-parse", f"refs/heads/{branch}"], cwd=root)
+    except GitError:
+        try:
+            head_commit = await _git(["rev-parse", branch], cwd=root)
+        except GitError:
+            head_commit = ""
+
+    diff_stat = ""
+    try:
+        diff_stat = await _git(["diff", "--stat", f"{base}...{branch}"], cwd=root)
+    except GitError:
+        diff_stat = ""
+
     if current != base:
         await _git(["checkout", base], cwd=root)
     try:
         await _git(["merge", "--no-ff", "-m", f"Merge {branch}", branch], cwd=root)
+        merge_commit = await _git(["rev-parse", "HEAD"], cwd=root)
     except GitError:
         try:
             await _git(["merge", "--abort"], cwd=root)
@@ -180,6 +199,12 @@ async def merge_task_branch(
     finally:
         if current != base:
             await _git(["checkout", current], cwd=root)
+
+    return {
+        "head_commit": head_commit.strip() if head_commit else None,
+        "merge_commit": merge_commit.strip() if merge_commit else None,
+        "diff_stats": {"stat": diff_stat.strip()} if diff_stat.strip() else None,
+    }
 
 
 async def merge_has_conflict(project_path: str, task_code: str, base_branch: str = "main") -> bool:

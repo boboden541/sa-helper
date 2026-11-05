@@ -58,6 +58,21 @@ async def test_m2_then_m3_two_chronicle_events(session, actor_id):
     story = await _refresh(session, story)
     assert rule == "M2" and story.status_key == "qa_ready"
 
+    # ФТ-FNR14-04: без актуального плана ПСИ M3 не срабатывает (история ждёт ПСИ-составителя)
+    assert await recompute_story_mirroring(session, story) is None
+    story = await _refresh(session, story)
+    assert story.status_key == "qa_ready"
+
+    # Регистрируем актуальную версию плана ПСИ
+    from usecase.story.psi import create_version
+
+    await create_version(
+        session,
+        story.code,
+        actor,
+        [{"heading": "Раздел", "items": [{"action": "Шаг 1", "expected": "Успех"}]}],
+    )
+
     rule = await recompute_story_mirroring(session, story)
     story = await _refresh(session, story)
     assert rule == "M3" and story.status_key == "in_testing"

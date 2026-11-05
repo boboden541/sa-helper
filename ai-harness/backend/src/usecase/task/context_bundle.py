@@ -86,6 +86,94 @@ async def build_context_md(session: AsyncSession, task: Task) -> str:
                 f"\nПлан ПСИ актуален: эталон v{task.ref_version}, план заверен v{plan_ref}."
             )
 
+        # Срез изменений истории (Story Delta, ФТ-FNR14-03): дочерние задачи и баги
+        from repository.models import TaskBranch
+
+        children_q = (
+            sa.select(
+                Task.id,
+                Task.code,
+                Task.title,
+                Task.status_key,
+                TaskType.key.label("type_key"),
+                TaskBranch.branch_name,
+                TaskBranch.head_commit,
+                TaskBranch.diff_stats,
+            )
+            .join(TaskType, TaskType.id == Task.task_type_id)
+            .outerjoin(TaskBranch, TaskBranch.task_id == Task.id)
+            .where(Task.story_id == task.id)
+            .order_by(Task.code)
+        )
+        children_res = (await session.execute(children_q)).all()
+        if children_res:
+            delta_lines = [
+                f"\n## Срез изменений истории (Story Delta) — дочерних задач: {len(children_res)}"
+            ]
+            for cid, ccode, ctitle, cstatus, ctype, cbranch, chead, cdiff in children_res:
+                dev_rep = (
+                    await session.execute(
+                        sa.select(TaskArtifact.body_md)
+                        .where(TaskArtifact.task_id == cid, TaskArtifact.kind == "dev_report")
+                        .order_by(TaskArtifact.version.desc())
+                        .limit(1)
+                    )
+                ).scalar_one_or_none()
+                summary_short = ""
+                if dev_rep:
+                    summary_short = dev_rep.strip().split("\n\n")[0][:300]
+                diff_txt = ""
+                if isinstance(cdiff, dict) and cdiff.get("stat"):
+                    stat_lines = cdiff["stat"].strip().split("\n")
+                    diff_txt = f"\n  - Дифф: {', '.join(line.strip() for line in stat_lines[:4])}"
+
+                delta_lines.append(
+                    f"- **[{ctype}] {ccode} «{ctitle}»** — статус: {cstatus}"
+                    + (f"; коммит: `{chead[:8]}` (ветка `{cbranch}`)" if chead else "")
+                    + diff_txt
+                    + (f"\n  - Резюме разработчика: {summary_short}" if summary_short else "")
+                )
+            parts.append("\n".join(delta_lines))
+
+    # Инфраструктура тестового стенда (ФТ-FNR14-01)
+    project = await session.get(Project, task.project_id)
+    if project and project.path:
+        import json
+        from pathlib import Path
+
+        from infrastructure.paths import host_to_container, task_repo_root
+
+        root_path = Path(host_to_container(task_repo_root(project.path, task.repo_path)))
+        stand_file = root_path / ".harness" / "stand.json"
+        if stand_file.exists():
+            try:
+                stand_data = json.loads(stand_file.read_text(encoding="utf-8"))
+                services = stand_data.get("services", {})
+                auth = stand_data.get("auth", {})
+                bootstrap = stand_data.get("bootstrap", {})
+
+                stand_lines = ["\n## Параметры тестового стенда (.harness/stand.json)"]
+                for s_name, s_info in services.items():
+                    port = s_info.get("host_port")
+                    url = s_info.get("base_url") or s_info.get("dsn") or f":{port}"
+                    stype = s_info.get("type", "service")
+                    stand_lines.append(f"- **{s_name}** [{stype}]: `{url}` (порт {port})")
+
+                users = auth.get("test_users", [])
+                if users:
+                    stand_lines.append("### Тестовые пользователи")
+                    for u in users[:3]:
+                        stand_lines.append(
+                            f"- {u.get('role', 'user')}: `{u.get('email')}` / `{u.get('password')}`"
+                        )
+
+                if bootstrap.get("healthcheck_cmd"):
+                    stand_lines.append(f"- **Healthcheck:** `{bootstrap.get('healthcheck_cmd')}`")
+
+                parts.append("\n".join(stand_lines))
+            except Exception:
+                pass
+
     # Чеклисты — ИСТОЧНИК ИСТИНЫ о прогрессе: открытые пункты = точка продолжения
     checks = (
         await session.execute(
