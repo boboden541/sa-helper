@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlalchemy as sa
-from repository.models import PsiRunItem, Task, User
+from repository.models import ChroniclePayload, PsiRunItem, Task, User
 from usecase.journal.chronicle import append, purge_expired_payloads
 from usecase.journal.notifications import list_open, raise_event, resolve
 from usecase.task.create_task import CreateTaskInput, create_task
@@ -51,6 +51,12 @@ async def test_retention_purges_payload_keeps_record(session, actor_id):
         "мысли агента",
         payload="ПРОМПТ: секретный контекст",
         retention_days=0,
+    )
+    # гарантия просрочки без гонок микросекунд и рассинхрона часов хост/docker
+    await session.execute(
+        sa.update(ChroniclePayload)
+        .where(ChroniclePayload.id == entry.payload_id)
+        .values(expires_at=sa.func.now() - sa.text("interval '1 second'"))
     )
     await session.commit()
     removed = await purge_expired_payloads(session)

@@ -85,14 +85,14 @@ async def purge_expired_payloads(session: AsyncSession) -> int:
     # сначала обнуляем ссылки в лёгких записях — они живут бессрочно (ФТ-ah-44)
     expired = (
         sa.select(ChroniclePayload.id)
-        .where(ChroniclePayload.expires_at < sa.func.now())
+        .where(ChroniclePayload.expires_at <= sa.func.now())
         .scalar_subquery()
     )
     await session.execute(
         sa.update(Chronicle).where(Chronicle.payload_id.in_(expired)).values(payload_id=None)
     )
     result = await session.execute(
-        sa.delete(ChroniclePayload).where(ChroniclePayload.expires_at < sa.func.now())
+        sa.delete(ChroniclePayload).where(ChroniclePayload.expires_at <= sa.func.now())
     )
     await session.commit()
     return result.rowcount or 0
