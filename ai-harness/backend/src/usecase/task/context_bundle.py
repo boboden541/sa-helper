@@ -110,15 +110,24 @@ async def build_context_md(session: AsyncSession, task: Task) -> str:
             delta_lines = [
                 f"\n## Срез изменений истории (Story Delta) — дочерних задач: {len(children_res)}"
             ]
-            for cid, ccode, ctitle, cstatus, ctype, cbranch, chead, cdiff in children_res:
-                dev_rep = (
-                    await session.execute(
-                        sa.select(TaskArtifact.body_md)
-                        .where(TaskArtifact.task_id == cid, TaskArtifact.kind == "dev_report")
-                        .order_by(TaskArtifact.version.desc())
-                        .limit(1)
+            # последние dev-отчёты всех детей одним запросом (было N+1: отдельный
+            # SELECT на каждого ребёнка при каждом построении контекста)
+            child_ids = [r[0] for r in children_res]
+            last_reports: dict = {}
+            reps = (
+                await session.execute(
+                    sa.select(TaskArtifact.task_id, TaskArtifact.version, TaskArtifact.body_md)
+                    .where(
+                        TaskArtifact.task_id.in_(child_ids),
+                        TaskArtifact.kind == "dev_report",
                     )
-                ).scalar_one_or_none()
+                    .order_by(TaskArtifact.version)
+                )
+            ).all()
+            for rid, _ver, body in reps:
+                last_reports[rid] = body
+            for cid, ccode, ctitle, cstatus, ctype, cbranch, chead, cdiff in children_res:
+                dev_rep = last_reports.get(cid)
                 summary_short = ""
                 if dev_rep:
                     summary_short = dev_rep.strip().split("\n\n")[0][:300]
@@ -158,6 +167,21 @@ async def build_context_md(session: AsyncSession, task: Task) -> str:
                     url = s_info.get("base_url") or s_info.get("dsn") or f":{port}"
                     stype = s_info.get("type", "service")
                     stand_lines.append(f"- **{s_name}** [{stype}]: `{url}` (порт {port})")
+                    try:
+                        port_num = int(port)
+                    except (TypeError, ValueError):
+                        continue  # нечисловой порт не проверяем
+                    if not 21000 <= port_num <= 29999:
+                        stand_lines.append(
+                            f"  - ⚠️ ПОРТ ВНЕ ПОЛИТИКИ 21000–29999: {port} — конфликт с "
+                            "харнесом (:8000/:8088/:5433) или чужие порты контура; "
+                            "перенесите сервис (методологии, глобальные docker-правила)."
+                        )
+                    if port_num in (8000, 8088, 5433):
+                        stand_lines.append(
+                            "  - ⚠️ ЗАПРЕЩЁННЫЙ ПОРТ: конфликт с харнесом "
+                            "(:8000/:8088/:5433) — перенесите сервис."
+                        )
 
                 users = auth.get("test_users", [])
                 if users:
@@ -171,8 +195,13 @@ async def build_context_md(session: AsyncSession, task: Task) -> str:
                     stand_lines.append(f"- **Healthcheck:** `{bootstrap.get('healthcheck_cmd')}`")
 
                 parts.append("\n".join(stand_lines))
-            except Exception:
-                pass
+            except Exception as err:  # noqa: BLE001 — невалидный манифест не роняет контекст
+                # молчаливый пропуск дефектен (анализ 06.11): агент не узнавал,
+                # что манифест нечитаем. Показываем отказ прямо в блоке
+                parts.append(
+                    f"\n## Параметры тестового стенда — МАНИФЕСТ НЕЧИТАЕМ: {str(err)[:200]}. "
+                    "Проверь .harness/stand.json (валидный JSON?) и сообщи человеку."
+                )
 
     # Чеклисты — ИСТОЧНИК ИСТИНЫ о прогрессе: открытые пункты = точка продолжения
     checks = (

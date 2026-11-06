@@ -345,7 +345,12 @@ async def mark_item(
     непройденный — событие в хроники: владелец видит провал немедленно."""
     story = await _story(session, story_code)
     _, items = await _current_doc_and_items(session, story.id)
-    item = next((i for i in items if i.kind == "item" and i.position == position), None)
+    # П.N — документная нумерация: сквозной счётчик ТОЛЬКО по пунктам (kind=
+    # "item"), заголовки секций занимают position в чеклисте, но в документе
+    # не нумеруются. Раньше сверяли чеклист-позицию с документным номером —
+    # после первой секции промах: П.3 = position 4 → молча чужой пункт
+    item_rows = sorted((i for i in items if i.kind == "item"), key=lambda i: i.position)
+    item = item_rows[position - 1] if 0 < position <= len(item_rows) else None
     if item is None:
         raise DomainError(f"Пункт П.{position} не найден в текущем документе ПСИ")
     item.status = "done" if passed else "failed"

@@ -61,7 +61,7 @@ async def psi_create(
 
 
 class PsiItemIn(BaseModel):
-    position: int
+    position: int  # документный номер пункта П.N (счёт только по пунктам, без заголовков)
     passed: bool
     actual: str = ""
     model_config = ConfigDict(extra="forbid")
