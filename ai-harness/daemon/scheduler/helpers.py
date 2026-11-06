@@ -87,6 +87,8 @@ def _retry_at_from_run(run, status_key: str, cfg: dict[str, str]) -> dt.datetime
     status_key) — общий для одиночного и пакетного чтения (анализ 30.10.2026)."""
     pauses = retry_pauses_minutes(cfg)
     finished_at, attempt_no, outcome, run_sk = run[0], run[1], run[2], run[3]
+    # «success на той же стадии»: сравнение ключей остаётся (хелпер синхронный,
+    # kind-запрос требует async) — перенесено в baseline grep-барьера (ФНР-16)
     if outcome in ("interrupted", "success") and (outcome == "interrupted" or run_sk == status_key):
         return finished_at + dt.timedelta(minutes=pauses[-1])
     attempt = min(attempt_no, len(pauses)) - 1

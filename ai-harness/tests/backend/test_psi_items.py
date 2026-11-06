@@ -104,8 +104,6 @@ async def test_mark_item_unknown_position(client):
 async def test_rework_resets_stamp_and_items(client, _test_db):
     """ФТ-FNR14-06: сброс заверенности — штамп NULL, пункты todo, M3 ждёт
     новой версии (план формально заверен, но требует переработки)."""
-    from domain.mirroring.rules import evaluate
-
     code = await _mk(client)
     # прогон: пункты получили вердикты
     for pos, ok in ((1, True), (2, True), (3, True)):
@@ -148,20 +146,21 @@ async def test_rework_resets_stamp_and_items(client, _test_db):
                 sa.select(CK.source_ref_version).where(CK.task_id == task_id, CK.kind == "psi")
             )
         ).scalar_one_or_none()
-    assert (
-        evaluate("qa_ready", ["done"], None, psi_ready=(plan_ref is not None and plan_ref >= 1))
-        is None
+    # ФНР-16: правила M3a/M3b/M3c выражены when на рёбрах — семантика проверена
+    # golden-корпусом (test_mirror_golden); здесь — инвариант сброса: без штампа
+    # предикат плана ложен
+    from domain.mirroring.ctx import MirrorCtx
+    from domain.mirroring.predicates import satisfied
+
+    ctx = MirrorCtx(
+        story_status="qa_ready",
+        children=["done"],
+        psi_plan_ref=plan_ref,
+        ref_version=1,
     )
-    assert evaluate("qa_ready", ["done"], None, psi_ready=True) == ("M3a", "psi_review")
-    # M3b: одобрение ревизией открывает in_testing; M3c: отклонение — возврат
-    assert evaluate("psi_review", ["done"], None, psi_ready=True, manager_approved=True) == (
-        "M3b",
-        "in_testing",
-    )
-    assert evaluate("psi_review", ["done"], None, psi_ready=True, manager_rejected=True) == (
-        "M3c",
-        "qa_ready",
-    )
+    assert not await satisfied(None, None, ctx, ["psi_plan_registered_current"])
+    ctx.psi_plan_ref = 1
+    assert await satisfied(None, None, ctx, ["psi_plan_registered_current"])
 
     # повторная регистрация версии возвращает заверенность (items reset)
     r = await client.post(f"/api/v1/stories/{code}/psi", json={"sections": SECTIONS})

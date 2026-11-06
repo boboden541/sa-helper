@@ -4,39 +4,51 @@ statuses:
     label: На рассмотрении
     alias: pending
     entry: true
+    kind: decomposition
     stage_desc: "Ожидает ручной модерации предложения"
   - key: todo
     label: Готово к декомпозиции
     alias: todo
+    kind: decomposition
     stage_desc: "ИИ-агент декомпозирует историю на задачи на разработку"
   - key: in_progress
     label: В работе
     alias: progress
+    kind: work
+    behaviors: [ensure_worktree]
     stage_desc: "Статус зеркалит дочерние задачи и баги (M1)"
   - key: qa_ready
     label: Готово к тестированию
     alias: testing
+    kind: review
     stage_desc: "Все дочерние закрыты; ПСИ-составитель актуализирует план (дельта)"
   - key: psi_review
     label: На ревизии ПСИ
     alias: review
+    kind: review
+    behaviors: [naive_review, acceptance_budget]
     stage_desc: "ПСИ-редактор ревизует документ глазами менеджера (M3b/M3c)"
   - key: in_testing
     label: На тестировании
     alias: testing
+    kind: acceptance
+    behaviors: [verify_stand]
     stage_desc: "Сквозное тестирование, составление ПСИ и его прогон; зачёт по ПСИ (M6)"
   - key: done
     label: Готово
     alias: done
+    kind: closed
     stage_desc: "ПСИ пройден полностью (M6 — автоматически); владелец архивирует вручную"
   - key: completed
     label: Завершено
     terminal: true
+    kind: closed
     stage_desc: "Архив владельца: ручной перенос из «Готово»"
   - key: canceled
     label: Отменено
     alias: canceled
     terminal: true
+    kind: closed
     stage_desc: "История отменена"
   - key: blocked
     label: Заблокировано
@@ -46,15 +58,16 @@ statuses:
 transitions:
   - {from: pending, to: todo, runner: human, display: "Ручное вмешательство"}
   - {from: pending, to: canceled, runner: human, display: "Ручное вмешательство"}
-  - {from: todo, to: in_progress, runner: auto, display: "Автоматически", rule: M1}
+  - {from: todo, to: in_progress, runner: auto, display: "Автоматически", rule: M1, when: [children_any_active]}
   - {from: todo, to: canceled, runner: human, display: "Ручное вмешательство"}
   - {from: todo, to: blocked, runner: human, display: "Ручное вмешательство"}
-  - {from: in_progress, to: qa_ready, runner: auto, display: "Автоматически", rule: M2}
-  - {from: in_progress, to: blocked, runner: auto, display: "Автоматически", rule: M5}
+  - {from: in_progress, to: qa_ready, runner: auto, display: "Автоматически", rule: M2, when: [children_all_closed]}
+  - {from: in_progress, to: blocked, runner: auto, display: "Автоматически", rule: M5, when: [children_all_blocked]}
   - {from: in_progress, to: canceled, runner: human, display: "Ручное вмешательство"}
-  - {from: qa_ready, to: psi_review, runner: auto, display: "Автоматически", rule: M3a}
-  - {from: psi_review, to: in_testing, runner: auto, display: "Автоматически", rule: M3b}
-  - {from: psi_review, to: qa_ready, runner: auto, display: "Автоматически", rule: M3c}
+  - {from: qa_ready, to: psi_review, runner: auto, display: "Автоматически", rule: M3a, when: [psi_plan_registered_current]}
+  - {from: psi_review, to: in_testing, runner: auto, display: "Автоматически", rule: M3b, when: [psi_manager_approved]}
+  - {from: psi_review, to: qa_ready, runner: auto, display: "Автоматически", rule: M3c, when: [psi_manager_rejected]}
+  - {from: psi_review, to: in_progress, runner: auto, display: "Автоматически", rule: M1, when: [children_any_active]}
   - {from: psi_review, to: blocked, runner: human, display: "Ручное вмешательство"}
   - {from: psi_review, to: canceled, runner: human, display: "Ручное вмешательство"}
   - {from: qa_ready, to: blocked, runner: human, display: "Ручное вмешательство"}
@@ -62,8 +75,8 @@ transitions:
   - {from: in_testing, to: done, runner: agent, display: "Зачёт по ПСИ (M6) — автоматически при полном прогоне", rule: M6}
   - {from: done, to: completed, runner: human, display: "Ручное завершение владельцем"}
   - {from: in_testing, to: blocked, runner: auto, display: "Автоматически", rule: M4}
-  - {from: in_testing, to: in_progress, runner: auto, display: "Автоматически", rule: M1}
+  - {from: in_testing, to: in_progress, runner: auto, display: "Автоматически", rule: M1, when: [children_any_active]}
   - {from: in_testing, to: canceled, runner: human, display: "Ручное вмешательство"}
-  - {from: blocked, to: in_progress, runner: auto, display: "Автоматически", rule: M1}
-  - {from: blocked, to: qa_ready, runner: auto, display: "Автоматически", rule: M2}
+  - {from: blocked, to: in_progress, runner: auto, display: "Автоматически", rule: M1, when: [children_any_active]}
+  - {from: blocked, to: qa_ready, runner: auto, display: "Автоматически", rule: M2, when: [children_all_closed, blocked_by_children]}
   - {from: blocked, to: canceled, runner: human, display: "Ручное вмешательство"}

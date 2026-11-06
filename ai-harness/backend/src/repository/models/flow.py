@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy.dialects import postgresql as pg
 from sqlalchemy.orm import Mapped, mapped_column
 
 from repository.models.base import Base
@@ -50,6 +51,12 @@ class FlowStatus(Base):
     is_terminal: Mapped[bool] = mapped_column(Boolean, default=False)
     is_blocking: Mapped[bool] = mapped_column(Boolean, default=False)
     alias_column_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("alias_column.id"))
+    # ФНР-16: класс стадии и флаги поведения демона (данные вместо литералей)
+    kind: Mapped[str | None] = mapped_column(String(24))
+    position: Mapped[int | None] = mapped_column(Integer)
+    behaviors: Mapped[list] = mapped_column(
+        pg.JSONB, nullable=False, server_default="[]", default=list
+    )
 
 
 class FlowTransition(Base):
@@ -69,6 +76,8 @@ class FlowTransition(Base):
     cond_checklist: Mapped[bool] = mapped_column(Boolean, default=True)
     cond_links: Mapped[bool] = mapped_column(Boolean, default=True)
     cond_artifact: Mapped[bool] = mapped_column(Boolean, default=False)
+    # ФНР-16: условия автозеркала — конъюнкция имён предикатов (данные вместо кода)
+    when: Mapped[list] = mapped_column(pg.JSONB, nullable=False, server_default="[]", default=list)
     rule_code: Mapped[str | None] = mapped_column(String(16))  # M1…M6, MIG, DENY — для автомата
 
 

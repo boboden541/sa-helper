@@ -142,7 +142,7 @@ async def save_draft(session: AsyncSession, type_key: str, definition: dict) -> 
             return None
         return raw if raw in known_ids else (by_label.get(raw) or by_yaml_key.get(raw))
 
-    for st in definition["statuses"]:
+    for _pos, st in enumerate(definition["statuses"]):
         session.add(
             FlowStatus(
                 flow_version_id=draft.id,
@@ -154,6 +154,9 @@ async def save_draft(session: AsyncSession, type_key: str, definition: dict) -> 
                 is_terminal=bool(st.get("terminal")),
                 is_blocking=bool(st.get("blocking")),
                 alias_column_id=_col_id(st),
+                kind=st.get("kind"),
+                behaviors=list(st.get("behaviors") or []),
+                position=_pos,
             )
         )
     await session.flush()
@@ -169,6 +172,7 @@ async def save_draft(session: AsyncSession, type_key: str, definition: dict) -> 
                 cond_links=tr.get("cond_links", True),
                 cond_artifact=tr.get("cond_artifact", False),
                 rule_code=tr.get("rule"),
+                when=list(tr.get("when") or []),
             )
         )
     await session.commit()
@@ -186,11 +190,18 @@ def _draft_to_validator(
                 "alias": str(s.alias_column_id or ""),
                 "is_entry": s.is_entry,
                 "is_terminal": s.is_terminal,
+                "is_blocking": s.is_blocking,
             }
             for s in statuses
         ],
         transitions=[
-            {"from": t.from_status, "to": t.to_status, "runner": t.runner, "display": t.display}
+            {
+                "from": t.from_status,
+                "to": t.to_status,
+                "runner": t.runner,
+                "display": t.display,
+                "when": list(getattr(t, "when", None) or []),
+            }
             for t in transitions
         ],
     )

@@ -39,7 +39,11 @@ async def build_context_md(session: AsyncSession, task: Task) -> str:
     # ТОЛЬКО документ и адреса/учётки стенда. Никаких исходников, Story Delta,
     # чеклистов и хроник: ревизия «глазами менеджера» падает, если у неё есть
     # возможность «додумать» по коду.
-    if task.status_key == "psi_review":
+    # ФТ-FNR15-08.3 + ФНР-16: изолированный контекст — поведение статуса
+    # (naive_review), не литеральный ключ
+    from domain.flow.behaviors import NAIVE_REVIEW, has_behavior
+
+    if await has_behavior(session, task, NAIVE_REVIEW):
         return await _psi_review_bundle(session, task)
 
     type_key = (
@@ -97,7 +101,14 @@ async def build_context_md(session: AsyncSession, task: Task) -> str:
         # ФТ-FNR15-02: дельта-брифинг — какие пункты плана затронуты с момента
         # последней регистрации версии документа. База = created_at последнего
         # psi_document; затронуты дети с updated_at позже базы (или без базы — все).
-        if task.status_key == "qa_ready":
+        status_meta = None
+        try:
+            from domain.flow.behaviors import status_def
+
+            status_meta = await status_def(session, task)
+        except Exception:  # noqa: BLE001 — нет статуса в графе: блок дельты не строится
+            status_meta = None
+        if status_meta is not None and status_meta.kind == "review":
             last_doc = (
                 await session.execute(
                     sa.select(PsiDocument.version, PsiDocument.created_at)

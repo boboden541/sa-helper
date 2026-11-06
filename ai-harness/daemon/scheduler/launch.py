@@ -194,9 +194,13 @@ class LaunchMixin:
                 conn_key = str(agent_conn) if agent_conn else "default"
                 if conn_key in paused_conns:  # «default»-агенты тоже паузятся
                     continue
-                # ФТ-FNR14-09: лежащий стенд не отпускает in_testing на прогон —
-                # попытка не сгорает, эпизод в хронике пишется один раз
-                if task.status_key == "in_testing" and await self._stand_down(session, task):
+                # ФТ-FNR14-09 + ФНР-16: гейт стенда — поведение статуса
+                # (verify_stand), не литеральный ключ
+                from domain.flow.behaviors import VERIFY_STAND, has_behavior
+
+                if await has_behavior(session, task, VERIFY_STAND) and await self._stand_down(
+                    session, task
+                ):
                     continue
                 ready.append((task, type_key, uid, "parallel" if parallel else "replacement", _p))
 

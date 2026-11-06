@@ -33,6 +33,8 @@ class StatusDef:
     is_terminal: bool
     is_blocking: bool
     alias: str | None
+    kind: str | None = None  # ФНР-16: класс стадии
+    behaviors: tuple[str, ...] = ()  # ФНР-16: флаги поведения демона
 
 
 @dataclass(frozen=True)
@@ -45,6 +47,7 @@ class Edge:
     cond_checklist: bool
     cond_links: bool
     cond_artifact: bool
+    when: tuple[str, ...] = ()  # ФНР-16: предикаты автозеркала
 
 
 @dataclass(frozen=True)
@@ -56,6 +59,19 @@ class FlowGraph:
 
     def status(self, key: str) -> StatusDef | None:
         return self.statuses.get(key)
+
+    def stage_position(self, status_key: str) -> int:
+        """Порядок стадии = порядок статуса в версии flow; «побеждает более
+        ранняя стадия» — детерминированный приоритет автозеркал."""
+        for i, s in enumerate(self.statuses.values()):
+            if s.key == status_key:
+                return i
+        return 10**6
+
+    def auto_when_edges_from(self, status_key: str) -> tuple[Edge, ...]:
+        """Рёбра автозеркала (runner=auto, непустой when) по позиции цели."""
+        edges = tuple(e for e in self.edges_from(status_key) if e.runner == "auto" and e.when)
+        return tuple(sorted(edges, key=lambda e: self.stage_position(e.to_status)))
 
     def edges_from(self, status_key: str) -> tuple[Edge, ...]:
         return self._by_from.get(status_key, ())
@@ -91,10 +107,14 @@ async def load_graph(session: AsyncSession, flow_version_id) -> FlowGraph:
             is_terminal=s.is_terminal,
             is_blocking=s.is_blocking,
             alias=None,
+            kind=getattr(s, "kind", None),
+            behaviors=tuple(getattr(s, "behaviors", None) or ()),
         )
         for s in (
             await session.execute(
-                sa.select(FlowStatus).where(FlowStatus.flow_version_id == flow_version_id)
+                sa.select(FlowStatus)
+                .where(FlowStatus.flow_version_id == flow_version_id)
+                .order_by(FlowStatus.position.asc().nullslast(), FlowStatus.id)
             )
         ).scalars()
     }
@@ -108,6 +128,7 @@ async def load_graph(session: AsyncSession, flow_version_id) -> FlowGraph:
             cond_checklist=t.cond_checklist,
             cond_links=t.cond_links,
             cond_artifact=t.cond_artifact,
+            when=tuple(getattr(t, "when", None) or ()),
         )
         for t in (
             await session.execute(

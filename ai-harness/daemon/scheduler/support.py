@@ -18,9 +18,11 @@ from repository.models import TaskBranch, TaskRun
 
 class SupportMixin:
     async def _ensure_worktree(self, session, task):
+        # ФНР-16: worktree — поведение статуса (ensure_worktree), не ключ
+        from domain.flow.behaviors import ENSURE_WORKTREE, has_behavior
         from repository.models import Project
 
-        if task.status_key != "in_progress":
+        if not await has_behavior(session, task, ENSURE_WORKTREE):
             return None
         type_key = (
             await session.execute(

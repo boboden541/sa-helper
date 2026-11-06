@@ -78,6 +78,26 @@ def validate_draft(draft: FlowDraft) -> ValidationResult:
         if not s.get("is_terminal") and not adj.get(s["key"]):
             res.errors.append(f"Тупик: у статуса «{s['key']}» нет исходящих переходов")
 
+    # ФНР-16: семантика автозеркала
+    blocking_keys = {s["key"] for s in statuses if s.get("is_blocking")}
+    terminal_keys = set(terminals)
+    for tr in draft.transitions:
+        label = f"{tr['from']} → {tr['to']}"
+        when = tr.get("when") or []
+        if tr["runner"] == "auto" and not when:
+            res.warnings.append(
+                f"Авто-переход {label} без when — зеркалом не исполняется "
+                "(событийные правила и агентские рёбра — не автозеркало)"
+            )
+        if when and (tr["to"] in blocking_keys or tr["to"] in terminal_keys):
+            res.errors.append(
+                f"Escape-переход {label} гейтится предикатами — пути отступления "
+                "никогда не гейтятся (урок VITRINA-1)"
+            )
+        unknown = [w for w in when if w not in _known_predicates()]
+        if unknown:
+            res.errors.append(f"Переход {label}: неизвестные предикаты {', '.join(unknown)}")
+
     # нет недостижимых: каждый статус достижим из точки входа
     if entries:
         reachable: set[str] = set()
@@ -119,3 +139,9 @@ def validate_draft(draft: FlowDraft) -> ValidationResult:
         res.warnings.append(f"Статусы без alias-колонки не видны на доске: {', '.join(unmapped)}")
 
     return res
+
+
+def _known_predicates() -> set[str]:
+    from domain.mirroring.predicates import REGISTRY
+
+    return set(REGISTRY)

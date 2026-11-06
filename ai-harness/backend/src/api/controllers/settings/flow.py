@@ -43,7 +43,7 @@ async def get_flow(
             await session.execute(
                 sa.select(FlowStatus)
                 .where(FlowStatus.flow_version_id == draft.id)
-                .order_by(FlowStatus.status_key)
+                .order_by(FlowStatus.position.asc().nullslast(), FlowStatus.status_key)
             )
         )
         .scalars()
@@ -72,6 +72,8 @@ async def get_flow(
                 "terminal": s.is_terminal,
                 "blocking": s.is_blocking,
                 "aliasColumnId": str(s.alias_column_id or ""),
+                "kind": getattr(s, "kind", None),
+                "behaviors": list(getattr(s, "behaviors", None) or []),
             }
             for s in statuses
         ],
@@ -82,6 +84,7 @@ async def get_flow(
                 "runner": t.runner,
                 "display": t.display,
                 "rule": t.rule_code,
+                "when": list(getattr(t, "when", None) or []),
             }
             for t in transitions
         ],
@@ -399,3 +402,27 @@ async def flow_all_statuses(
     from usecase.settings import flow as flow_uc
 
     return await flow_uc.all_statuses_by_type(session)
+
+
+@router.get("/flow/predicates")
+async def flow_predicates():
+    """ФНР-16: реестр предикатов автозеркала (для FlowTab, ФТ-FNR16-04)."""
+    from domain.mirroring.predicates import REGISTRY
+
+    return {
+        "items": [
+            {"name": p.name, "description": p.description}
+            for p in sorted(REGISTRY.values(), key=lambda x: x.name)
+        ]
+    }
+
+
+@router.get("/flow/behaviors")
+async def flow_behaviors():
+    """ФНР-16: каталог поведений и классов стадий (для FlowTab)."""
+    from domain.flow.behaviors import BEHAVIORS, KINDS
+
+    return {
+        "behaviors": [{"name": k, "description": v} for k, v in sorted(BEHAVIORS.items())],
+        "kinds": [{"name": k, "description": v} for k, v in sorted(KINDS.items())],
+    }

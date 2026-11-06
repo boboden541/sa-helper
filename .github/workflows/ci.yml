@@ -65,6 +65,7 @@ jobs:
           ruff check ai-harness
           ruff format --check ai-harness
           python ai-harness/scripts/check_file_length.py
+          python ai-harness/scripts/check_status_literals.py  # ФНР-16: семантика в данных
 
       # Тесты сами создают тестовую БД, накатывают миграции и заливают сид
       # (tests/conftest.py, фикстура _test_db). ОБЯЗАТЕЛЬНО из ai-harness/:

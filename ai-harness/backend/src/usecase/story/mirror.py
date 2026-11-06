@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import sqlalchemy as sa
-from domain.mirroring.rules import evaluate
 from repository.models import AppSetting, Task, TaskType
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,40 +22,45 @@ async def recompute_story_mirroring(session: AsyncSession, story: Task) -> str |
         .scalars()
         .all()
     )
-    # проверка актуальности ПСИ-плана для правила M3 (ФТ-FNR14-04)
-    from usecase.story.reference import psi_plan_ref_version
-
-    plan_ref = await psi_plan_ref_version(session, story.id)
-    psi_ready = plan_ref is not None and plan_ref >= (story.ref_version or 1)
-
-    # вердикт «ПСИ-редактора» (ФНР-15 4.8): рёбра M3b/M3c
+    # ФНР-16: семантика автопереходов — данные на рёбрах (when), движок универсальный.
+    # Факты для предикатов собираются в MirrorCtx пачкой (без N+1).
+    from domain.mirroring.ctx import MirrorCtx
+    from domain.mirroring.engine import find_mirror_transition
     from repository.models import Checklist, PsiDocument
 
-    approved = rejected = False
+    from usecase.story.reference import psi_plan_ref_version
+    from usecase.task.transition import task_flow_version_id
+
+    plan_ref = await psi_plan_ref_version(session, story.id)
+    manager_state = manager_review_version = manager_latest = None
     if story.status_key == "psi_review":
         chk = (
             await session.execute(
                 sa.select(Checklist).where(Checklist.task_id == story.id, Checklist.kind == "psi")
             )
         ).scalar_one_or_none()
-        latest = (
+        manager_latest = (
             await session.execute(
                 sa.select(sa.func.max(PsiDocument.version)).where(PsiDocument.story_id == story.id)
             )
         ).scalar_one()
-        if chk and latest:
-            approved = (
-                chk.manager_review_state == "approved" and chk.manager_review_version == latest
-            )
-            rejected = chk.manager_review_state == "rejected"
+        if chk:
+            manager_state = chk.manager_review_state
+            manager_review_version = chk.manager_review_version
 
-    rule = evaluate(
-        story.status_key,
-        list(children),
-        story.blocked_rule,
-        psi_ready=psi_ready,
-        manager_approved=approved,
-        manager_rejected=rejected,
+    ctx = MirrorCtx(
+        story_status=story.status_key,
+        children=list(children),
+        blocked_rule=story.blocked_rule,
+        ref_version=story.ref_version or 1,
+        psi_plan_ref=plan_ref,
+        manager_state=manager_state,
+        manager_review_version=manager_review_version,
+        manager_latest=manager_latest,
+        story_kind=type_key,
+    )
+    rule = await find_mirror_transition(
+        session, story, await task_flow_version_id(session, story), ctx
     )
     if rule is None:
         return None

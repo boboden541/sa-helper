@@ -6,8 +6,8 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../../../api/client'
 import { FLOW_TYPES } from '../shared'
 
-interface Fs { key: string; label: string; stageDesc?: string; gate?: string; entry: boolean; terminal: boolean; blocking: boolean; aliasColumnId: string }
-interface Ft { from: string; to: string; runner: string; display: string; rule?: string }
+interface Fs { key: string; label: string; stageDesc?: string; gate?: string; entry: boolean; terminal: boolean; blocking: boolean; aliasColumnId: string; kind?: string; behaviors?: string[] }
+interface Ft { from: string; to: string; runner: string; display: string; rule?: string; when?: string[] }
 interface FlowData { version: number; isPublished: boolean; statuses: Fs[]; transitions: Ft[] }
 
 const GATE_LABELS: Record<string, string> = {
@@ -43,7 +43,11 @@ export function FlowEditor({ reload }: { reload: () => void }) {
   const connRef = useRef<{ from: string; x: number; y: number } | null>(null)
   const [, tick] = useState(0)
 
+  const [predicates, setPredicates] = useState<{ name: string; description: string }[]>([])
+  const [behaviorCatalog, setBehaviorCatalog] = useState<{ behaviors: { name: string; description: string }[]; kinds: { name: string; description: string }[] }>({ behaviors: [], kinds: [] })
   const reloadFlow = () => {
+    void api.flowPredicates().then((d) => setPredicates(d.items)).catch(() => {})
+    void api.flowBehaviors().then(setBehaviorCatalog).catch(() => {})
     void api.flow(typeKey).then((d) => {
       setData(d)
       const saved = JSON.parse(localStorage.getItem(`flow-pos-${typeKey}`) ?? '{}')
@@ -96,9 +100,10 @@ export function FlowEditor({ reload }: { reload: () => void }) {
     await api.saveDraft(typeKey, {
       statuses: d.statuses.map((s) => ({ key: s.key, label: s.label, gate: s.gate,
         entry: s.entry, terminal: s.terminal, blocking: s.blocking,
-        stage_desc: s.stageDesc, alias_column_id: s.aliasColumnId || undefined })),
+        stage_desc: s.stageDesc, alias_column_id: s.aliasColumnId || undefined,
+        kind: s.kind, behaviors: s.behaviors ?? [] })),
       transitions: d.transitions.map((t) => ({ from: t.from, to: t.to, runner: t.runner,
-        display: t.display, rule: t.rule })),
+        display: t.display, rule: t.rule, when: t.when ?? [] })),
     })
     setDirty(false)
     setNote({ text: 'Черновик сохранён', bad: false })
@@ -231,6 +236,22 @@ export function FlowEditor({ reload }: { reload: () => void }) {
                   onChange={(e) => statusField(selectedStatus.key, { entry: e.target.checked })} /> точка входа</label>
                 <label className="f-check"><input type="checkbox" checked={selectedStatus.terminal}
                   onChange={(e) => statusField(selectedStatus.key, { terminal: e.target.checked })} /> терминальный</label>
+                <div className="f-field"><label>Класс стадии (ФНР-16)</label>
+                  <select value={selectedStatus.kind ?? ''} onChange={(e) => statusField(selectedStatus.key, { kind: e.target.value || undefined })}>
+                    <option value="">— не задан —</option>
+                    {behaviorCatalog.kinds.map((k) => <option key={k.name} value={k.name}>{k.name} — {k.description}</option>)}
+                  </select></div>
+                <div className="f-field"><label>Поведение демона (ФНР-16)</label>
+                  {behaviorCatalog.behaviors.map((b) => (
+                    <label key={b.name} className="f-check">
+                      <input type="checkbox" checked={(selectedStatus.behaviors ?? []).includes(b.name)}
+                        onChange={(e) => {
+                          const cur = new Set(selectedStatus.behaviors ?? [])
+                          if (e.target.checked) cur.add(b.name); else cur.delete(b.name)
+                          statusField(selectedStatus.key, { behaviors: [...cur] })
+                        }} /> {b.name} — {b.description}</label>
+                  ))}
+                </div>
                 <label className="f-check"><input type="checkbox" checked={selectedStatus.blocking}
                   onChange={(e) => statusField(selectedStatus.key, { blocking: e.target.checked })} /> блокирующий</label>
                 <button className="btn danger small mt12" onClick={() => removeStatus(selectedStatus.key)}>Удалить статус</button>
@@ -248,6 +269,20 @@ export function FlowEditor({ reload }: { reload: () => void }) {
                   </select></div>
                 <div className="f-field"><label>Как отображается</label>
                   <input value={selEdge.display} onChange={(e) => edgeField(selEdge.from, selEdge.to, { display: e.target.value })} /></div>
+                {selEdge.runner === 'auto' && (
+                  <div className="f-field"><label>Условие автозеркала (ФНР-16, конъюнкция)</label>
+                    {predicates.map((pr) => (
+                      <label key={pr.name} className="f-check">
+                        <input type="checkbox" checked={(selEdge.when ?? []).includes(pr.name)}
+                          onChange={(e) => {
+                            const cur = new Set(selEdge.when ?? [])
+                            if (e.target.checked) cur.add(pr.name); else cur.delete(pr.name)
+                            edgeField(selEdge.from, selEdge.to, { when: [...cur] })
+                          }} /> {pr.name} — {pr.description}</label>
+                    ))}
+                    <div className="muted" style={{ fontSize: 11 }}>Пусто — ребро исполняется только вручную/событием, не зеркалом.</div>
+                  </div>
+                )}
                 <button className="btn danger small mt12" onClick={() => removeEdge(selEdge.from, selEdge.to)}>Удалить переход</button>
               </>
             )}

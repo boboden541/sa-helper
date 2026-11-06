@@ -91,7 +91,7 @@ async def publish_preset(
     await session.flush()
 
     columns = await ensure_alias_columns(session)
-    for st in definition["statuses"]:
+    for pos, st in enumerate(definition["statuses"]):
         session.add(
             FlowStatus(
                 flow_version_id=fv.id,
@@ -105,6 +105,9 @@ async def publish_preset(
                 # alias опционален: архивный статус completed живёт вне колонок доски
                 # (латентный баг HEAD: сид падал KeyError на свежей БД, 03.11.2026)
                 alias_column_id=columns[st["alias"]].id if "alias" in st else None,
+                kind=st.get("kind"),
+                behaviors=list(st.get("behaviors") or []),
+                position=pos,
             )
         )
     await session.flush()
@@ -120,6 +123,7 @@ async def publish_preset(
                 cond_links=tr.get("cond_links", True),
                 cond_artifact=tr.get("cond_artifact", False),
                 rule_code=tr.get("rule"),
+                when=list(tr.get("when") or []),
             )
         )
     await session.flush()
