@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -93,9 +94,15 @@ async def create_version(
     sections: list[dict],
     preamble_md: str | None = None,
 ) -> int:
-    """sections: [{"heading": str, "items": [{"action": str, "expected": str}]}].
-    Пункт ПСИ — строка чеклиста особого типа kind='psi' (ФТ-ah-39).
-    Версия сохраняется файлом по пути истории (psi_path)."""
+    """sections: [{"heading": str, "items": [{"action": str, "expected": str,
+    "taskCode": str?}]}]. Пункт ПСИ — строка чеклиста kind='psi' (ФТ-ah-39).
+    Версия сохраняется файлом по пути истории (psi_path).
+
+    ФНР-15: если у payload-пунктов есть taskCode, совпадающий с linked_task_id
+    действующих пунктов, регистрация работает в РЕЖИМЕ ДЕЛЬТЫ — пункты, чьи задачи
+    не затронуты payload'ом, механически переносятся из прошлой версии
+    (carry_forward, carried_from_version), и файл рендерится из полного документа
+    (перенесённые секции + дельта). Иначе — полный документ (прежний контракт)."""
     story = await _story(session, story_code)
     version = (
         await session.execute(
@@ -121,10 +128,102 @@ async def create_version(
         chk = Checklist(task_id=story.id, kind="psi")
         session.add(chk)
         await session.flush()
+
+    # ФНР-15: валидация taskCode — задача должна быть ребёнком/багом ЭТОЙ истории
+    payload_task_ids: dict[str, uuid.UUID] = {}
+    for section in sections:
+        for item in section.get("items", []):
+            code = (item.get("taskCode") or "").strip()
+            if not code:
+                continue
+            if code.upper() in payload_task_ids:
+                continue
+            linked = (
+                await session.execute(
+                    sa.select(Task).where(sa.func.upper(Task.code) == code.upper())
+                )
+            ).scalar_one_or_none()
+            if linked is None or linked.story_id != story.id:
+                raise DomainError(
+                    f"taskCode «{code}» не является задачей/багом истории {story.code}"
+                )
+            payload_task_ids[code.upper()] = linked.id
+
+    # --- режим регистрации: полный документ или дельта с carry-forward ---
+    old_rows = (
+        (
+            await session.execute(
+                sa.select(ChecklistItem)
+                .where(ChecklistItem.checklist_id == chk.id)
+                .order_by(ChecklistItem.position)
+            )
+        )
+        .scalars()
+        .all()
+        if chk.id is not None
+        else []
+    )
+    linked_old_ids = {
+        old.linked_task_id for old in old_rows if old.kind == "item" and old.linked_task_id
+    }
+    delta_mode = bool(linked_old_ids & set(payload_task_ids.values()))
+
+    carried_from = version - 1
+    if delta_mode:
+        # переносятся все строки, КРОМЕ пунктов, чьи задачи затронуты payload'ом
+        carried_rows = [
+            old
+            for old in old_rows
+            if not (old.kind == "item" and old.linked_task_id in payload_task_ids.values())
+        ]
+        # полный документ = перенесённые секции (в прежнем порядке) + дельта-секции
+        full_sections: list[dict] = []
+        current: dict | None = None
+        for old in carried_rows:
+            if old.kind == "heading":
+                current = {"heading": old.text, "items": []}
+                full_sections.append(current)
+            else:
+                if current is None:
+                    current = {"heading": "Без секции", "items": []}
+                    full_sections.append(current)
+                current["items"].append(
+                    {
+                        "action": old.text,
+                        "expected": old.psi_expected or "",
+                    }
+                )
+        full_sections.extend(sections)
+        render_sections = full_sections
+        carried_count = sum(1 for old in carried_rows if old.kind == "item")
     else:
-        await session.execute(sa.delete(ChecklistItem).where(ChecklistItem.checklist_id == chk.id))
+        carried_rows = []
+        render_sections = sections
+        carried_count = 0
+
+    await session.execute(sa.delete(ChecklistItem).where(ChecklistItem.checklist_id == chk.id))
     position = 0
     items_count = 0
+    # перенос: прежний текст/ожидание/связи, вердикт сброшен под новый прогон
+    for old in carried_rows:
+        session.add(
+            ChecklistItem(
+                checklist_id=chk.id,
+                position=position,
+                kind=old.kind,
+                level=old.level,
+                text=old.text,
+                status="todo",
+                psi_expected=old.psi_expected,
+                psi_actual=None,
+                linked_task_id=old.linked_task_id,
+                bug_task_id=old.bug_task_id,
+                carried_from_version=carried_from if old.kind == "item" else None,
+            )
+        )
+        position += 1
+        if old.kind == "item":
+            items_count += 1
     for section in sections:
         session.add(
             ChecklistItem(
@@ -137,6 +236,7 @@ async def create_version(
         )
         position += 1
         for item in section.get("items", []):
+            code = (item.get("taskCode") or "").strip().upper()
             session.add(
                 ChecklistItem(
                     checklist_id=chk.id,
@@ -145,26 +245,34 @@ async def create_version(
                     text=item.get("action", ""),
                     status="todo",
                     psi_expected=item.get("expected", ""),
+                    linked_task_id=payload_task_ids.get(code),
                 )
             )
             position += 1
             items_count += 1
+
+    # повторная регистрация = новая ревизия «ПСИ-редактора» (ФТ-FNR15-08)
+    chk.manager_review_version = None
+    chk.manager_review_state = None
+
+    carry_note = f", перенесено {carried_count}" if delta_mode else ""
     session.add(
         Chronicle(
             task_id=story.id,
             event_type="psi",
             author_id=author.id,
             author_kind="agent" if author.user_type == "agent" else "human",
-            message=f"Составлен ПСИ v{version} ({items_count} пунктов)",
+            message=f"Составлен ПСИ v{version} ({items_count} пунктов{carry_note})",
         )
     )
+
     # файл psi.md — в папку назначения (например, sa_documentation/FNR/FNR_<N>/psi.md).
     # Одна транзакция на версию (было 3 коммита: данные, файл-ок, файл-фейл —
     # отказ между ними оставлял БД и файл в разных фазах; анализ 03.11.2026).
     # Риск-окно неустранимо: файл вне БД — при сбое коммита файл остаётся
     # сиротой (документ в БД не зафиксирован); осознанный компромисс.
     try:
-        md = render_psi_md(story, version, sections, preamble_md)
+        md = render_psi_md(story, version, render_sections, preamble_md)
         saved_to = await save_psi_file(session, story, md)
         session.add(
             Chronicle(
@@ -191,6 +299,72 @@ async def create_version(
     chk.source_ref_version = story.ref_version
     await session.commit()
     return version
+
+
+async def link_task(
+    session: AsyncSession, story_code: str, actor: User, position: int, task_code: str
+) -> dict:
+    """ФТ-FNR15-01: карта покрытия «пункт ПСИ ↔ задача» (аналог link_bug).
+    Идемпотентен: повторная связь той же задачи — без изменения."""
+    story = await _story(session, story_code)
+    _, items = await _current_doc_and_items(session, story.id)
+    item = next((i for i in items if i.kind == "item" and i.position == position), None)
+    if item is None:
+        raise DomainError(f"Пункт П.{position} не найден в текущем документе ПСИ")
+    linked = (
+        await session.execute(sa.select(Task).where(sa.func.upper(Task.code) == task_code.upper()))
+    ).scalar_one_or_none()
+    if linked is None or linked.story_id != story.id:
+        raise DomainError(f"«{task_code}» не является задачей/багом истории {story.code}")
+    item.linked_task_id = linked.id
+    session.add(
+        Chronicle(
+            task_id=story.id,
+            event_type="psi",
+            author_id=actor.id,
+            author_kind="agent" if actor.user_type == "agent" else "human",
+            message=f"Пункт П.{position} связан с {linked.code} (карта покрытия)",
+        )
+    )
+    await session.commit()
+    return {"position": position, "linkedTaskCode": linked.code}
+
+
+async def set_manager_review(
+    session: AsyncSession, story_code: str, reviewer: User, verdict: bool, note: str | None
+) -> dict:
+    """ФТ-FNR15-08: вердикт «ПСИ-редактора» о документе. approved → ребро M3b
+    (psi_review → in_testing); rejected → ребро M3c (возврат на qa_ready с
+    адресной причиной в контексте составителя)."""
+    story = await _story(session, story_code)
+    chk = (
+        await session.execute(
+            sa.select(Checklist).where(Checklist.task_id == story.id, Checklist.kind == "psi")
+        )
+    ).scalar_one_or_none()
+    if chk is None:
+        raise DomainError("У истории нет плана ПСИ — ревизовать нечего")
+    latest = (
+        await session.execute(
+            sa.select(sa.func.max(PsiDocument.version)).where(PsiDocument.story_id == story.id)
+        )
+    ).scalar_one()
+    chk.manager_review_version = latest
+    chk.manager_review_state = "approved" if verdict else "rejected"
+    session.add(
+        Chronicle(
+            task_id=story.id,
+            event_type="psi",
+            author_id=reviewer.id,
+            author_kind="agent" if reviewer.user_type == "agent" else "human",
+            message=(
+                f"ПСИ v{latest}: редактор {'одобрил' if verdict else 'ОТКЛОНИЛ'}"
+                + (f": {(note or '')[:300]}" if note and not verdict else "")
+            ),
+        )
+    )
+    await session.commit()
+    return {"version": latest, "state": chk.manager_review_state}
 
 
 async def _current_doc_and_items(session: AsyncSession, story_id):

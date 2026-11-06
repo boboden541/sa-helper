@@ -200,13 +200,14 @@ async def test_eve_intent_then_confirm(session, actor_id):
     await session.commit()
     from usecase.assistant.eve import handle_message
 
-    reply = await handle_message(session, actor, f"переведи {task.code} на тестирование")
+    reply = await handle_message(session, actor, f"переведи {task.code} на ревизию ПСИ")
     assert reply["action"] == "confirm"
 
     confirmed = await handle_message(session, actor, "да")
     assert "Сделано" in confirmed["reply"]
     task_row = (await session.execute(sa.select(Task).where(Task.code == task.code))).scalar_one()
-    assert task_row.status_key == "in_testing"
+    # ФНР-15: qa_ready ведёт в psi_review (M3a) — прямого ребра в in_testing больше нет
+    assert task_row.status_key == "psi_review"
 
 
 async def test_eve_direct_move_when_no_edge(session, actor_id):

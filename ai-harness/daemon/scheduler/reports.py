@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import sqlalchemy as sa
 from repository.models import Task
 
@@ -131,7 +133,11 @@ class ReportMixin:
                     raise TransitionDenied(decision.reason)
                 if to == "done" and task.task_type_id:
                     await self._merge_before_done(session, task)
-                task = await apply_transition(session, agent, task.code, to)
+                # ФТ-FNR15-07: агентский переход комментирует система —
+                # выжимка отчёта в хронику перехода (след «что сделано»)
+                task = await apply_transition(
+                    session, agent, task.code, to, comment=report.summary_md[:500]
+                )
             except TransitionDenied as denied:
                 task.retry_count += 1
                 session.add(_chronicle(task.id, "engine", f"Переход отклонён: {denied.reason}"))
@@ -332,6 +338,24 @@ class ReportMixin:
         from usecase.task.transition import TransitionDenied
 
         project = await session.get(Project, task.project_id)
+        # ФТ-FNR15-09, сценарий А: корень проекта — контейнер репозиториев (не git).
+        # Для задачи без собственного repo_path сливать нечего — пропускаем слияние
+        # без отказа перехода (раньше «не репозиторий» маскировалось под «копия
+        # не чиста» и сжигало попытки; VITRINA-1 06.11.2026)
+        if not project.path:
+            # seed-задачи тестов без проекта-пути: слияния нет по определению
+            return
+        if not task.repo_path and not (Path(host_to_container(project.path)) / ".git").exists():
+            session.add(
+                _chronicle(
+                    task.id,
+                    "agent",
+                    "Слияние не требуется: корень проекта не git-репозиторий "
+                    "(документация и задачи без repo_path живут без веток)",
+                )
+            )
+            await session.commit()
+            return
         try:
             # путь проекта в БД хранится как на хосте; git-операции идут в контейнере
             git_info = await merge_task_branch(
@@ -339,6 +363,8 @@ class ReportMixin:
                 task.code,
                 project.base_branch,
                 repo_path=task.repo_path,
+                # ФТ-FNR15-09, сценарий Б: документация конвейера не блокирует слияние
+                keep_paths=[task.psi_path or "", ".harness"],
             )
             if git_info:
                 # строка task_branch обязана существовать: раньше строку

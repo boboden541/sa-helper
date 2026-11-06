@@ -73,6 +73,7 @@ async def apply_transition(
     subject_kind: str | None = None,
     rule_code: str | None = None,
     _allow_cascade: bool = True,
+    comment: str = "",
 ) -> Task:
     """Валидный переход по flow. Отказ по гейту → TransitionDenied (applied=False);
     отказ по правам агента → 403 + событие «запрет» (ФТ-ah-27); недопустимое ребро → 400."""
@@ -123,7 +124,8 @@ async def apply_transition(
             author_kind=subject.kind,
             rule_code=rule_code,
             message=f"Перевод: «{prev_label}» → «{graph.statuses[to].label}»"
-            + (f" (правило {rule_code})" if rule_code else ""),
+            + (f" (правило {rule_code})" if rule_code else "")
+            + (f" — {comment.strip()[:300]}" if comment.strip() else ""),
         )
     )
     from usecase.journal.notifications import on_transition

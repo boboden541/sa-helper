@@ -31,6 +31,15 @@ class SupportMixin:
             return None
         project = await session.get(Project, task.project_id)
 
+        # ФТ-FNR15-09, сценарий А: корень-контейнер (не git) без repo_path —
+        # ветки/worktree не заводим, прогон работает в корне
+        from infrastructure.paths import host_to_container
+
+        if not project.path:
+            return None
+        if not task.repo_path and not (Path(host_to_container(project.path)) / ".git").exists():
+            return None
+
         from infrastructure.git.worktree import ensure_task_worktree
 
         wt = await ensure_task_worktree(

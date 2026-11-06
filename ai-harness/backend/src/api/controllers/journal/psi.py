@@ -105,6 +105,43 @@ async def psi_rework(
     return await psi_uc.mark_rework(session, code, actor)
 
 
+class PsiLinkTaskIn(BaseModel):
+    position: int
+    taskCode: str
+    model_config = ConfigDict(extra="forbid")
+
+
+@router.post("/stories/{code}/psi/link-task")
+@_400
+async def psi_link_task(
+    code: str,
+    payload: PsiLinkTaskIn,
+    session: AsyncSession = Depends(get_session),
+    actor: User = Depends(get_actor),
+):
+    """ФТ-FNR15-01: карта покрытия «пункт ПСИ ↔ задача» (идемпотентно)."""
+    return await psi_uc.link_task(session, code, actor, payload.position, payload.taskCode)
+
+
+class PsiReviewIn(BaseModel):
+    verdict: bool
+    note: str = ""
+    model_config = ConfigDict(extra="forbid")
+
+
+@router.post("/stories/{code}/psi/review")
+@_400
+async def psi_review(
+    code: str,
+    payload: PsiReviewIn,
+    session: AsyncSession = Depends(get_session),
+    actor: User = Depends(get_actor),
+):
+    """ФТ-FNR15-08: вердикт «ПСИ-редактора». approved открывает ребро M3b
+    (psi_review → in_testing); rejected — M3c (возврат на qa_ready)."""
+    return await psi_uc.set_manager_review(session, code, actor, payload.verdict, payload.note)
+
+
 class PsiLinkIn(BaseModel):
     position: int
     bugCode: str

@@ -83,6 +83,9 @@ class Checklist(Base):
     # psi — ставится регистрацией версии документа; остальные — обновлением
     # чеклиста. План устарел ⟺ значение меньше task.ref_version
     source_ref_version: Mapped[int | None] = mapped_column(Integer)
+    # ФНР-15: ревизия «ПСИ-редактора» — номер одобренной версии и состояние вердикта
+    manager_review_version: Mapped[int | None] = mapped_column(Integer)
+    manager_review_state: Mapped[str | None] = mapped_column(String(16))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -101,6 +104,9 @@ class ChecklistItem(Base):
     psi_expected: Mapped[str | None] = mapped_column(Text)
     psi_actual: Mapped[str | None] = mapped_column(Text)
     bug_task_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("task.id"))
+    # ФНР-15: карта покрытия «пункт ПСИ ↔ задача» и признак механического переноса
+    linked_task_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("task.id"))
+    carried_from_version: Mapped[int | None] = mapped_column(Integer)
 
 
 class TaskRelation(Base):

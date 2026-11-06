@@ -26,13 +26,17 @@ async def _status(session, code, status):
 
 
 async def test_transition_unknown_task_404(client):
-    r = await client.post("/api/v1/tasks/NOPE-9/transitions", json={"to": "todo"})
+    r = await client.post(
+        "/api/v1/tasks/NOPE-9/transitions", json={"to": "todo", "comment": "тестовый переход"}
+    )
     assert r.status_code == 404
 
 
 async def test_transition_unknown_edge_400(client):
     code = await _mk_task(client)  # pending
-    r = await client.post(f"/api/v1/tasks/{code}/transitions", json={"to": "done"})
+    r = await client.post(
+        f"/api/v1/tasks/{code}/transitions", json={"to": "done", "comment": "тестовый переход"}
+    )
     assert r.status_code == 400
 
 
@@ -40,7 +44,10 @@ async def test_transition_gate_denial_200_applied_false(client, session):
     """Гейт не пускает: HTTP 200, applied=false, человекочитаемая причина."""
     code = await _mk_task(client)
     await _status(session, code, "todo")
-    r = await client.post(f"/api/v1/tasks/{code}/transitions", json={"to": "in_progress"})
+    r = await client.post(
+        f"/api/v1/tasks/{code}/transitions",
+        json={"to": "in_progress", "comment": "тестовый переход"},
+    )
     assert r.status_code == 200
     body = r.json()
     assert body["applied"] is False and "не создан" in body["reason"]
@@ -131,3 +138,16 @@ async def test_list_tokens_breakdown(client, session):
     row = next(i for i in items if i["code"] == code)
     assert row["tokensUsed"] == 15
     assert (row["tokensInput"], row["tokensOutput"], row["tokensCache"]) == (10, 2, 3)
+
+
+async def test_transition_requires_comment(client, _test_db):
+    """ФТ-FNR15-07: ручной переход без комментария → 400 (след «что сделано»)."""
+    code = await _mk_task(client)
+    r = await client.post(f"/api/v1/tasks/{code}/transitions", json={"to": "todo"})
+    assert r.status_code == 400, r.text
+    assert "комментари" in r.json().get("message", "").lower()
+    r = await client.post(
+        f"/api/v1/tasks/{code}/transitions", json={"to": "todo", "comment": "начали работу"}
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["applied"] is True

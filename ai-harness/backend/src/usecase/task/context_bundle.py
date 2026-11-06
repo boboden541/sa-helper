@@ -10,6 +10,7 @@ from repository.models import (
     ChecklistItem,
     Chronicle,
     Project,
+    PsiDocument,
     Tag,
     Task,
     TaskArtifact,
@@ -34,6 +35,13 @@ def _squeeze(text: str, limit: int = 4000) -> str:
 
 
 async def build_context_md(session: AsyncSession, task: Task) -> str:
+    # ФТ-FNR15-08.3: изоляция контекста «ПСИ-редактора» — на psi_review агент видит
+    # ТОЛЬКО документ и адреса/учётки стенда. Никаких исходников, Story Delta,
+    # чеклистов и хроник: ревизия «глазами менеджера» падает, если у неё есть
+    # возможность «додумать» по коду.
+    if task.status_key == "psi_review":
+        return await _psi_review_bundle(session, task)
+
     type_key = (
         await session.execute(sa.select(TaskType.key).where(TaskType.id == task.task_type_id))
     ).scalar_one()
@@ -85,6 +93,64 @@ async def build_context_md(session: AsyncSession, task: Task) -> str:
             parts.append(
                 f"\nПлан ПСИ актуален: эталон v{task.ref_version}, план заверен v{plan_ref}."
             )
+
+        # ФТ-FNR15-02: дельта-брифинг — какие пункты плана затронуты с момента
+        # последней регистрации версии документа. База = created_at последнего
+        # psi_document; затронуты дети с updated_at позже базы (или без базы — все).
+        if task.status_key == "qa_ready":
+            last_doc = (
+                await session.execute(
+                    sa.select(PsiDocument.version, PsiDocument.created_at)
+                    .where(PsiDocument.story_id == task.id)
+                    .order_by(PsiDocument.version.desc())
+                    .limit(1)
+                )
+            ).first()
+            base_v = last_doc[0] if last_doc else None
+            base_dt = last_doc[1] if last_doc else None
+
+            ch_q = sa.select(Task.id, Task.code, Task.title, Task.status_key).where(
+                Task.story_id == task.id
+            )
+            if base_dt is not None:
+                ch_q = ch_q.where(Task.updated_at > base_dt)
+            affected = (await session.execute(ch_q.order_by(Task.code))).all()
+
+            if affected:
+                linked = (
+                    await session.execute(
+                        sa.select(ChecklistItem.linked_task_id, ChecklistItem.position)
+                        .join(Checklist, Checklist.id == ChecklistItem.checklist_id)
+                        .where(
+                            Checklist.task_id == task.id,
+                            Checklist.kind == "psi",
+                            ChecklistItem.kind == "item",
+                            ChecklistItem.linked_task_id.isnot(None),
+                        )
+                    )
+                ).all()
+                cover: dict = {}
+                for lid, pos in linked:
+                    cover.setdefault(lid, []).append(f"П.{pos}")
+                base_label = f"v{base_v}" if base_v else "документа нет"
+                lines = [
+                    f"\n## Дельта ПСИ (база: {base_label}) — пункты на переработку:",
+                    "Переработай/создай ТОЛЬКО эти пункты (с taskCode) — остальные"
+                    " переносятся системой (carry-forward). Методология psi-methodology.",
+                ]
+                for tid, tcode, ttitle, tstatus in affected:
+                    pts = cover.get(tid)
+                    if pts:
+                        lines.append(
+                            f"- {tcode} «{ttitle}» [{tstatus}] — "
+                            f"затронуты пункты {', '.join(pts)} — ПЕРЕРАБОТАТЬ"
+                        )
+                    else:
+                        lines.append(
+                            f"- {tcode} «{ttitle}» [{tstatus}] — "
+                            "НЕ покрыт ни одним пунктом — СОЗДАТЬ пункт"
+                        )
+                parts.append("\n".join(lines))
 
         # Срез изменений истории (Story Delta, ФТ-FNR14-03): дочерние задачи и баги
         from repository.models import TaskBranch
@@ -365,3 +431,84 @@ async def build_context_md(session: AsyncSession, task: Task) -> str:
         )
 
     return "\n".join(parts)
+
+
+async def _psi_review_bundle(session: AsyncSession, task: Task) -> str:
+    """Минимальный контекст ревизора (ФТ-FNR15-08.3): документ ПСИ + параметры
+    стенда. Терминал разрешён — шаги документа исполняются «как написано»."""
+    import json
+    from pathlib import Path
+
+    from infrastructure.paths import host_to_container, task_repo_root
+    from repository.models import Checklist, ChecklistItem
+
+    rows = (
+        await session.execute(
+            sa.select(
+                ChecklistItem.kind,
+                ChecklistItem.position,
+                ChecklistItem.text,
+                ChecklistItem.psi_expected,
+                ChecklistItem.psi_actual,
+                ChecklistItem.status,
+            )
+            .join(Checklist, Checklist.id == ChecklistItem.checklist_id)
+            .where(
+                Checklist.task_id == task.id,
+                Checklist.kind == "psi",
+            )
+            .order_by(ChecklistItem.position)
+        )
+    ).all()
+    doc_lines: list[str] = []
+    for kind, pos, text, expected, actual, _status in rows:
+        if kind == "heading":
+            doc_lines.append(f"\n## {text}")
+        elif kind == "item":
+            doc_lines.append(f"\n### П.{pos} {text}")
+            doc_lines.append(f"Ожидаемый результат: {expected or '(не указано)'}")
+            if actual:
+                doc_lines.append(f"(прошлый факт: {actual[:200]})")
+
+    parts = [
+        "# Ревизия документа ПСИ (ФТ-FNR15-08)",
+        "Ты — менеджер продукта БЕЗ инженерного бэкграунда. Твоя единственная задача —"
+        " проверить, что документ ПСИ ниже ПОНЯТЕН и ВОСПРОИЗВОДИМ «как написано»:",
+        "- исполняй шаги документа буквально, только то, что написано; ничего не додумывай;",
+        "- НЕ читай исходный код проекта, историю задачи и прочие материалы — их у тебя нет;",
+        "- если шаг нельзя выполнить (не сказано, где выполнять; нет пароля; команда"
+        " ссылается на то, чего нет) — фиксируй «П.N: невоспроизводим — причина»;",
+        "- в конце отправь вердикт: POST "
+        f"host.docker.internal:8000/api/v1/stories/{task.code}/psi/review "
+        'с телом {"verdict": true|false, "note": "адресные причины по пунктам"} '
+        "(Content-Type: application/json; методология в скилле psi-editor).",
+        "- бюджет: уложись в 60 минут; застрял — отправляй verdict=false с причинами.",
+        "\n## Документ ПСИ",
+        "\n".join(doc_lines) or "(документ пуст)",
+    ]
+
+    project = await session.get(Project, task.project_id)
+    if project and project.path:
+        stand_path = (
+            Path(host_to_container(task_repo_root(project.path, task.repo_path)))
+            / ".harness"
+            / "stand.json"
+        )
+        if stand_path.exists():
+            try:
+                stand = json.loads(stand_path.read_text(encoding="utf-8"))
+                parts.append(
+                    "\n## Адреса и учётки стенда"
+                    "\nИспользуй ТОЛЬКО их; порты/адреса из документа должны совпадать."
+                )
+                for name, info in stand.get("services", {}).items():
+                    url = info.get("base_url") or info.get("dsn") or ""
+                    parts.append(f"- {name}: `{url}`")
+                for u in stand.get("auth", {}).get("test_users", [])[:5]:
+                    parts.append(
+                        f"- учётка {u.get('role', 'user')}: `{u.get('email')}` / "
+                        f"`{u.get('password')}`"
+                    )
+            except Exception:  # noqa: BLE001
+                parts.append("\n(stand.json нечитаем — продолжай по тексту документа)")
+    return "\n\n".join(parts)

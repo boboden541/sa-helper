@@ -16,7 +16,11 @@ statuses:
   - key: qa_ready
     label: Готово к тестированию
     alias: testing
-    stage_desc: "Все дочерние закрыты; ждёт автоперехода на сквозное тестирование"
+    stage_desc: "Все дочерние закрыты; ПСИ-составитель актуализирует план (дельта)"
+  - key: psi_review
+    label: На ревизии ПСИ
+    alias: review
+    stage_desc: "ПСИ-редактор ревизует документ глазами менеджера (M3b/M3c)"
   - key: in_testing
     label: На тестировании
     alias: testing
@@ -48,7 +52,11 @@ transitions:
   - {from: in_progress, to: qa_ready, runner: auto, display: "Автоматически", rule: M2}
   - {from: in_progress, to: blocked, runner: auto, display: "Автоматически", rule: M5}
   - {from: in_progress, to: canceled, runner: human, display: "Ручное вмешательство"}
-  - {from: qa_ready, to: in_testing, runner: auto, display: "Автоматически", rule: M3}
+  - {from: qa_ready, to: psi_review, runner: auto, display: "Автоматически", rule: M3a}
+  - {from: psi_review, to: in_testing, runner: auto, display: "Автоматически", rule: M3b}
+  - {from: psi_review, to: qa_ready, runner: auto, display: "Автоматически", rule: M3c}
+  - {from: psi_review, to: blocked, runner: human, display: "Ручное вмешательство"}
+  - {from: psi_review, to: canceled, runner: human, display: "Ручное вмешательство"}
   - {from: qa_ready, to: blocked, runner: human, display: "Ручное вмешательство"}
   - {from: qa_ready, to: canceled, runner: human, display: "Ручное вмешательство"}
   - {from: in_testing, to: done, runner: agent, display: "Зачёт по ПСИ (M6) — автоматически при полном прогоне", rule: M6}

@@ -19,6 +19,8 @@ router = APIRouter(prefix="/api/v1/tasks", tags=["transitions"])
 class TransitionIn(BaseModel):
     to: str
     reason: str | None = None
+    # ФТ-FNR15-07: ручной переход требует комментария (что сделано, почему перевод)
+    comment: str = ""
     model_config = ConfigDict(extra="forbid")
 
 
@@ -54,8 +56,12 @@ async def transition_view(
     actor: User = Depends(get_actor),
 ):
     task = await _load_task_or_404(session, code)
+    # ФТ-FNR15-07: ручной переход без комментария отклоняется (след «что сделано»
+    # обязателен); агентские переходы комментирует система (выжимка отчёта)
+    if not payload.comment.strip():
+        raise ApiError(400, "Укажите комментарий: что сделано и почему переводите")
     try:
-        await apply_transition(session, actor, task.code, payload.to)
+        await apply_transition(session, actor, task.code, payload.to, comment=payload.comment)
     except TransitionDenied as denied:
         if denied.status_code == 403:
             raise ApiError(403, denied.reason)

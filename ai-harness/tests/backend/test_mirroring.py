@@ -75,7 +75,22 @@ async def test_m2_then_m3_two_chronicle_events(session, actor_id):
 
     rule = await recompute_story_mirroring(session, story)
     story = await _refresh(session, story)
-    assert rule == "M3" and story.status_key == "in_testing"
+    assert rule == "M3a" and story.status_key == "psi_review"
+
+    # M3b: ревизия одобрила текущую версию → in_testing (ФНР-15 4.8)
+    from repository.models import Checklist
+
+    chk = (
+        await session.execute(
+            sa.select(Checklist).where(Checklist.task_id == story.id, Checklist.kind == "psi")
+        )
+    ).scalar_one()
+    chk.manager_review_version = 1
+    chk.manager_review_state = "approved"
+    await session.commit()
+    rule = await recompute_story_mirroring(session, story)
+    story = await _refresh(session, story)
+    assert rule == "M3b" and story.status_key == "in_testing"
 
     rules = (
         (
@@ -92,7 +107,7 @@ async def test_m2_then_m3_two_chronicle_events(session, actor_id):
         .scalars()
         .all()
     )
-    assert rules[-2:] == ["M2", "M3"]
+    assert rules[-3:] == ["M2", "M3a", "M3b"]  # ФНР-15: цепочка с ревизией ПСИ
 
 
 async def test_m1_any_child_in_work(session, actor_id):

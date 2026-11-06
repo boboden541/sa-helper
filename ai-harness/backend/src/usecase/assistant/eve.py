@@ -446,6 +446,7 @@ def _guess_target(text: str, statuses: list[tuple[str, str]] | None = None) -> s
         return best[0]
     mapping = {
         "ревью": "in_review",
+        "ревизи": "psi_review",
         "тест": "in_testing",
         "работ": "in_progress",
         "бэклог": "backlog",

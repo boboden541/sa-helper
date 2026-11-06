@@ -125,9 +125,12 @@ async def commit_all(worktree: Path, message: str, author: str) -> str | None:
     return await _git(["rev-parse", "HEAD"], cwd=worktree)
 
 
-async def _tracked_status_clean(root) -> bool:
+async def _tracked_status_clean(root, keep_paths: list[str] | None = None) -> bool:
     """Нет изменений отслеживаемых файлов. Untracked не грязь: .harness/worktrees
-    живёт внутри репозитория и иначе слияние отказывало бы всегда."""
+    живёт внутри репозитория и иначе слияние отказывало бы всегда.
+    keep_paths (ФТ-FNR15-09): файлы, которые пишет сам конвейер (psi-документ,
+    .harness/**), не делают копию «грязной» — иначе конвейер сам себе отказывал
+    в слиянии (инцидент 06.11.2026: psi.md v4 записан → «копия не чиста»)."""
     try:
         status = await _git(["status", "--porcelain", "--untracked-files=no"], cwd=root)
     except GitError as err:
@@ -135,11 +138,23 @@ async def _tracked_status_clean(root) -> bool:
         # и агент/человек искали несуществующие незакоммиченные правки
         # (VITRINA-1: каталог проекта вообще без .git — разбор 06.11.2026)
         raise GitError(f"Каталог {root} не является git-репозиторием: {err}") from None
-    return not status.strip()
+    if not status.strip():
+        return True
+    keep = tuple(p.rstrip("/") for p in (keep_paths or []) if p)
+    for line in status.splitlines():
+        path = line[3:].strip().strip('"')
+        if any(path == k or path.startswith(k + "/") for k in keep):
+            continue
+        return False
+    return True
 
 
 async def merge_task_branch(
-    project_path: str, task_code: str, base_branch: str = "main", repo_path: str | None = None
+    project_path: str,
+    task_code: str,
+    base_branch: str = "main",
+    repo_path: str | None = None,
+    keep_paths: list[str] | None = None,
 ) -> dict[str, str | dict | None]:
     """Слияние task/<code> в базовую перед done; конфликт → GitError (→ blocked).
     Возвращает словарь с head_commit, merge_commit, diff_stats (ФТ-FNR14-03)."""
@@ -150,7 +165,7 @@ async def merge_task_branch(
     # в ложный «конфликт слияния» и сжигала попытки без вины агента
     # (анализ 30.10.2026). Untracked (в т.ч. .harness/worktrees внутри репо)
     # грязью не считаем.
-    if not await _tracked_status_clean(root):
+    if not await _tracked_status_clean(root, keep_paths=keep_paths):
         raise GitError(
             "Рабочая копия проекта не чиста — закоммитьте или уберите "
             "изменения, автомат повторит слияние"

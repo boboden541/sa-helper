@@ -152,7 +152,16 @@ async def test_rework_resets_stamp_and_items(client, _test_db):
         evaluate("qa_ready", ["done"], None, psi_ready=(plan_ref is not None and plan_ref >= 1))
         is None
     )
-    assert evaluate("qa_ready", ["done"], None, psi_ready=True) == ("M3", "in_testing")
+    assert evaluate("qa_ready", ["done"], None, psi_ready=True) == ("M3a", "psi_review")
+    # M3b: одобрение ревизией открывает in_testing; M3c: отклонение — возврат
+    assert evaluate("psi_review", ["done"], None, psi_ready=True, manager_approved=True) == (
+        "M3b",
+        "in_testing",
+    )
+    assert evaluate("psi_review", ["done"], None, psi_ready=True, manager_rejected=True) == (
+        "M3c",
+        "qa_ready",
+    )
 
     # повторная регистрация версии возвращает заверенность (items reset)
     r = await client.post(f"/api/v1/stories/{code}/psi", json={"sections": SECTIONS})

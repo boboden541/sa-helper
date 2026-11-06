@@ -29,7 +29,35 @@ async def recompute_story_mirroring(session: AsyncSession, story: Task) -> str |
     plan_ref = await psi_plan_ref_version(session, story.id)
     psi_ready = plan_ref is not None and plan_ref >= (story.ref_version or 1)
 
-    rule = evaluate(story.status_key, list(children), story.blocked_rule, psi_ready=psi_ready)
+    # вердикт «ПСИ-редактора» (ФНР-15 4.8): рёбра M3b/M3c
+    from repository.models import Checklist, PsiDocument
+
+    approved = rejected = False
+    if story.status_key == "psi_review":
+        chk = (
+            await session.execute(
+                sa.select(Checklist).where(Checklist.task_id == story.id, Checklist.kind == "psi")
+            )
+        ).scalar_one_or_none()
+        latest = (
+            await session.execute(
+                sa.select(sa.func.max(PsiDocument.version)).where(PsiDocument.story_id == story.id)
+            )
+        ).scalar_one()
+        if chk and latest:
+            approved = (
+                chk.manager_review_state == "approved" and chk.manager_review_version == latest
+            )
+            rejected = chk.manager_review_state == "rejected"
+
+    rule = evaluate(
+        story.status_key,
+        list(children),
+        story.blocked_rule,
+        psi_ready=psi_ready,
+        manager_approved=approved,
+        manager_rejected=rejected,
+    )
     if rule is None:
         return None
     rule_code, to_status = rule
