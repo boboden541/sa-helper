@@ -6,11 +6,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
+import json
+from pathlib import Path
 
 import sqlalchemy as sa
 from domain.model.enums import GIT_TASK_TYPES
-from repository.models import TaskRun
+from repository.models import TaskBranch, TaskRun
 
 
 class SupportMixin:
@@ -30,9 +33,89 @@ class SupportMixin:
 
         from infrastructure.git.worktree import ensure_task_worktree
 
-        return await ensure_task_worktree(
+        wt = await ensure_task_worktree(
             project.path, task.code, project.base_branch, repo_path=task.repo_path
         )
+        await self._upsert_task_branch(session, project, task, wt_path=str(wt))
+        return wt
+
+    async def _upsert_task_branch(self, session, project, task, wt_path: str | None = None) -> None:
+        """Writer строки task_branch (ФТ-FNR14-03): в живом потоке строку не
+        писал никто — только legacy-миграция, поэтому «story git delta» всю
+        дорогу был мёртв (анализ 06.11.2026). Пишем при создании worktree и
+        добиваем при слиянии; idempotent по uq task_branch.task_id."""
+        from infrastructure.git.worktree import worktree_path_for
+        from infrastructure.paths import host_to_container
+
+        if task.repo_path:
+            root = host_to_container(str(Path(project.path) / task.repo_path))
+        else:
+            root = host_to_container(project.path)
+        path = wt_path or str(worktree_path_for(root, task.code))
+        tb = (
+            await session.execute(sa.select(TaskBranch).where(TaskBranch.task_id == task.id))
+        ).scalar_one_or_none()
+        if tb is None:
+            session.add(
+                TaskBranch(
+                    task_id=task.id,
+                    branch_name=f"task/{task.code}",
+                    worktree_path=path[:500],
+                )
+            )
+        elif tb.worktree_path != path[:500]:
+            tb.worktree_path = path[:500]
+        # коммит делает вызывающий (тиковая транзакция/merge-блок уже с ним)
+
+    async def _verify_stand(self, run_session, task) -> None:
+        """Телеметрия стенда (ФТ-FNR14-05): перед стартом прогона демон опрашивает
+        сервисы манифеста .harness/stand.json → task.stand_verified_at /
+        stand_health_status. Раньше колонки были мёртвыми (анализ 06.11.2026).
+        НЕ гейтит запуск — решение о блокировке задач при лежащем стенде остаётся
+        за владельцем; факт доступен агентам и карточке."""
+        from urllib.parse import urlparse
+
+        from infrastructure.paths import host_to_container, task_repo_root
+        from repository.models import Project
+
+        project = await run_session.get(Project, task.project_id)
+        if not project or not project.path:
+            return
+        stand_path = (
+            Path(host_to_container(task_repo_root(project.path, task.repo_path)))
+            / ".harness"
+            / "stand.json"
+        )
+        if not stand_path.exists():
+            return
+        status = "unknown"
+        try:
+            stand = json.loads(stand_path.read_text(encoding="utf-8"))
+            services = stand.get("services", {})
+            status = "up"
+            for _name, info in services.items():
+                url = info.get("base_url") or info.get("dsn") or ""
+                parsed = urlparse(url)
+                if not (parsed.hostname and parsed.port):
+                    continue  # dsn без порта и прочие неразборчивые — пропустить
+                try:
+                    _reader, writer = await asyncio.wait_for(
+                        asyncio.open_connection(parsed.hostname, parsed.port), timeout=3.0
+                    )
+                    writer.close()
+                except Exception:  # noqa: BLE001 — любой сетевой отказ = «down»
+                    status = "down"
+                    break
+        except Exception:  # noqa: BLE001 — нечитаемый манифест = «unknown»
+            status = "unknown"
+        await run_session.execute(
+            sa.text(
+                "UPDATE task SET stand_verified_at = now(), stand_health_status = :s "
+                "WHERE id = :i"
+            ),
+            {"s": status, "i": str(task.id)},
+        )
+        await run_session.commit()
 
     async def _provider_for(self, session, agent_id) -> dict | None:
         """Расшифрованное подключение агента (ANTHROPIC_* для раннера).

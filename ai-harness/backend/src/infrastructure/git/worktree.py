@@ -183,6 +183,24 @@ async def merge_task_branch(
     except GitError:
         diff_stat = ""
 
+    # повторное слияние смёрженной ветки не выполняем: HEAD после «Already up
+    # to date» — это tip базы (возможно ЧУЖОЙ merge-коммит), и перезапись им
+    # tb.merge_commit портила прослеживаемость (анализ 06.11.2026).
+    # merge-base --is-ancestor — locale-независимый детект (вывод git локален)
+    already_merged = False
+    try:
+        await _git(["merge-base", "--is-ancestor", branch, base], cwd=root)
+        already_merged = True
+    except GitError:
+        already_merged = False
+
+    if already_merged:
+        return {
+            "head_commit": head_commit.strip() or None,
+            "merge_commit": None,  # None = нового слияния не было — метаданные не трогаем
+            "diff_stats": {"stat": diff_stat.strip()} if diff_stat.strip() else None,
+        }
+
     if current != base:
         await _git(["checkout", base], cwd=root)
     try:
@@ -205,14 +223,6 @@ async def merge_task_branch(
         "merge_commit": merge_commit.strip() if merge_commit else None,
         "diff_stats": {"stat": diff_stat.strip()} if diff_stat.strip() else None,
     }
-
-
-async def merge_has_conflict(project_path: str, task_code: str, base_branch: str = "main") -> bool:
-    try:
-        await merge_task_branch(project_path, task_code, base_branch)
-        return False
-    except GitError:
-        return True
 
 
 async def remove_task_worktree(project_path: str, task_code: str) -> None:

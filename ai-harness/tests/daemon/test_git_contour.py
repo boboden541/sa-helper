@@ -57,9 +57,17 @@ async def test_merge_before_done(repo):
         check=True,
         capture_output=True,
     )
-    await merge_task_branch(str(repo), "AH-8", "main")
+    first = await merge_task_branch(str(repo), "AH-8", "main")
     _readme = (repo / "README.md").read_text(encoding="utf-8")
     assert (repo / "feature.txt").exists()  # слияние попало в базовую
+    assert first["merge_commit"], "первое слияние возвращает merge_commit"
+
+    # повторное слияние смёрженной ветки: merge_commit=None = «нового слияния
+    # не было» — демон сохранит прежние метаданные, не перезапишет их чужим
+    # HEAD базы (анализ 06.11: «Already up to date» отдавал tip базы)
+    second = await merge_task_branch(str(repo), "AH-8", "main")
+    assert second["merge_commit"] is None
+    assert second["head_commit"] == first["head_commit"]
 
 
 async def test_merge_conflict_raises(repo):
