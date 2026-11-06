@@ -173,11 +173,24 @@ class ReportMixin:
                 await session.commit()
                 return
             task.retry_count += 1
-            await release_reservation(session, task.id, "failed", report.summary_md[:500])
+            # run_id обязателен: легаси-вызов без него закрывает ВСЕ активные
+            # прогоны задачи — в параллельной матрице гасил строку живого соседа
+            # и снимал резерв до его завершения (анализ 06.11.2026). А
+            # reason_code="no_transition" — честный код для bypass-запроса.
+            await release_reservation(
+                session,
+                task.id,
+                run_id,
+                "failed",
+                report.summary_md[:500],
+                reason_code="no_transition",
+            )
             await session.commit()
             return
 
-        # success без перехода: release с кодом None (перехода не было)
+        # прогоны выше всегда return: строка достижима только после
+        # УСПЕШНО применённого перехода (раньше комментарий обещал
+        # «success без перехода» — тот кейс падает в else выше)
         await release_reservation(session, task.id, run_id, "success")
         await session.commit()
 
@@ -328,19 +341,26 @@ class ReportMixin:
                 repo_path=task.repo_path,
             )
             if git_info:
+                # строка task_branch обязана существовать: раньше строку
+                # создавала только legacy-миграция (анализ 06.11 — «story git
+                # delta» была мёртва); теперь upsert и при слиянии
+                await self._upsert_task_branch(session, project, task)
                 from repository.models import TaskBranch
 
                 tb = (
                     await session.execute(
                         sa.select(TaskBranch).where(TaskBranch.task_id == task.id)
                     )
-                ).scalar_one_or_none()
-                if tb:
-                    tb.head_commit = git_info.get("head_commit")
-                    tb.merge_commit = git_info.get("merge_commit")
-                    tb.diff_stats = git_info.get("diff_stats")
+                ).scalar_one()
+                tb.head_commit = git_info.get("head_commit") or tb.head_commit
+                tb.diff_stats = git_info.get("diff_stats") or tb.diff_stats
+                merge_commit = git_info.get("merge_commit")
+                # None = «уже смёржено» — метаданные прошлого слияния не
+                # перезаписываем (иначе приходил чужой HEAD базы)
+                if merge_commit:
+                    tb.merge_commit = merge_commit
                     tb.merged_at = sa.func.now()
-                    await session.commit()
+                await session.commit()
         except GitError as err:
             # str(GitError) уже включает stderr (диагностика шторма 29.10)
             text = str(err)

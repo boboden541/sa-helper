@@ -177,7 +177,11 @@ def parse_report(text: str) -> RunReport:
     return RunReport(
         status="failed",
         summary_md="агент не вернул отчёт по контракту",
-        outcome_code="provider_unreachable" if is_provider_unreachable(text) else "no_report",
+        # классификация «провайдер недоступен» — ТОЛЬКО по тексту исключения
+        # среды (except-путь run.py), не по текстам агента: сетевые задачи
+        # упоминают ECONNREFUSED/таймауты в своём труде — ложная классификация
+        # освобождала попытку и крутила задачу по кругу (анализ 06.11.2026)
+        outcome_code="no_report",
         raw=text[-4000:],
     )
 

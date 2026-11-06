@@ -12,6 +12,7 @@ import datetime as dt
 import sqlalchemy as sa
 from domain.model.enums import PRIORITY_RANK
 from repository.models import Assignment, Project, Task, TaskRelation, TaskType, User
+from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from daemon.runner.reservation import reserve_task
@@ -94,7 +95,9 @@ class LaunchMixin:
                         TaskRun.task_id.in_([row.Task.id for row in rows]),
                         TaskRun.outcome.in_(("failed", "interrupted", "success")),
                     )
-                    .distinct(TaskRun.task_id, TaskRun.agent_id)
+                    .ext(
+                        distinct_on(TaskRun.task_id, TaskRun.agent_id)
+                    )  # DISTINCT ON: современная форма SA 2.1 (distinct(args) deprecated)
                     .order_by(TaskRun.task_id, TaskRun.agent_id, TaskRun.finished_at.desc())
                 )
             ).all()
@@ -189,7 +192,7 @@ class LaunchMixin:
                 # массовый отказ провайдера: задачи ждут, не блокируются (ФТ-ah-35)
                 agent_conn = conn_by_agent.get(str(uid))
                 conn_key = str(agent_conn) if agent_conn else "default"
-                if agent_conn is not None and conn_key in paused_conns:
+                if conn_key in paused_conns:  # «default»-агенты тоже паузятся
                     continue
                 ready.append((task, type_key, uid, "parallel" if parallel else "replacement", _p))
 
@@ -290,9 +293,12 @@ class LaunchMixin:
                     await session.execute(
                         sa.text(
                             "SELECT reason_code FROM task_run WHERE task_id = :t "
-                            "AND outcome = 'failed' AND reason_code IS NOT NULL "
+                            "AND outcome = 'failed' "
                             "ORDER BY started_at DESC LIMIT 1"
                         ),
+                        # bypass-запрос: последний failed решает; NULL-причины
+                        # (честные сбои) перекрывают старую провайдерную запись
+                        # — иначе одна прошлая флапа навсегда «отравляла» bypass
                         {"t": str(task.id)},
                     )
                 ).scalar_one_or_none()

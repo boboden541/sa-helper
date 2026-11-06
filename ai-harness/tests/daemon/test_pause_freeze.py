@@ -81,11 +81,10 @@ async def test_pause_freezes_status_automata(_test_db):
             )
             await s.commit()
         await daemon.tick()
-        st = (
-            await _maker(eng)().execute(
-                sa.text("SELECT status_key FROM task WHERE code = :c"), {"c": code}
-            )
-        ).scalar_one()
+        async with _maker(eng)() as s:
+            st = (
+                await s.execute(sa.text("SELECT status_key FROM task WHERE code = :c"), {"c": code})
+            ).scalar_one()
         assert st == "in_progress", f"на паузе статус должен держаться, стал {st}"
 
         # пауза снята: автоблокировка догоняет — нет агента → blocked
@@ -95,11 +94,10 @@ async def test_pause_freezes_status_automata(_test_db):
             )
             await s.commit()
         await daemon.tick()
-        st = (
-            await _maker(eng)().execute(
-                sa.text("SELECT status_key FROM task WHERE code = :c"), {"c": code}
-            )
-        ).scalar_one()
+        async with _maker(eng)() as s:
+            st = (
+                await s.execute(sa.text("SELECT status_key FROM task WHERE code = :c"), {"c": code})
+            ).scalar_one()
         assert st == "blocked", f"после паузы нужна автоблокировка, стал {st}"
     finally:
         await eng.dispose()

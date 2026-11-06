@@ -139,6 +139,10 @@ class RunMixin:
                         {"t": str(task.id)},
                     )
                 ).scalar_one_or_none()
+                # телеметрия стенда (ФТ-FNR14-05): факт доступности сервисов
+                # манифест stand.json — в БД до старта прогона (анализ 06.11:
+                # колонки были мёртвыми). НЕ гейтит запуск — решение за владельцем
+                await self._verify_stand(session, task)
                 base_ctx = await self._context_md(session, task)
                 if last_denied:
                     open_items = (
@@ -379,17 +383,22 @@ class RunMixin:
                         {"c": task_code},
                     )
                     await s2.commit()
-                # сбой среди сессии: лог непуст — след сессии пишет демон
+                # сбой среди сессии: лог непуст — след сессии пишет демон.
+                # Передаётся ФАБРИКА сессий, не сессия: write_handoff_comment
+                # сам открывает соединение (дефект 04.11: передача s2 валила
+                # except-путь TypeError'ом — release и предохранитель не
+                # выполнялись, попытку дожигал свип)
+                task_id = await task_id_by_code(s2, task_code)
                 await write_handoff_comment(
-                    s2,
-                    await task_id_by_code(s2, task_code),
+                    self._maker,
+                    task_id,
                     agent_id,
                     run_id,
                     f"Сбой раннера: {str(err)[:120]}",
                 )
                 await release_reservation(
                     s2,
-                    await task_id_by_code(s2, task_code),
+                    task_id,
                     run_id,
                     "failed",
                     str(err)[:500],
@@ -398,8 +407,16 @@ class RunMixin:
                 if provider_down:
                     from daemon.runner.circuit import maybe_trip, record_failure
 
-                    await record_failure(s2, None)
-                    await maybe_trip(s2, None)
+                    # ключ предохранителя — конкретное подключение агента
+                    # (None → «default»); раньше писался только default
+                    conn_id = (
+                        await s2.execute(
+                            sa.text("SELECT connection_id FROM agent_profile WHERE user_id = :u"),
+                            {"u": str(agent_id)},
+                        )
+                    ).scalar_one_or_none()
+                    await record_failure(s2, conn_id)
+                    await maybe_trip(s2, conn_id)
         finally:
             self._active.pop(run_id, None)
             self._runs.pop(run_id, None)

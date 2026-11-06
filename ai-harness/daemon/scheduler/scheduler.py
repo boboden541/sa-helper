@@ -63,6 +63,16 @@ class Daemon(TicksMixin, LaunchMixin, RunMixin, SupportMixin, ReportMixin):
             }
             await self._touch_active(session)
             summary["heartbeat_lost"] = await self._sweep_dead_runs(session, cfg)
+            # глобальный пульс демона для compose-healthcheck (анализ 06.11:
+            # у daemon-контейнера healthcheck не было вовсе)
+            await session.execute(
+                sa.text(
+                    "INSERT INTO app_setting (key, value) VALUES ('daemon:heartbeat', "
+                    "to_char(now() at time zone 'utc', 'YYYY-MM-DD\"T\"HH24:MI:SS.US')) "
+                    "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"
+                )
+            )
+            await session.commit()
             # пауза конвейера (решение владельца 28.10.2026 «подержать задачу
             # в конкретном статусе»): замораживается ВСЯ автоматика статусов —
             # зеркала историй и автоблокировка не исполняются, статусы
