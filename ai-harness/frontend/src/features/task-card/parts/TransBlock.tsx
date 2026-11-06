@@ -16,19 +16,26 @@ export function TransBlock({ code, card, L, reload }: {
 }) {
   const [forceTo, setForceTo] = useState('')
   const [forceReason, setForceReason] = useState('')
+  const [comment, setComment] = useState('')
 
   return (
     <div className="blk">
       <div className="trans">
         <span className="cur">Сейчас: {L(card.statusKey)} →</span>
         {card.gate?.allowed.map((to) => (
-          <button key={to} className="btn" onClick={async () => {
-            const r = await api.transition(code, to)
-            if (!r.applied) toast(r.reason ?? 'отказ', 'bad'); else toast({ code, text: ` → ${L(to)}` }, 'ok')
-            reload()
-          }}>{L(to)}</button>
+          <button key={to} className="btn" disabled={!comment.trim()}
+            title="Сначала комментарий: что сделано и почему переводите"
+            onClick={async () => {
+              const r = await api.transition(code, to, comment)
+              if (!r.applied) toast(r.reason ?? 'отказ', 'bad'); else toast({ code, text: ` → ${L(to)}` }, 'ok')
+              setComment(''); reload()
+            }}>{L(to)}</button>
         ))}
       </div>
+      {card.gate && card.gate.allowed.length > 0 && (
+        <textarea className="trans-comment" placeholder="Комментарий к переходу — что сделано и почему переводите (обязательно)…"
+          value={comment} onChange={(e) => setComment(e.target.value)} />
+      )}
       {card.gate && card.gate.denied.length > 0 && (
         <div className="trans-reasons">
           {card.gate.denied.map((d) => (

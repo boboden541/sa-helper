@@ -79,9 +79,9 @@ export const api = {
     request<TaskCard>('/api/v1/tasks', { method: 'POST', body: JSON.stringify(payload) }),
   patchTask: (code: string, payload: unknown) =>
     request<TaskCard>(`/api/v1/tasks/${code}`, { method: 'PATCH', body: JSON.stringify(payload) }),
-  transition: (code: string, to: string) =>
+  transition: (code: string, to: string, comment = '') =>
     request<{ applied: boolean; reason?: string }>(`/api/v1/tasks/${code}/transitions`, {
-      method: 'POST', body: JSON.stringify({ to }),
+      method: 'POST', body: JSON.stringify({ to, comment }),
     }),
   force: (code: string, to: string, reason: string) =>
     request<{ applied: boolean }>(`/api/v1/tasks/${code}/force`, {

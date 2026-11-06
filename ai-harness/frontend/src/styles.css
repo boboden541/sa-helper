@@ -1317,3 +1317,6 @@ button.conn.off:hover{color:var(--accent-text)}
 .tok-split{display:inline-flex; gap:14px; font-size:12px; color:var(--text3); font-variant-numeric:tabular-nums}
 .tok-split b{color:var(--text2); font-weight:600}
 td .tok-split, .token-row .tok-split{display:flex; flex-wrap:wrap; margin-top:4px}
+
+/* ФТ-FNR15-07: комментарий к переходу статуса */
+.trans-comment { width: 100%; min-height: 44px; margin: 6px 0; font: inherit; font-size: 12px; }
