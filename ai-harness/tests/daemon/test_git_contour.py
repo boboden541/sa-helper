@@ -137,3 +137,15 @@ async def test_merge_ignores_untracked_files(repo):
     )
     await merge_task_branch(str(repo), "AH-11", "main")
     assert (repo / "feature.txt").exists()
+
+
+async def test_merge_non_repo_clear_error(tmp_path):
+    """Каталог без .git — честная диагностика, а не «копия не чиста»
+    (разбор 06.11.2026: vitrina-проект без репозитория маскировался
+    под грязную рабочую копию)."""
+    empty = tmp_path / "not-a-repo"
+    empty.mkdir()
+    with pytest.raises(GitError) as ei:
+        await merge_task_branch(str(empty), "AH-99", "main")
+    assert "не является git-репозиторием" in str(ei.value)
+    assert "не чиста" not in str(ei.value)

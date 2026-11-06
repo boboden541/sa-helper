@@ -130,8 +130,11 @@ async def _tracked_status_clean(root) -> bool:
     живёт внутри репозитория и иначе слияние отказывало бы всегда."""
     try:
         status = await _git(["status", "--porcelain", "--untracked-files=no"], cwd=root)
-    except GitError:
-        return False
+    except GitError as err:
+        # «не репозиторий» ≠ «не чиста»: раньше маскировалось одной ошибкой,
+        # и агент/человек искали несуществующие незакоммиченные правки
+        # (VITRINA-1: каталог проекта вообще без .git — разбор 06.11.2026)
+        raise GitError(f"Каталог {root} не является git-репозиторием: {err}") from None
     return not status.strip()
 
 
