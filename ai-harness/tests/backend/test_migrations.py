@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -13,7 +14,10 @@ from sqlalchemy.exc import IntegrityError
 
 ROOT = Path(__file__).resolve().parents[2]
 VENV = ROOT / ".venv" / "bin"
-MIG_DB = "ai_harness_mig_test"
+# уникальное имя базы на прогон: фиксированное ai_harness_mig_test сталкивало
+# параллельные прогоны набора (пуш-хук + вторая сессия) на DROP/CREATE —
+# b0d1eef закрыл коллизию только главной тестовой БД (анализ 06.11.2026)
+MIG_DB = f"ai_harness_mig_test_{os.getpid()}_{int(time.time())}"
 
 
 async def _pg_exec(sql: str) -> None:
