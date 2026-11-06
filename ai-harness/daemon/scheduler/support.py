@@ -110,8 +110,7 @@ class SupportMixin:
             status = "unknown"
         await run_session.execute(
             sa.text(
-                "UPDATE task SET stand_verified_at = now(), stand_health_status = :s "
-                "WHERE id = :i"
+                "UPDATE task SET stand_verified_at = now(), stand_health_status = :s WHERE id = :i"
             ),
             {"s": status, "i": str(task.id)},
         )
