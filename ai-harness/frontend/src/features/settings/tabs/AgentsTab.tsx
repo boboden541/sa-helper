@@ -234,9 +234,14 @@ function AgCellPopover({ statusKey, people, entries, defaultMode, onApply }: {
       setSearch('')
       if (triggerRef.current) {
         const rect = triggerRef.current.getBoundingClientRect()
-        const spaceBelow = window.innerHeight - rect.bottom
-        const spaceAbove = rect.top
-        setPlacement(spaceBelow < 300 && spaceAbove > spaceBelow ? 'up' : 'down')
+        // boundary — скролл-контейнер вкладки настроек (.settings), не вьюпорт:
+        // поповер клипается им, а не окном (анализ 06.11)
+        const clip = triggerRef.current.closest('.settings')?.getBoundingClientRect()
+        const bottomEdge = clip ? clip.bottom : window.innerHeight
+        const topEdge = clip ? clip.top : 0
+        const spaceBelow = bottomEdge - rect.bottom
+        const spaceAbove = rect.top - topEdge
+        setPlacement(spaceBelow < 380 && spaceAbove > spaceBelow ? 'up' : 'down')
         setAlign(rect.left + 330 > window.innerWidth ? 'right' : 'left')
       }
       setOpen(true)

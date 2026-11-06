@@ -333,11 +333,17 @@ flowchart TD
 ```bash
 cd ai-harness
 cp .env.example .env                     # и задайте AI_HARNESS_TOKEN_KEY (см. ниже)
+docker volume create ai_harness_pgdata   # ОБЯЗАТЕЛЬНО перед первым стартом (volume external)
 docker compose up -d                     # postgres + backend + frontend
 docker compose --profile daemon up -d    # демон-автомат (образ с Claude Agent SDK)
 python scripts/dev.py migrate            # миграции применяются вручную
 python scripts/dev.py seed               # демо-данные при первом старте (идемпотентно)
 ```
+
+> ⚠️ Данные Postgres живут в named volume `ai_harness_pgdata`, объявленном
+> `external: true` — compose его НЕ создаёт сам, поэтому первый шаг обязателен
+> (свежая машина без него падает на `docker compose up -d`). `docker compose
+> down -v` этот volume не сносит — данные переживают пересоздание стека.
 
 - **Интерфейс**: [http://localhost:8088](http://localhost:8088) (API — :8000, Postgres — :5433). Демо-вход из сида: `Алексей` / `harness`.
 - **`AI_HARNESS_TOKEN_KEY`** — ключ шифрования токенов ИИ-провайдеров (AES-256-GCM): `python -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())"`. Без ключа стек работает, но провайдера подключить нельзя.
