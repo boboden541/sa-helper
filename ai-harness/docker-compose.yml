@@ -113,7 +113,7 @@ services:
           "CMD",
           "python",
           "-c",
-          "import asyncio, asyncpg, datetime as dt\nasync def chk():\n    c = await asyncpg.connect('postgresql://${POSTGRES_USER:-harness}:${POSTGRES_PASSWORD:-harness}@postgres:5432/${POSTGRES_DB:-ai_harness}')\n    v = await c.fetchval(\"SELECT value FROM app_setting WHERE key='daemon:heartbeat'\")\n    await c.close()\n    if not v: raise SystemExit('нет пульса')\n    age = (dt.datetime.now(dt.timezone.utc) - dt.datetime.fromisoformat(v)).total_seconds()\n    if age > 150: raise SystemExit(f'пульс старше {age:.0f}s')\nasyncio.run(chk())",
+          "import asyncio, asyncpg, datetime as dt\nasync def chk():\n    c = await asyncpg.connect('postgresql://${POSTGRES_USER:-harness}:${POSTGRES_PASSWORD:-harness}@postgres:5432/${POSTGRES_DB:-ai_harness}')\n    v = await c.fetchval(\"SELECT value FROM app_setting WHERE key='daemon:heartbeat'\")\n    await c.close()\n    if not v: raise SystemExit('нет пульса')\n    age = (dt.datetime.now(dt.timezone.utc) - dt.datetime.fromisoformat(v).replace(tzinfo=dt.timezone.utc)).total_seconds()\n    if age > 150: raise SystemExit(f'пульс старше {age:.0f}s')\nasyncio.run(chk())",
         ]
       interval: 60s
       timeout: 10s
