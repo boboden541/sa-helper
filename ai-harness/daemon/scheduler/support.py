@@ -116,6 +116,71 @@ class SupportMixin:
         )
         await run_session.commit()
 
+    async def _stand_down(self, session, task) -> bool:
+        """ФТ-FNR14-09: жёсткий гейт запуска — при лежащем стенде прогон
+        in_testing не стартует вовсе: попытки не горят, в хронику эпизод
+        пишется один раз (не спамим каждый тик). Nondeterministic-сеть не
+        блокирует: «unknown» (нечитаемый манифест) пропускается."""
+        from urllib.parse import urlparse
+
+        from infrastructure.paths import host_to_container, task_repo_root
+        from repository.models import Project
+
+        from daemon.scheduler.helpers import _chronicle
+
+        project = await session.get(Project, task.project_id)
+        if not project or not project.path:
+            return False
+        stand_path = (
+            Path(host_to_container(task_repo_root(project.path, task.repo_path)))
+            / ".harness"
+            / "stand.json"
+        )
+        if not stand_path.exists():
+            return False
+        status = "unknown"
+        try:
+            stand = json.loads(stand_path.read_text(encoding="utf-8"))
+            services = stand.get("services", {})
+            status = "up"
+            for _name, info in services.items():
+                url = info.get("base_url") or info.get("dsn") or ""
+                parsed = urlparse(url)
+                if not (parsed.hostname and parsed.port):
+                    continue
+                try:
+                    _reader, writer = await asyncio.wait_for(
+                        asyncio.open_connection(parsed.hostname, parsed.port), timeout=3.0
+                    )
+                    writer.close()
+                except Exception:  # noqa: BLE001
+                    status = "down"
+                    break
+        except Exception:  # noqa: BLE001
+            status = "unknown"
+        if status != "down":
+            notified = getattr(self, "_stand_notified", None)
+            if notified:
+                notified.discard(str(task.id))
+            return False
+        notified = getattr(self, "_stand_notified", None)
+        if notified is None:
+            notified = set()
+            self._stand_notified = notified
+        if str(task.id) in notified:
+            return True
+        notified.add(str(task.id))
+        session.add(
+            _chronicle(
+                task.id,
+                "agent",
+                "Стенд недоступен (stand_unavailable): сервис манифеста .harness/"
+                "stand.json не отвечает — прогон отложен, попытка не сгорает",
+            )
+        )
+        await session.commit()
+        return True
+
     async def _provider_for(self, session, agent_id) -> dict | None:
         """Расшифрованное подключение агента (ANTHROPIC_* для раннера).
         Расшифровка только здесь и только на момент запуска (СТ §4.4.2)."""

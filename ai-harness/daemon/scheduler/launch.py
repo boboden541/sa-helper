@@ -194,6 +194,10 @@ class LaunchMixin:
                 conn_key = str(agent_conn) if agent_conn else "default"
                 if conn_key in paused_conns:  # «default»-агенты тоже паузятся
                     continue
+                # ФТ-FNR14-09: лежащий стенд не отпускает in_testing на прогон —
+                # попытка не сгорает, эпизод в хронике пишется один раз
+                if task.status_key == "in_testing" and await self._stand_down(session, task):
+                    continue
                 ready.append((task, type_key, uid, "parallel" if parallel else "replacement", _p))
 
         # правило очереди по зависимостям (решение владельца 29.10.2026):
