@@ -370,6 +370,44 @@ async def mark_item(
     return {"position": position, "status": item.status, "passed": passed}
 
 
+async def mark_rework(session: AsyncSession, story_code: str, actor: User) -> dict:
+    """ФТ-FNR14-06: рычаг «переработать ПСИ». Версионирование (ref_version/
+    ref_hash) отслеживает дрейф ЭТАЛОНА, но не качество плана — система не имела
+    состояния «план формально заверен, но требует переработки» (разбор
+    VITRINA-1 06.11: M3 мгновенно уводил историю с qa_ready, составитель не
+    получал окна). Сброс заверенности гасит psi_ready — M3 ждёт новой версии."""
+    story = await _story(session, story_code)
+    chk = (
+        await session.execute(
+            sa.select(Checklist).where(Checklist.task_id == story.id, Checklist.kind == "psi")
+        )
+    ).scalar_one_or_none()
+    if chk is None:
+        raise DomainError("У истории нет плана ПСИ — перерабатывать нечего")
+    chk.source_ref_version = None
+    _, items = await _current_doc_and_items(session, story.id)
+    count = 0
+    for item in items:
+        if item.kind == "item":
+            item.status = "todo"
+            item.psi_actual = None
+            count += 1
+    session.add(
+        Chronicle(
+            task_id=story.id,
+            event_type="psi",
+            author_id=actor.id,
+            author_kind="human" if actor.user_type == "human" else "agent",
+            message=(
+                f"План ПСИ отправлен на переработку: заверенность снята, "
+                f"{count} пунктов сброшены — M3 ждёт регистрации новой версии"
+            ),
+        )
+    )
+    await session.commit()
+    return {"resetItems": count}
+
+
 async def new_cycle(session: AsyncSession, story_code: str) -> int:
     """Идемпотентность: статусы пунктов сбрасываются в «не прогонялся»,
     протоколы (со снапшотами) не затираются (ФТ-ah-42)."""

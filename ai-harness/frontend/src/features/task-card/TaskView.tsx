@@ -145,6 +145,12 @@ function TaskBody({ code }: { code: string }) {
 
       <DescBlock code={code} card={card} reload={reload} />
 
+      {/* ФТ-FNR14-07: версия и хэш эталона — всегда видно, на чём основан план */}
+      <div className="muted" style={{ fontSize: 11, margin: '-4px 0 8px' }}>
+        Эталон постановки: v{card.refVersion ?? 1}
+        {card.refHash ? <> · hash <span className="mono">{card.refHash.slice(0, 12)}</span></> : null}
+      </div>
+
       <RelationsBlock code={code} relations={card.relations ?? []} reload={reload} />
 
       {typeVisible.developer && <ChecklistBlock code={code} kind="developer" title="Smart чек-лист разработчика" />}

@@ -52,6 +52,8 @@ class TaskCardOut(BaseModel):
     priority: str
     type: str
     status_key: str = Field(alias="statusKey")
+    ref_version: int = Field(default=1, alias="refVersion")  # ФТ-FNR14-07
+    ref_hash: str | None = Field(default=None, alias="refHash")
     project: str = ""
     story_code: str | None = Field(default=None, alias="storyCode")
     psi_path: str | None = Field(default=None, alias="psiPath")

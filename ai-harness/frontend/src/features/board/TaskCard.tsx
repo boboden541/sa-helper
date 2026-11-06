@@ -36,6 +36,10 @@ export function TaskCardView({ task, merged, live, onOpen, onOpenPage }: {
         <span className="sp" />
         {merged ? <StChip st={task.statusKey} /> : ''}
         <PrioBadge p={task.priority} />
+        {/* ФТ-FNR14-07: версия эталона на доске — видно, когда постановка менялась */}
+        {task.refVersion != null && task.refVersion > 1 && (
+          <span className="badge" title={task.refHash ? `hash: ${task.refHash}` : undefined}>v{task.refVersion}</span>
+        )}
       </div>
       <div className="card-title">{task.title}</div>
       <div className="card-tags">{(task.tags ?? []).map((t) => <TagChip key={t} tag={t} />)}</div>

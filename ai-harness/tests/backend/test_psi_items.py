@@ -99,3 +99,88 @@ async def test_mark_item_unknown_position(client):
     )
     assert r.status_code == 400, r.text
     assert "П.99" in r.json().get("message", "")
+
+
+async def test_rework_resets_stamp_and_items(client, _test_db):
+    """ФТ-FNR14-06: сброс заверенности — штамп NULL, пункты todo, M3 ждёт
+    новой версии (план формально заверен, но требует переработки)."""
+    from domain.mirroring.rules import evaluate
+
+    code = await _mk(client)
+    # прогон: пункты получили вердикты
+    for pos, ok in ((1, True), (2, True), (3, True)):
+        r = await client.post(
+            f"/api/v1/stories/{code}/psi/items",
+            json={"position": pos, "passed": ok, "actual": "факт"},
+        )
+        assert r.status_code == 200, r.text
+
+    async with __import__("database").get_sessionmaker()() as s:
+        task_id = (
+            await s.execute(sa.text("SELECT id FROM task WHERE code=:c"), {"c": code})
+        ).scalar_one()
+        # story переходит в qa_ready, чтобы проверить M3-путь
+        await s.execute(
+            sa.text("UPDATE task SET status_key='qa_ready' WHERE id=:i"), {"i": str(task_id)}
+        )
+        await s.commit()
+
+    r = await client.post(f"/api/v1/stories/{code}/psi/rework")
+    assert r.status_code == 200, r.text
+    assert r.json() == {"resetItems": 3}
+
+    async with __import__("database").get_sessionmaker()() as s:
+        stamp = (
+            await s.execute(
+                sa.text(
+                    "SELECT c.source_ref_version FROM checklist c "
+                    "WHERE c.task_id=:i AND c.kind='psi'"
+                ),
+                {"i": str(task_id)},
+            )
+        ).scalar_one_or_none()
+        assert stamp is None, "заверенность должна быть снята"
+        # зеркало: psi_ready=False при NULL-штампе → M3 не стреляет
+        from repository.models import Checklist as CK
+
+        plan_ref = (
+            await s.execute(
+                sa.select(CK.source_ref_version).where(CK.task_id == task_id, CK.kind == "psi")
+            )
+        ).scalar_one_or_none()
+    assert (
+        evaluate("qa_ready", ["done"], None, psi_ready=(plan_ref is not None and plan_ref >= 1))
+        is None
+    )
+    assert evaluate("qa_ready", ["done"], None, psi_ready=True) == ("M3", "in_testing")
+
+    # повторная регистрация версии возвращает заверенность (items reset)
+    r = await client.post(f"/api/v1/stories/{code}/psi", json={"sections": SECTIONS})
+    assert r.status_code == 200, r.text
+    async with __import__("database").get_sessionmaker()() as s:
+        stamp2 = (
+            await s.execute(
+                sa.text(
+                    "SELECT c.source_ref_version FROM checklist c "
+                    "WHERE c.task_id=:i AND c.kind='psi'"
+                ),
+                {"i": str(task_id)},
+            )
+        ).scalar_one_or_none()
+        assert stamp2 == 1, "новая версия заверяет план текущим эталоном"
+
+    # rework без плана невозможен — на истории без psi-чеклиста
+    r = await client.post(
+        "/api/v1/tasks",
+        json={
+            "projectId": "AH",
+            "type": "story",
+            "title": "Без ПСИ",
+            "priority": "medium",
+            "authorTag": "by_human",
+        },
+    )
+    code2 = r.json()["code"]
+    r = await client.post(f"/api/v1/stories/{code2}/psi/rework")
+    assert r.status_code == 400, r.text
+    assert "нет плана ПСИ" in r.json().get("message", "")

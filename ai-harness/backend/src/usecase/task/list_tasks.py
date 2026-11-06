@@ -24,6 +24,8 @@ class TaskCard:
     priority: str
     type: str
     status_key: str
+    ref_version: int = 1  # ФТ-FNR14-07: версия эталона на карточке
+    ref_hash: str | None = None
     project: str = ""  # мнемоника проекта (фильтр доски/списка, счётчики панели)
     psi_path: str | None = None
     repo_path: str | None = None
@@ -144,6 +146,8 @@ async def list_tasks(
             priority=row.Task.priority,
             type=row.type_key,
             status_key=row.Task.status_key,
+            ref_version=int(row.Task.ref_version or 1),
+            ref_hash=row.Task.ref_hash,
             project=row.project_mnemonic or "",
             psi_path=row.Task.psi_path,
             repo_path=row.Task.repo_path,

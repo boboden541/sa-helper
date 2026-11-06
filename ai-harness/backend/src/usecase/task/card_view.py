@@ -102,6 +102,8 @@ async def build_task_card(session: AsyncSession, code: str, actor: User) -> Task
         priority=task.priority,
         type=type_key,
         statusKey=task.status_key,
+        refVersion=task.ref_version,
+        refHash=task.ref_hash,
         tags=list(tags),
         descriptionMd=task.description_md,
         storyCode=story_code,

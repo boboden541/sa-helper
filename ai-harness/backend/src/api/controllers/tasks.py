@@ -31,6 +31,8 @@ def _card_out(c) -> TaskCardOut:
         priority=c.priority,
         type=c.type,
         statusKey=c.status_key,
+        refVersion=c.ref_version,
+        refHash=c.ref_hash,
         storyCode=c.story_code,
         tags=c.tags,
         agent=c.agent,

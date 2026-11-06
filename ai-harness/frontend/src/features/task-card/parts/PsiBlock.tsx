@@ -11,6 +11,14 @@ export function PsiBlock({ code, reload, psiPath }: { code: string; reload: () =
   const [results, setResults] = useState<Record<number, { passed: boolean; actual: string }>>({})
   const reloadPsi = () => { void api.psi(code).then(setDoc).catch(() => { /* ПСИ ещё нет — норма */ }) }
   useEffect(reloadPsi, [code])
+  // ФТ-FNR14-06: сброс заверенности плана — история остаётся на qa_ready,
+  // пока составитель не зарегистрирует новую версию (M3 ждёт)
+  const rework = () => {
+    void api.psiRework(code).then(() => {
+      toast('План ПСИ отправлен на переработку — M3 ждёт новой версии')
+      reloadPsi(); reload()
+    }).catch((e) => toast(String((e as Error).message || 'Ошибка')))
+  }
 
   const savePath = psiPath?.trim() || `.harness/psi/${code}/psi.md`
   if (!doc || doc.items.length === 0) {
@@ -25,7 +33,10 @@ export function PsiBlock({ code, reload, psiPath }: { code: string; reload: () =
       <div className="blk-h"><h3>ПСИ · приёмо-сдаточные испытания</h3></div>
       <div className="psi-doc">
         <div className="psi-head"><b>ПСИ</b> · пунктов: {doc.items.filter((i) => i.kind === 'item').length} · протоколов: {versions}
-          {doc.stale && <span className="badge" style={{ ['--bc' as string]: '#cf8a36' }}>План ПСИ устарел: эталон v{doc.refVersion}, план v{doc.planRefVersion}</span>}
+          {/* ФТ-FNR14-07: версии видны всегда, а не только при дрейфе эталона */}
+          <span className="badge" style={{ ['--bc' as string]: '#5a6b7d' }}>Эталон v{doc.refVersion} · план v{doc.planRefVersion ?? '—'}</span>
+          {doc.stale && <span className="badge" style={{ ['--bc' as string]: '#cf8a36' }}>План устарел</span>}
+          <button className="btn small" style={{ marginLeft: 'auto' }} onClick={rework}>Переработать ПСИ</button>
         </div>
         {doc.stale && (
           <div className="muted" style={{ fontSize: 11, margin: '4px 0 6px' }}>

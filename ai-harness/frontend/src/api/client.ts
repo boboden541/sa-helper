@@ -6,6 +6,8 @@ export interface TaskCard {
   priority: string
   type: string
   statusKey: string
+  refVersion?: number
+  refHash?: string | null
   project?: string
   storyCode?: string | null
   psiPath?: string | null
@@ -103,6 +105,8 @@ export const api = {
   psiRun: (code: string, results: { position: number; passed: boolean; actual: string }[]) =>
     request<{ passed: number; failed: number; bugProposals: { position: number; action: string; expected: string; actual: string }[] }>(
       `/api/v1/stories/${code}/psi/runs`, { method: 'POST', body: JSON.stringify({ results }) }),
+  psiRework: (code: string) =>
+    request<{ resetItems: number }>(`/api/v1/stories/${code}/psi/rework`, { method: 'POST' }),
   comments: (code: string) =>
     request<{ id: string; author: string; body: string; at: string }[]>(`/api/v1/tasks/${code}/comments`),
   addRelation: (code: string, toCode: string, kind: string) =>

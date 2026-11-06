@@ -93,6 +93,18 @@ async def psi_run(
     return await psi_uc.run_psi(session, code, actor, payload.results)
 
 
+@router.post("/stories/{code}/psi/rework")
+@_400
+async def psi_rework(
+    code: str,
+    session: AsyncSession = Depends(get_session),
+    actor: User = Depends(get_actor),
+):
+    """ФТ-FNR14-06: сброс заверенности плана ПСИ. История остаётся на qa_ready,
+    пока составитель не зарегистрирует новую версию документа (M3 ждёт)."""
+    return await psi_uc.mark_rework(session, code, actor)
+
+
 class PsiLinkIn(BaseModel):
     position: int
     bugCode: str
