@@ -12,3 +12,4 @@ future-features.md
 .venv/
 node_modules/
 mongo_backup/
+*.egg-info/
