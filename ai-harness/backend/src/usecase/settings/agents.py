@@ -119,11 +119,10 @@ async def create_agent(session: AsyncSession, data: dict) -> User:
     user = await _ensure_agent_user(session, name)
     runner_fields = _clean_runner_fields(data)
     await _check_skills_in_registry(session, runner_fields["skills"])
-    await _check_connection_for_runner(session, data.get("connection_id"))
     profile = AgentProfile(
         user_id=user.id,
         role=data.get("role") or "исполнитель этапа конвейера",
-        connection_id=data.get("connection_id"),
+        connection_id=await _clean_connection_id(session, data.get("connection_id")),
         is_preset=bool(data.get("is_preset")),
         preset_source=data.get("preset_source"),
         **runner_fields,
@@ -139,10 +138,10 @@ async def update_agent(session: AsyncSession, user_id: uuid.UUID, fields: dict) 
     ).scalar_one_or_none()
     if profile is None:
         raise DomainError("Агент не найден")
-    for field in ("role", "connection_id"):
-        if field in fields:
-            await _check_connection_for_runner(session, fields[field])
-            setattr(profile, field, fields[field])
+    if "role" in fields:
+        profile.role = fields["role"]
+    if "connection_id" in fields:
+        profile.connection_id = await _clean_connection_id(session, fields["connection_id"])
     # опции раннера меняются только явно переданными ключами (пустая строка/JSON = сброс)
     runner = _clean_runner_fields(fields)
     if "skills" in fields:
@@ -259,8 +258,26 @@ async def agent_usages(session: AsyncSession, user_id: uuid.UUID) -> list[str]:
     return [f"{key}:{status}" for key, status in rows]
 
 
-async def _check_connection_for_runner(session: AsyncSession, connection_id) -> None:
-    """Мост LiteLLM (Шаг 1 мультипротокола): openai-подключения ведут прогоны
-    через сайдкар-переводчик — блокировка снята. Функция оставлена как точка
-    расширения для проверок будущих протоколов; сейчас — no-op."""
-    return None
+async def _clean_connection_id(session: AsyncSession, value) -> uuid.UUID | None:
+    """Подключение агента из формы: ''/None → None (глобальное активное),
+    иначе UUID существующего подключения. Без нормализации пустая строка из
+    формы падала в UUID-колонку 500-м, чужой id — молча записывался."""
+    import uuid as uuid_mod
+
+    from repository.models import Connection
+
+    val = (value or "").strip() if isinstance(value, str) else value
+    if not val:
+        return None
+    try:
+        cid = uuid_mod.UUID(str(val))
+    except ValueError:
+        raise DomainError(
+            "Подключение не найдено в списке провайдеров", field="connection_id"
+        )
+    if await session.get(Connection, cid) is None:
+        raise DomainError(
+            "Подключение не найдено — заведите его во вкладке «ИИ-провайдеры»",
+            field="connection_id",
+        )
+    return cid

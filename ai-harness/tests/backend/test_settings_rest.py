@@ -432,3 +432,45 @@ async def test_logout_invalidates_server_session(client, session):
     res = await client.post("/api/v1/auth/logout")
     assert res.status_code == 200
     assert await user_for_token(session, token) is None
+
+
+async def test_agent_connection_assignment(session, actor_id):
+    """Фича владельца 09.11: агент работает через указанное подключение —
+    выбор провайдера в настройках агента. ''/None → глобальное активное,
+    чужой/мусорный id → DomainError, а не 500 у UUID-колонки."""
+    import uuid as uuid_mod
+
+    import pytest
+    from domain.model.validators import DomainError
+    from repository.models import AgentProfile, Connection
+    from usecase.settings.agents import create_agent, update_agent
+
+    conn = Connection(
+        name="Пров-тест",
+        protocol="openai",
+        url="https://p/v1",
+        model="m-1",
+        token_encrypted=b"x",
+        token_tail="xx",
+        check_status="unchecked",
+    )
+    session.add(conn)
+    await session.commit()
+
+    user = await create_agent(session, {"name": "Агент-на-провайдере"})
+    await update_agent(session, user.id, {"connection_id": str(conn.id)})
+    p = (
+        await session.execute(sa.select(AgentProfile).where(AgentProfile.user_id == user.id))
+    ).scalar_one()
+    assert str(p.connection_id) == str(conn.id), "провайдер закреплён за агентом"
+
+    # сброс пустой строкой — как присылает форма
+    await update_agent(session, user.id, {"connection_id": ""})
+    p2 = (
+        await session.execute(sa.select(AgentProfile).where(AgentProfile.user_id == user.id))
+    ).scalar_one()
+    assert p2.connection_id is None, "пустая строка = глобальное активное"
+
+    for bad in ("garbage", str(uuid_mod.uuid4())):
+        with pytest.raises(DomainError):
+            await update_agent(session, user.id, {"connection_id": bad})

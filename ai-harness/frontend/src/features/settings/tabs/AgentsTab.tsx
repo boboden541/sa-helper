@@ -10,8 +10,9 @@ import { FLOW_TYPES } from '../shared'
 export function AgentsAndMatrix() {
   const [agents, setAgents] = useState<{ id: string; name: string; role: string; connectionId: string; isPreset: boolean; model: string; allowedTools: string[]; mcpServers: Record<string, unknown> | null; agentDir: string; skills: string[] }[]>([])
   const [users, setUsers] = useState<{ id: string; name: string; userType: string }[]>([])
-  const [editor, setEditor] = useState<{ id?: string; name: string; role: string; model: string; tools: string; mcpJson: string; agentDir: string; skills: string[] } | null>(null)
+  const [editor, setEditor] = useState<{ id?: string; name: string; role: string; conn: string; model: string; tools: string; mcpJson: string; agentDir: string; skills: string[] } | null>(null)
   const [regSkills, setRegSkills] = useState<{ name: string; status: string }[]>([])
+  const [conns, setConns] = useState<{ id: string; name: string; protocol: string; isActive: boolean }[]>([])
   const [note, setNote] = useState<string | null>(null)
     const reload = async () => {
     void fetch('/api/v1/tools').then((r) => r.json()).then((d) => setRegSkills(
@@ -19,6 +20,7 @@ export function AgentsAndMatrix() {
         (i: { name: string; status: string }) => ({ name: i.name, status: i.status })))).catch(() => {})
     setAgents(await api.agents())
     setUsers(await api.users())
+    void api.requestProviders().then(setConns).catch(() => {})
   }
   useEffect(() => { void reload() }, [])
 
@@ -42,6 +44,7 @@ export function AgentsAndMatrix() {
       try { mcp = JSON.parse(editor.mcpJson) } catch { setNote('MCP-серверы: некорректный JSON'); return }
     }
     const payload = { name: editor.name, role: editor.role,
+      connectionId: editor.conn,
       model: editor.model, allowedTools: editor.tools.split(/[\s,]+/).filter(Boolean),
       mcpServers: mcp, agentDir: editor.agentDir.trim(), skills: editor.skills }
     const res = editor.id
@@ -61,7 +64,7 @@ export function AgentsAndMatrix() {
         <div className="q-sec" style={{ margin: 0 }}>Пользователи-агенты</div>
         <span className="sp" />
         <button className="btn primary small" onClick={() => setEditor({
-          name: '', role: '',
+          name: '', role: '', conn: '',
           model: '', tools: '', mcpJson: '', agentDir: '', skills: [] })}>＋ Агент</button>
       </div>
       <div className="agents-grid">
@@ -72,7 +75,7 @@ export function AgentsAndMatrix() {
               <b>{a.name}</b>
               {a.isPreset && <span className="mini-chip">предустановленный</span>}
               <span className="sp" />
-              <button className="link" style={{ fontSize: 12 }} onClick={() => setEditor({ id: a.id, name: a.name, role: a.role, model: a.model ?? '', tools: (a.allowedTools ?? []).join(', '), mcpJson: a.mcpServers ? JSON.stringify(a.mcpServers, null, 2) : '', agentDir: a.agentDir ?? '', skills: a.skills ?? [] })}>править</button>
+              <button className="link" style={{ fontSize: 12 }} onClick={() => setEditor({ id: a.id, name: a.name, role: a.role, conn: a.connectionId ?? '', model: a.model ?? '', tools: (a.allowedTools ?? []).join(', '), mcpJson: a.mcpServers ? JSON.stringify(a.mcpServers, null, 2) : '', agentDir: a.agentDir ?? '', skills: a.skills ?? [] })}>править</button>
               <span className="muted">·</span>
               <button className="link" style={{ fontSize: 12 }} onClick={() => void clone(a.id)}>клонировать</button>
               <span className="muted">·</span>
@@ -80,7 +83,7 @@ export function AgentsAndMatrix() {
             </div>
             <div className="muted" style={{ fontSize: 12.5, marginTop: 6 }}>{a.role}</div>
             <div className="flex mt8" style={{ flexWrap: 'wrap' }}>
-              <span className="mini-chip">{a.connectionId ? 'своё подключение' : 'активное подключение'}</span>
+              <span className="mini-chip">{a.connectionId ? `подключение: ${conns.find((c) => c.id === a.connectionId)?.name ?? 'своё'}` : 'активное подключение'}</span>
               {a.model && <span className="mini-chip">модель: {a.model}</span>}
               {a.agentDir && <span className="mini-chip">папка скиллов</span>}
               {!!a.skills?.length && <span className="mini-chip">скиллы: {a.skills.join(', ')}</span>}
@@ -101,6 +104,13 @@ export function AgentsAndMatrix() {
             <div className="f-field"><label>Модель прогона (необязательно — иначе модель подключения)</label>
               <input value={editor.model} placeholder="например glm-5.3-flash"
                 onChange={(e) => setEditor({ ...editor, model: e.target.value })} /></div>
+            <div className="f-field"><label>Подключение (провайдер) — чей токен и адрес использует агент; пусто — глобальное активное</label>
+              <select value={editor.conn} onChange={(e) => setEditor({ ...editor, conn: e.target.value })}>
+                <option value="">Глобальное активное</option>
+                {conns.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name} · {c.protocol}{c.isActive ? ' · активное' : ''}</option>
+                ))}
+              </select></div>
             <div className="f-field"><label>Инструменты через запятую (пусто — стандартный набор: Read, Grep, Glob, Edit, Write, Bash)</label>
               <input value={editor.tools} placeholder="Read, Edit, Bash"
                 onChange={(e) => setEditor({ ...editor, tools: e.target.value })} /></div>
