@@ -213,18 +213,19 @@ class SupportMixin:
             ).scalar_one_or_none()
         if conn is None:
             return None
+        # openai-подключения идут через мост LiteLLM (Шаг 1 мультипротокола):
+        # модель маршрута har-<id8> рендерится демоном в конфиг сайдкара,
+        # ключ провайдера живёт только внутри моста. Раньше здесь был
+        # фаст-фейл (анализ 03.11.2026: без него прогон молча уходил на
+        # дефолтного провайдера) — теперь мост даёт настоящий путь.
         if conn.protocol == "openai":
-            # фаст-фейл вместо молчаливого ухода на дефолтного провайдера
-            # (анализ 03.11.2026: _sdk_env возвращал пустой env, прогон уходил
-            # на дефолт; DomainError → INFRA-blocked, попытки не сжигаются)
-            from domain.model.validators import DomainError
-
-            raise DomainError(
-                "Подключение с протоколом openai не поддерживается прогонами "
-                "агентов: SDK работает только с Anthropic-совместимыми "
-                "эндпоинтами. Назначьте агенту anthropic-совместимое "
-                "подключение (или активное глобальное)."
-            )
+            return {
+                "protocol": conn.protocol,
+                "url": conn.url,
+                "model": conn.model,
+                "token": await get_decrypted_token(session, conn),
+                "bridge_model": f"har-{str(conn.id)[:8]}",
+            }
         return {
             "protocol": conn.protocol,
             "url": conn.url,

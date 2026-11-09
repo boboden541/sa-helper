@@ -234,6 +234,11 @@ async def seed() -> None:
         PROVIDER_PRESETS = [
             ("Anthropic", "anthropic", "https://api.anthropic.com"),
             ("OpenAI", "openai", "https://api.openai.com/v1"),
+            (
+                "Google AI Studio",
+                "openai",
+                "https://generativelanguage.googleapis.com/v1beta/openai/",
+            ),
             ("OpenRouter", "openai", "https://openrouter.ai/api/v1"),
             ("Groq", "openai", "https://api.groq.com/openai/v1"),
             ("vLLM (локальный)", "openai", "http://localhost:8000/v1"),

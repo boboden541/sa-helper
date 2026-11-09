@@ -260,21 +260,7 @@ async def agent_usages(session: AsyncSession, user_id: uuid.UUID) -> list[str]:
 
 
 async def _check_connection_for_runner(session: AsyncSession, connection_id) -> None:
-    """Прогоны агентов работают только через Anthropic-совместимые подключения:
-    раннер (Claude Agent SDK) понимает только ANTHROPIC_*-окружение. Пресеты
-    OpenRouter/Groq/vLLM/Ollama (протокол openai) пригодны для чата Eve, но не
-    для прогонов — раньше такое подключение молча давало пустой env, и прогон
-    уходил на дефолтного провайдера (анализ 03.11.2026)."""
-    if not connection_id:
-        return
-    from repository.models import Connection
-
-    conn = await session.get(Connection, connection_id)
-    if conn is not None and conn.protocol == "openai":
-        raise DomainError(
-            "Это подключение с протоколом openai — оно пригодно для чата Eve, "
-            "но не для прогонов агентов (SDK работает только с "
-            "Anthropic-совместимыми эндпоинтами). Назначьте агенту "
-            "anthropic-совместимое подключение.",
-            field="connection_id",
-        )
+    """Мост LiteLLM (Шаг 1 мультипротокола): openai-подключения ведут прогоны
+    через сайдкар-переводчик — блокировка снята. Функция оставлена как точка
+    расширения для проверок будущих протоколов; сейчас — no-op."""
+    return None

@@ -128,7 +128,21 @@ async def check_connection(session: AsyncSession, data: dict) -> dict:
                     },
                 )
             else:
-                r = await client.get(f"{url}/models", headers={"Authorization": f"Bearer {token}"})
+                # настоящая генерация, а не GET /models: справочник моделей
+                # отвечает и с нерабочим токеном — «Проверить» обязано ловить
+                # реальные отказы (анализ 09.11: «active» при мёртвом подключении)
+                r = await client.post(
+                    f"{url}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "content-type": "application/json",
+                    },
+                    json={
+                        "model": model,
+                        "max_tokens": 512,
+                        "messages": [{"role": "user", "content": "ping"}],
+                    },
+                )
     except httpx.HTTPError as err:
         raise DomainError(
             "Не удалось связаться с провайдером. Проверьте адрес и сеть", tech=repr(err)

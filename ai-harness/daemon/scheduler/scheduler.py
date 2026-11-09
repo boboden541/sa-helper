@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import logging
 
 import sqlalchemy as sa
 from repository.models import Assignment, Task, TaskType, User
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from daemon.bridge import sync_bridge
 from daemon.config import load_daemon_settings
 from daemon.scheduler.helpers import (
     _chronicle,
@@ -54,12 +56,13 @@ class Daemon(TicksMixin, LaunchMixin, RunMixin, SupportMixin, ReportMixin):
     async def tick(self) -> dict:
         async with self._maker() as session:
             cfg = await load_daemon_settings(session)
-            summary = {
+            summary: dict[str, object] = {
                 "launched": 0,
                 "blocked_no_agent": 0,
                 "mirrored": 0,
                 "heartbeat_lost": 0,
                 "paused": False,
+                "bridge": None,
             }
             await self._touch_active(session)
             summary["heartbeat_lost"] = await self._sweep_dead_runs(session, cfg)
@@ -91,6 +94,17 @@ class Daemon(TicksMixin, LaunchMixin, RunMixin, SupportMixin, ReportMixin):
             summary["blocked_no_agent"] = await self._block_unassigned(session)
             summary["mirrored"] = await self._tick_mirroring(session)
             summary["unblocked"] = await self._tick_unblock(session)
+            # мост LiteLLM: конфиг маршрутов по openai-подключениям (Шаг 1
+            # мультипротокола) — при изменении подключений перезаписывается
+            # до запуска новых агентов. Сбой моста не роняет тик (лог + ретрай
+            # следующим тиком: хэш обновляется только после успешного рестарта)
+            try:
+                summary["bridge"] = await sync_bridge(session)
+            except Exception as err:  # noqa: BLE001 — мост не должен ронять тик
+                logging.getLogger("daemon").warning(
+                    "мост LiteLLM: sync не удался (%s) — повтор следующим тиком", err
+                )
+                summary["bridge"] = "error"
             summary["launched"] = await self._launch_ready(session, cfg)
             summary["interrupted"] = await self._check_interrupts(session)
             await self._retention_tick(session)

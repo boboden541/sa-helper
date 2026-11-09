@@ -88,8 +88,10 @@ services:
         condition: service_healthy
     volumes:
       - ${HOME}:/app/host-home
+      # конфиг моста LiteLLM: демон рендерит, сайдкар читает (общий том)
+      - ai_harness_bridge:/app/bridge-config
       # агенты сами управляют контейнерами стендов (решение владельца 31.10.2026;
-      # глобальные правила — в методологиях developer/qa: проект задачи
+      # глобальные правила — в методологиях демона/qa: проект задачи
       # harness-<КОД>, reuse вместо дублей, чужие контейнеры не трогать)
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
@@ -98,6 +100,11 @@ services:
       AI_HARNESS_TOKEN_KEY: ${AI_HARNESS_TOKEN_KEY:-}
       HARNESS_HOST_HOME: ${HOME}
       HARNESS_CONTAINER_HOME: /app/host-home
+      # мост LiteLLM для openai-подключений (Шаг 1 мультипротокола)
+      LITELLM_URL: http://litellm:4000
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-harness-bridge}
+      BRIDGE_CONFIG_PATH: /app/bridge-config/config.yaml
+      BRIDGE_CONTAINER: ai-harness-litellm
     # см. комментарий у backend: агенту нужен живой DNS до провайдера
     dns:
       - ${CONTAINER_DNS:-8.8.8.8}
@@ -121,6 +128,28 @@ services:
       start_period: 90s
     command: ["python", "-m", "daemon.main"]
 
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    container_name: ai-harness-litellm
+    # конфитог рендерит демон (daemon/bridge.py) в общий том; ro для сайдкара
+    command: ["--config", "/app/bridge/config.yaml", "--port", "4000"]
+    restart: unless-stopped
+    volumes:
+      - ai_harness_bridge:/app/bridge:ro
+    environment:
+      # мастер-ключ моста: SDK прогона авторизуется им, ключи провайдеров
+      # остаются внутри конфига сайдкара
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-harness-bridge}
+    # см. комментарий у backend: наружу ходит только к провайдерам
+    dns:
+      - ${CONTAINER_DNS:-8.8.8.8}
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request;urllib.request.urlopen('http://localhost:4000/health/liveliness', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
   adminer:
     image: adminer:latest
     container_name: ai-harness-adminer
@@ -133,3 +162,6 @@ services:
 volumes:
   ai_harness_pgdata:
     external: true
+  # конфиг моста LiteLLM: пишет демон, читает сайдкар (Шаг 1 мультипротокола)
+  ai_harness_bridge:
+

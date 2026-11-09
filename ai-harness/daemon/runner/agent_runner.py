@@ -425,8 +425,25 @@ def _exclude_from_git(worktree, pattern: str) -> None:
 
 
 def _sdk_env(provider: dict | None) -> dict[str, str]:
-    """ANTHROPIC_* из расшифрованного подключения (Anthropic-совместимый прокси)."""
-    if not provider or provider.get("protocol") not in (None, "anthropic"):
+    """ANTHROPIC_* из расшифрованного подключения.
+
+    anthropic — напрямую (совместимый прокси: Anthropic, z.ai, …).
+    openai — через мост LiteLLM (сайдкар переводит /v1/messages в
+    chat/completions): адрес моста и мастер-ключ берутся из окружения,
+    ключ провайдера внутрь SDK-процесса не попадает."""
+    if not provider:
+        return {}
+    import os
+
+    if provider.get("protocol") == "openai":
+        model = provider.get("bridge_model") or provider.get("model") or ""
+        return {
+            "ANTHROPIC_BASE_URL": os.getenv("LITELLM_URL", "http://litellm:4000"),
+            "ANTHROPIC_AUTH_TOKEN": os.getenv("LITELLM_MASTER_KEY", "sk-harness-bridge"),
+            "ANTHROPIC_MODEL": model,
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": model,
+        }
+    if provider.get("protocol") not in (None, "anthropic"):
         return {}
     env: dict[str, str] = {}
     if provider.get("token"):

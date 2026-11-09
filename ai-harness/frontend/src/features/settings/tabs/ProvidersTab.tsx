@@ -65,7 +65,12 @@ export function Providers() {
             <select value={form.protocol} onChange={(e) => setForm({ ...form, protocol: e.target.value })}>
               <option value="anthropic">Anthropic</option>
               <option value="openai">OpenAI-совместимый</option>
-            </select></div>
+            </select>
+            <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+              OpenAI-совместимый ведёт прогоны через мост LiteLLM: Google AI Studio,
+              OpenRouter, Groq, vLLM, Ollama — агент работает как с anthropic-подключением.
+            </div>
+          </div>
           <div className="f-field"><label>URL</label>
             <input value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} /></div>
           <div className="f-field"><label>Модель</label>
