@@ -8,8 +8,13 @@ import sqlalchemy as sa
 from repository.models import FlowStatus, FlowTransition
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# Статусы, вход в которые закрывают жёсткие связи blocked_by (постановка, «Влияние связей»)
-ACTIVE_STATUSES = frozenset({"in_progress", "in_review", "in_testing"})
+from domain.mirroring.predicates import CHILD_ACTIVE
+
+# Канонический словарь стадий (ФНР-16, анализ 09.11.2026): статусные множества
+# живут в одном месте — domain/mirroring/predicates.py (CHILD_*); дубликат
+# «активных» здесь ликвидирован. Вход в активный статус закрывает жёсткие
+# связи blocked_by (постановка, «Влияние связей»)
+ACTIVE_STATUSES = CHILD_ACTIVE
 
 GATE_LABELS = {
     "developer": "чек-лист разработчика",

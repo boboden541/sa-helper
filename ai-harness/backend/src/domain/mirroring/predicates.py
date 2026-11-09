@@ -17,7 +17,9 @@ if TYPE_CHECKING:
 
     from domain.mirroring.ctx import MirrorCtx
 
-# канонические множества статусов детей (перенос из rules.py)
+# канонические множества статусов детей (перенос из rules.py; ФНР-16,
+# анализ 09.11.2026: ЕДИНСТВЕННОЕ место домена со статусными литералами —
+# мост данные→код; ACTIVE_STATUSES graph.py и _OPEN context_bundle — псевдонимы)
 CHILD_ACTIVE = frozenset({"in_progress", "in_review", "in_testing"})
 CHILD_CLOSED = frozenset({"done", "canceled"})
 CHILD_BLOCKED = frozenset({"blocked"})

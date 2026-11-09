@@ -2,7 +2,13 @@
 запрещены; семантика живёт в данных (when на рёбрах, behaviors/kind на статусах).
 
 BASELINE-механика как у check_file_length.py: перечисленные нарушения могут
-уменьшаться, но не расти. Новые — ошибка."""
+уменьшаться, но не расти. Новые — ошибка.
+
+Канонический словарь стадий — domain/mirroring/predicates.py: CHILD_*-множества
+и предикаты — единственное место домена, где литеральные ключи статусов
+разрешены (мост данные→код); ACTIVE_STATUSES (graph.py) — псевдоним канона.
+Статусы ПУНКТОВ чеклиста (done/closed в context_bundle._OPEN) — другой
+словарь: это не стадии задач, греп-барьер их не описывает."""
 
 from __future__ import annotations
 
@@ -11,7 +17,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SCAN_DIRS = [ROOT / "daemon", ROOT / "backend/src/domain"]
+SCAN_DIRS = [ROOT / "backend/src/domain", ROOT / "daemon"]
 PATTERN = re.compile(r"""status_key\s*(==|!=|in)\s*[\["']""")
 # Байтовый файл baseline: "путь:строка:фрагмент" — по образцу check_file_length.
 BASELINE = Path(__file__).resolve().parent / "status_literals_baseline.txt"
