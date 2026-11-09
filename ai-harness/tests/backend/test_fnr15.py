@@ -237,3 +237,81 @@ async def test_merge_skip_non_repo_root(_test_db, tmp_path):
             assert chron == 1, "хроника «слияние не требуется» записана"
     finally:
         await eng.dispose()
+
+
+async def test_doc_numbering_consistent_across_surfaces(client, _test_db):
+    """Анализ 09.11.2026: номер П.N един на всех поверхностях ПСИ — psi.md,
+    /psi/items, /psi/runs, /psi/link-task, get_document (docNumber) — и в
+    многосекционном документе, где чеклист-позиция расходится с номером."""
+    story, child = await _mk_story_with_child(client)
+    r = await client.post(
+        "/api/v1/tasks",
+        json={
+            "projectId": "AH",
+            "type": "common_task",
+            "title": "Второй ребёнок",
+            "priority": "medium",
+            "authorTag": "by_human",
+            "storyCode": story,
+        },
+    )
+    assert r.status_code == 200
+    child2 = r.json()["code"]
+
+    sections = [
+        {
+            "heading": "Г1",
+            "items": [
+                {"action": "Пункт один", "expected": "Ок", "taskCode": child},
+                {"action": "Пункт два", "expected": "Ок"},
+            ],
+        },
+        {"heading": "Г2", "items": [{"action": "Пункт три", "expected": "Ок"}]},
+    ]
+    r = await client.post(f"/api/v1/stories/{story}/psi", json={"sections": sections})
+    assert r.status_code == 200, r.text
+
+    r = await client.get(f"/api/v1/stories/{story}/psi")
+    numbered = [i for i in r.json()["items"] if i["kind"] == "item"]
+    assert [i["docNumber"] for i in numbered] == [1, 2, 3]
+    assert [i["position"] for i in numbered] == [1, 2, 4]  # позиция 3 — заголовок Г2
+
+    # карта покрытия по П.N: П.3 → второй ребёнок; в БД связь ляжет на позицию 4
+    r = await client.post(
+        f"/api/v1/stories/{story}/psi/link-task", json={"position": 3, "taskCode": child2}
+    )
+    assert r.status_code == 200, r.text
+    async with __import__("database").get_sessionmaker()() as s:
+        rows = (
+            await s.execute(
+                sa.text(
+                    "SELECT ci.position, lt.code FROM checklist_item ci "
+                    "JOIN checklist c ON c.id=ci.checklist_id "
+                    "JOIN task t ON t.id=c.task_id "
+                    "JOIN task lt ON lt.id=ci.linked_task_id "
+                    "WHERE t.code=:s AND c.kind='psi' AND ci.kind='item' "
+                    "AND ci.linked_task_id IS NOT NULL"
+                ),
+                {"s": story},
+            )
+        ).all()
+    assert (4, child2) in [(x[0], x[1]) for x in rows], "П.3 → чеклист-позиция 4"
+
+    # прогон по П.N: П.3 → failed на чеклист-позиции 4
+    r = await client.post(
+        f"/api/v1/stories/{story}/psi/runs",
+        json={"results": [{"position": 3, "passed": False, "actual": "упало"}]},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["failed"] == 1
+    r = await client.get(f"/api/v1/stories/{story}/psi")
+    items = {i["position"]: i for i in r.json()["items"]}
+    assert items[4]["status"] == "failed" and items[4]["actual"] == "упало"
+
+    # неизвестный номер — честный 400 вместо молчаливого пропуска
+    r = await client.post(
+        f"/api/v1/stories/{story}/psi/runs",
+        json={"results": [{"position": 9, "passed": True, "actual": ""}]},
+    )
+    assert r.status_code == 400, r.text
+    assert "П.9" in r.json()["message"]

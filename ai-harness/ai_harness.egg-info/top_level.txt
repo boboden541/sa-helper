@@ -1,5 +1,0 @@
-api
-daemon
-domain
-repository
-usecase

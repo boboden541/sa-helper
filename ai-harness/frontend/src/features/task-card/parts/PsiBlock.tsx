@@ -6,7 +6,7 @@ import { api } from '../../../api/client'
 import { toast } from '../../../shared/toast'
 
 export function PsiBlock({ code, reload, psiPath }: { code: string; reload: () => void; psiPath: string | null }) {
-  const [doc, setDoc] = useState<{ stale?: boolean; refVersion?: number; planRefVersion?: number | null; items: { position: number; kind: string; text: string; expected?: string; actual?: string; status: string; bugTaskId?: string }[]; runs: { id: string; passed: number; failed: number }[] } | null>(null)
+  const [doc, setDoc] = useState<{ stale?: boolean; refVersion?: number; planRefVersion?: number | null; items: { position: number; docNumber?: number | null; kind: string; text: string; expected?: string; actual?: string; status: string; bugTaskId?: string }[]; runs: { id: string; passed: number; failed: number }[] } | null>(null)
   const [runMode, setRunMode] = useState(false)
   const [results, setResults] = useState<Record<number, { passed: boolean; actual: string }>>({})
   const reloadPsi = () => { void api.psi(code).then(setDoc).catch(() => { /* ПСИ ещё нет — норма */ }) }
@@ -45,21 +45,21 @@ export function PsiBlock({ code, reload, psiPath }: { code: string; reload: () =
           </div>
         )}
         {doc.items.filter((i) => i.kind === 'item').map((i) => (
-          <div key={i.position} className={`psi-item ${runMode ? 'run' : ''}`}>
-            <span className="n num">{i.position}.</span>
+          <div key={i.docNumber ?? i.position} className={`psi-item ${runMode ? 'run' : ''}`}>
+            <span className="n num">{i.docNumber ?? i.position}.</span>
             <span className="a">
               {i.text}
               <span className="exp">Ожидаемо: {i.expected}</span>
               {runMode && (
                 <>
                   <input className="psi-fact" placeholder="Фактический результат…"
-                    value={results[i.position]?.actual ?? ''}
-                    onChange={(e) => setResults((r) => ({ ...r, [i.position]: { passed: r[i.position]?.passed ?? true, actual: e.target.value } }))} />
+                    value={results[i.docNumber ?? i.position]?.actual ?? ''}
+                    onChange={(e) => setResults((r) => ({ ...r, [i.docNumber ?? i.position]: { passed: r[i.docNumber ?? i.position]?.passed ?? true, actual: e.target.value } }))} />
                   <div className="psi-runbtns" style={{ flexDirection: 'row', gap: 6 }}>
-                    <button className={`btn small ${results[i.position]?.passed === true ? 'primary' : ''}`}
-                      onClick={() => setResults((r) => ({ ...r, [i.position]: { passed: true, actual: r[i.position]?.actual ?? '' } }))}>✓ Пройден</button>
-                    <button className={`btn small danger ${results[i.position]?.passed === false ? 'primary' : ''}`}
-                      onClick={() => setResults((r) => ({ ...r, [i.position]: { passed: false, actual: r[i.position]?.actual ?? '' } }))}>✗ Не пройден</button>
+                    <button className={`btn small ${results[i.docNumber ?? i.position]?.passed === true ? 'primary' : ''}`}
+                      onClick={() => setResults((r) => ({ ...r, [i.docNumber ?? i.position]: { passed: true, actual: r[i.docNumber ?? i.position]?.actual ?? '' } }))}>✓ Пройден</button>
+                    <button className={`btn small danger ${results[i.docNumber ?? i.position]?.passed === false ? 'primary' : ''}`}
+                      onClick={() => setResults((r) => ({ ...r, [i.docNumber ?? i.position]: { passed: false, actual: r[i.docNumber ?? i.position]?.actual ?? '' } }))}>✗ Не пройден</button>
                   </div>
                 </>
               )}

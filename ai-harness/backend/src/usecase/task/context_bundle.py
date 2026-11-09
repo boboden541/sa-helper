@@ -22,6 +22,8 @@ from repository.models import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# статусы ПУНКТОВ чеклиста (done/closed) — не путать со статусами задач
+# (terminal = done/canceled); другой словарь, канон CHILD_* на них не указывает
 _OPEN = ("done", "closed")
 
 
@@ -138,11 +140,15 @@ async def build_context_md(session: AsyncSession, task: Task) -> str:
                             ChecklistItem.kind == "item",
                             ChecklistItem.linked_task_id.isnot(None),
                         )
+                        .order_by(ChecklistItem.position)
                     )
                 ).all()
+                # П.N — документная нумерация (как в psi.md и /psi/items):
+                # раньше здесь уходила чеклист-позиция — расход с файлом
+                # после первой секции (анализ 09.11.2026)
                 cover: dict = {}
-                for lid, pos in linked:
-                    cover.setdefault(lid, []).append(f"П.{pos}")
+                for n, (lid, _pos) in enumerate(linked, 1):
+                    cover.setdefault(lid, []).append(f"П.{n}")
                 base_label = f"v{base_v}" if base_v else "документа нет"
                 lines = [
                     f"\n## Дельта ПСИ (база: {base_label}) — пункты на переработку:",
@@ -284,7 +290,11 @@ async def build_context_md(session: AsyncSession, task: Task) -> str:
     checks = (
         await session.execute(
             sa.select(
-                Checklist.kind, ChecklistItem.position, ChecklistItem.text, ChecklistItem.status
+                Checklist.kind,
+                ChecklistItem.position,
+                ChecklistItem.kind.label("item_kind"),
+                ChecklistItem.text,
+                ChecklistItem.status,
             )
             .join(ChecklistItem, ChecklistItem.checklist_id == Checklist.id)
             .where(Checklist.task_id == task.id)
@@ -293,14 +303,30 @@ async def build_context_md(session: AsyncSession, task: Task) -> str:
     ).all()
     if checks:
         by_kind: dict[str, list] = {}
-        for kind, position, text, status in checks:
-            by_kind.setdefault(kind, []).append((position, text, status))
+        for kind, position, item_kind, text, status in checks:
+            builder = by_kind.setdefault(kind, [])
+            builder.append((position, item_kind, text, status))
         blocks = []
-        for kind, items in by_kind.items():
-            open_items = [(p, t, s) for p, t, s in items if s not in _OPEN]
-            closed = [str(p) for p, t, s in items if s in _OPEN]
-            lines = [f"### Чеклист {kind} — закрыто {len(items) - len(open_items)}/{len(items)}"]
-            lines += [f"- ☐ №{p} {t} [{s}]" for p, t, s in open_items]
+        for kind, rows in by_kind.items():
+            # psi — документная нумерация П.N (как в psi.md, /psi/items|runs):
+            # заголовки секций не нумеруются; раньше после первой секции
+            # чеклист-позиция ≠ номер документа (анализ 09.11.2026)
+            shown: list = []
+            if kind == "psi":
+                # счёт ТОЛЬКО по пунктам — enumerate до фильтра нумеровал бы
+                # и заголовки (после первой секции снова расход с psi.md)
+                n = 0
+                for _p, ik, t, s in rows:
+                    if ik == "item":
+                        n += 1
+                        shown.append((n, t, s))
+            else:
+                shown = [(p, t, s) for p, _ik, t, s in rows]
+            open_items = [(n, t, s) for n, t, s in shown if s not in _OPEN]
+            closed = [str(n) for n, t, s in shown if s in _OPEN]
+            tag = "П." if kind == "psi" else "№"
+            lines = [f"### Чеклист {kind} — закрыто {len(shown) - len(open_items)}/{len(shown)}"]
+            lines += [f"- ☐ {tag}{n} {t} [{s}]" for n, t, s in open_items]
             if kind == "psi" and type_key == "story":
                 lines.append(
                     "- Отмечай каждый пункт СРАЗУ после проверки: POST /stories/{код}/psi/items "
@@ -308,7 +334,7 @@ async def build_context_md(session: AsyncSession, task: Task) -> str:
                     "через host.docker.internal:8000 — отметка переживает обрыв сессии"
                 )
             if closed:
-                lines.append(f"- ✓ закрыты: №{', №'.join(closed)}")
+                lines.append(f"- ✓ закрыты: {tag}{f', {tag}'.join(closed)}")
             blocks.append("\n".join(lines))
         parts.append(
             "\n## Чеклисты — источник истины: открытые пункты = с чего продолжить\n"
@@ -371,18 +397,21 @@ async def build_context_md(session: AsyncSession, task: Task) -> str:
         parts.append("\n## Связи\n" + "\n".join(lines))
 
     # индекс задач проекта: коды соседей для declarations связей (relations_updates)
-    siblings = await session.execute(
-        sa.select(Task.code, Task.title, Task.status_key)
-        .join(Project, Project.id == Task.project_id)
-        .where(
-            Task.project_id == task.project_id,
-            Task.status_key.notin_(("done", "canceled")),
-            Task.id != task.id,
+    siblings = (
+        await session.execute(
+            sa.select(Task.code, Task.title, Task.status_key)
+            .join(Project, Project.id == Task.project_id)
+            .where(
+                Task.project_id == task.project_id,
+                Task.status_key.notin_(("done", "canceled")),
+                Task.id != task.id,
+            )
+            .order_by(Task.code)
+            .limit(12)
         )
-        .order_by(Task.code)
-        .limit(12)
-    )
+    ).all()
     if siblings:
+        # .all(): Result всегда truthy — секция печаталась с пустым телом
         lines = [f"- {code} «{title}» — {status}" for code, title, status in siblings]
         parts.append(
             "\n## Задачи проекта (для связей: что сначала, что потом, кто кого блокирует)\n"
@@ -472,11 +501,13 @@ async def _psi_review_bundle(session: AsyncSession, task: Task) -> str:
         )
     ).all()
     doc_lines: list[str] = []
-    for kind, pos, text, expected, actual, _status in rows:
+    doc_n = 0
+    for kind, _pos, text, expected, actual, _status in rows:
         if kind == "heading":
             doc_lines.append(f"\n## {text}")
         elif kind == "item":
-            doc_lines.append(f"\n### П.{pos} {text}")
+            doc_n += 1
+            doc_lines.append(f"\n### П.{doc_n} {text}")
             doc_lines.append(f"Ожидаемый результат: {expected or '(не указано)'}")
             if actual:
                 doc_lines.append(f"(прошлый факт: {actual[:200]})")

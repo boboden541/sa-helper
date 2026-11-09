@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -36,6 +37,23 @@ async def _story(session: AsyncSession, code: str) -> Task:
     if story is None:
         raise DomainError(f"История {code} не найдена")
     return story
+
+
+def _doc_items(items: Sequence[ChecklistItem]) -> list[ChecklistItem]:
+    """Пункты документа (kind="item") в порядке позиций чеклиста.
+
+    П.N — документная нумерация: сквозной счёт ТОЛЬКО по пунктам; заголовки
+    секций занимают position в чеклисте, но в документе не нумеруются.
+    Единый хелпер — файл psi.md, отметки (/psi/items), прогоны (/psi/runs),
+    карта покрытия (/psi/link-task|link-bug) и get_document говорят одним
+    языком. Раньше после первой секции чеклист-позиция расходилась с номером
+    документа: П.3 = position 4 → молча чужой пункт (анализ 09.11.2026)."""
+    return sorted((i for i in items if i.kind == "item"), key=lambda i: i.position)
+
+
+def _item_by_doc_number(items: Sequence[ChecklistItem], position: int) -> ChecklistItem | None:
+    rows = _doc_items(items)
+    return rows[position - 1] if 0 < position <= len(rows) else None
 
 
 def render_psi_md(
@@ -305,10 +323,11 @@ async def link_task(
     session: AsyncSession, story_code: str, actor: User, position: int, task_code: str
 ) -> dict:
     """ФТ-FNR15-01: карта покрытия «пункт ПСИ ↔ задача» (аналог link_bug).
-    Идемпотентен: повторная связь той же задачи — без изменения."""
+    Идемпотентен: повторная связь той же задачи — без изменения.
+    position — документный номер П.N (как в psi.md), не позиция чеклиста."""
     story = await _story(session, story_code)
     _, items = await _current_doc_and_items(session, story.id)
-    item = next((i for i in items if i.kind == "item" and i.position == position), None)
+    item = _item_by_doc_number(items, position)
     if item is None:
         raise DomainError(f"Пункт П.{position} не найден в текущем документе ПСИ")
     linked = (
@@ -403,10 +422,12 @@ async def run_psi(
     session: AsyncSession, story_code: str, runner: User, results: list[dict]
 ) -> dict:
     """Прогон: [{position, passed: bool, actual}] → протокол со снапшотом пунктов (ФТ-ah-41).
-    Непройденный пункт предлагает баг с предзаполнением (возвращает без создания)."""
+    position — документный номер П.N (как в psi.md и /psi/items), не позиция
+    чеклиста. Непройденный пункт предлагает баг с предзаполнением (возвращает
+    без создания)."""
     story = await _story(session, story_code)
     doc, items = await _current_doc_and_items(session, story.id)
-    item_rows = [i for i in items if i.kind == "item"]
+    item_rows = _doc_items(items)
 
     passed = failed = 0
     run = PsiRun(psi_doc_id=doc.id, run_by=runner.id, passed=0, failed=0)
@@ -416,9 +437,13 @@ async def run_psi(
     bug_proposals = []
     for r in results:
         position = r["position"]
-        item = next((i for i in item_rows if i.position == position), None)
+        item = _item_by_doc_number(item_rows, position)
         if item is None:
-            continue
+            # честный отказ вместо молчаливого пропуска — «молча не тот пункт»
+            # тот же класс ошибки, что чинен в mark_item (анализ 09.11.2026)
+            raise DomainError(
+                f"Пункт П.{position} не найден в текущем документе ПСИ ({len(item_rows)} пунктов)"
+            )
         status = "done" if r.get("passed") else "failed"
         item.status = status
         item.psi_actual = r.get("actual", "")
@@ -473,9 +498,9 @@ async def link_bug(session: AsyncSession, story_code: str, position: int, bug_co
     """Связывает пункт ПСИ с заведённым багом (идемпотентность цикла, ФТ-ah-42)."""
     story = await _story(session, story_code)
     _, items = await _current_doc_and_items(session, story.id)
-    item = next((i for i in items if i.kind == "item" and i.position == position), None)
+    item = _item_by_doc_number(items, position)
     if item is None:
-        raise DomainError(f"Пункт {position} не найден")
+        raise DomainError(f"Пункт П.{position} не найден в текущем документе ПСИ")
     bug = (
         await session.execute(sa.select(Task).where(Task.code == bug_code.upper()))
     ).scalar_one_or_none()
@@ -519,12 +544,7 @@ async def mark_item(
     непройденный — событие в хроники: владелец видит провал немедленно."""
     story = await _story(session, story_code)
     _, items = await _current_doc_and_items(session, story.id)
-    # П.N — документная нумерация: сквозной счётчик ТОЛЬКО по пунктам (kind=
-    # "item"), заголовки секций занимают position в чеклисте, но в документе
-    # не нумеруются. Раньше сверяли чеклист-позицию с документным номером —
-    # после первой секции промах: П.3 = position 4 → молча чужой пункт
-    item_rows = sorted((i for i in items if i.kind == "item"), key=lambda i: i.position)
-    item = item_rows[position - 1] if 0 < position <= len(item_rows) else None
+    item = _item_by_doc_number(items, position)
     if item is None:
         raise DomainError(f"Пункт П.{position} не найден в текущем документе ПСИ")
     item.status = "done" if passed else "failed"
@@ -628,6 +648,9 @@ async def get_document(session: AsyncSession, story_code: str) -> dict:
         )
     ).all()
     plan_ref = await psi_plan_ref_version(session, story.id)
+    # docNumber — документный номер П.N (счёт по пунктам); position — позиция
+    # в чеклисте (заголовки занимают место). UI и прогоны работают по П.N.
+    doc_number = {i.position: n for n, i in enumerate(_doc_items(items), 1)}
     return {
         "stale": plan_ref is not None and plan_ref < story.ref_version,
         "refVersion": story.ref_version,
@@ -639,6 +662,7 @@ async def get_document(session: AsyncSession, story_code: str) -> dict:
         "items": [
             {
                 "position": i.position,
+                "docNumber": doc_number.get(i.position),
                 "kind": i.kind,
                 "text": i.text,
                 "expected": i.psi_expected,
