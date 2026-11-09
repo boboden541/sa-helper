@@ -85,11 +85,28 @@ def test_exclude_written_for_worktree(tmp_path: Path):
 def test_build_prompt_with_skills():
     from daemon.runner.agent_runner import _build_prompt
 
-    req = _req(skills_md=("## Скилл: demo\n\nТело скилла",))
+    req = _req(
+        skills=("reviewer-methodology", "qa-methodology"), skills_md=("Тело reviewer", "Тело qa")
+    )
     prompt = _build_prompt(req)
-    assert "# Подключённые скиллы (реестр инструментов)" in prompt
-    assert "Тело скилла" in prompt
+    # скилл-первый запуск: первый скилл — вызовом первой строкой
+    assert "/reviewer-methodology" in prompt
+    assert prompt.index("/reviewer-methodology") < prompt.index("# Контекст задачи")
+    # первый скилл текстом НЕ дублируется, второй — приложен справочно
+    assert "Тело reviewer" not in prompt
+    assert "Тело qa" in prompt
     assert "summary_md" in prompt  # контракт отчёта на месте
+
+
+def test_build_prompt_skills_without_names_fallback():
+    """Прогон без имён скиллов (legacy-путь) — скиллы текстом, как раньше."""
+    from daemon.runner.agent_runner import _build_prompt
+
+    req = _req(skills_md=("Тело скилла",))
+    prompt = _build_prompt(req)
+    assert "Тело скилла" in prompt
+    assert "Подключённые скиллы (реестр инструментов)" in prompt
+    assert "summary_md" in prompt
 
 
 def test_build_prompt_without_skills():

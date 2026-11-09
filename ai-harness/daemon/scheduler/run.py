@@ -56,9 +56,10 @@ class RunMixin:
                     .mappings()
                     .one_or_none()
                 )
-                # персона агента — одна строка; методологии живут в назначенных скиллах
-                role = (profile or {}).get("role") or "исполнитель этапа конвейера"
-                persona = f"{agent.name} — {role}"[:300]
+                # персона агента = имя; роль осталась описанием в интерфейсе,
+                # методология — скиллом, вызываемым первой строкой промта
+                # (скилл-первый запуск, решение владельца 09.11.2026)
+                persona = agent.name[:300]
 
                 worktree = await self._ensure_worktree(session, task)
 
@@ -233,7 +234,10 @@ class RunMixin:
                         # acceptance_budget (ФНР-16) перекрывает work-лимит
                         "work": await acceptance_work_timeout(session, task, cfg),
                     },
-                    model=(profile or {}).get("model"),
+                    # модель прогона = модель подключения (env ANTHROPIC_MODEL);
+                    # пин профиля больше не читается — перекрытие «перекрыло»
+                    # выбор провайдера и ломало переключения (решение 09.11.2026)
+                    model=None,
                     mcp_servers=(profile or {}).get("mcp_servers"),
                     max_turns=int(cfg.get("daemon.max_turns") or 200),
                     resume_session_id=resume_sid,
@@ -249,6 +253,8 @@ class RunMixin:
                     req_kwargs["skills_md"] = tuple(
                         await self._registry_skills_md(session, skill_names)
                     )
+                    # имена — для скилл-первого запуска: первый скилл вызовом
+                    req_kwargs["skills"] = tuple(skill_names)
                 req = RunRequest(**req_kwargs)
         except Exception as err:  # noqa: BLE001 — демон не должен падать
             log.exception("run failed: %s", task_code)

@@ -272,9 +272,7 @@ async def _clean_connection_id(session: AsyncSession, value) -> uuid.UUID | None
     try:
         cid = uuid_mod.UUID(str(val))
     except ValueError:
-        raise DomainError(
-            "Подключение не найдено в списке провайдеров", field="connection_id"
-        )
+        raise DomainError("Подключение не найдено в списке провайдеров", field="connection_id")
     if await session.get(Connection, cid) is None:
         raise DomainError(
             "Подключение не найдено — заведите его во вкладке «ИИ-провайдеры»",

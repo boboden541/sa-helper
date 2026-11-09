@@ -10,9 +10,9 @@ import { FLOW_TYPES } from '../shared'
 export function AgentsAndMatrix() {
   const [agents, setAgents] = useState<{ id: string; name: string; role: string; connectionId: string; isPreset: boolean; model: string; allowedTools: string[]; mcpServers: Record<string, unknown> | null; agentDir: string; skills: string[] }[]>([])
   const [users, setUsers] = useState<{ id: string; name: string; userType: string }[]>([])
-  const [editor, setEditor] = useState<{ id?: string; name: string; role: string; conn: string; model: string; tools: string; mcpJson: string; agentDir: string; skills: string[] } | null>(null)
+  const [editor, setEditor] = useState<{ id?: string; name: string; conn: string; tools: string; mcpJson: string; agentDir: string; skills: string[] } | null>(null)
   const [regSkills, setRegSkills] = useState<{ name: string; status: string }[]>([])
-  const [conns, setConns] = useState<{ id: string; name: string; protocol: string; isActive: boolean }[]>([])
+  const [conns, setConns] = useState<{ id: string; name: string; protocol: string; model: string; isActive: boolean }[]>([])
   const [note, setNote] = useState<string | null>(null)
     const reload = async () => {
     void fetch('/api/v1/tools').then((r) => r.json()).then((d) => setRegSkills(
@@ -43,9 +43,9 @@ export function AgentsAndMatrix() {
     if (editor.mcpJson.trim()) {
       try { mcp = JSON.parse(editor.mcpJson) } catch { setNote('MCP-серверы: некорректный JSON'); return }
     }
-    const payload = { name: editor.name, role: editor.role,
+    const payload = { name: editor.name,
       connectionId: editor.conn,
-      model: editor.model, allowedTools: editor.tools.split(/[\s,]+/).filter(Boolean),
+      allowedTools: editor.tools.split(/[\s,]+/).filter(Boolean),
       mcpServers: mcp, agentDir: editor.agentDir.trim(), skills: editor.skills }
     const res = editor.id
       ? await fetch(`/api/v1/agents/${editor.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
@@ -64,8 +64,8 @@ export function AgentsAndMatrix() {
         <div className="q-sec" style={{ margin: 0 }}>Пользователи-агенты</div>
         <span className="sp" />
         <button className="btn primary small" onClick={() => setEditor({
-          name: '', role: '', conn: '',
-          model: '', tools: '', mcpJson: '', agentDir: '', skills: [] })}>＋ Агент</button>
+          name: '', conn: '',
+          tools: '', mcpJson: '', agentDir: '', skills: [] })}>＋ Агент</button>
       </div>
       <div className="agents-grid">
         {agents.map((a) => (
@@ -75,7 +75,7 @@ export function AgentsAndMatrix() {
               <b>{a.name}</b>
               {a.isPreset && <span className="mini-chip">предустановленный</span>}
               <span className="sp" />
-              <button className="link" style={{ fontSize: 12 }} onClick={() => setEditor({ id: a.id, name: a.name, role: a.role, conn: a.connectionId ?? '', model: a.model ?? '', tools: (a.allowedTools ?? []).join(', '), mcpJson: a.mcpServers ? JSON.stringify(a.mcpServers, null, 2) : '', agentDir: a.agentDir ?? '', skills: a.skills ?? [] })}>править</button>
+              <button className="link" style={{ fontSize: 12 }} onClick={() => setEditor({ id: a.id, name: a.name, conn: a.connectionId ?? '', tools: (a.allowedTools ?? []).join(', '), mcpJson: a.mcpServers ? JSON.stringify(a.mcpServers, null, 2) : '', agentDir: a.agentDir ?? '', skills: a.skills ?? [] })}>править</button>
               <span className="muted">·</span>
               <button className="link" style={{ fontSize: 12 }} onClick={() => void clone(a.id)}>клонировать</button>
               <span className="muted">·</span>
@@ -99,11 +99,8 @@ export function AgentsAndMatrix() {
           <div className="ag-fields">
             <div className="f-field"><label>Название</label>
               <input value={editor.name} onChange={(e) => setEditor({ ...editor, name: e.target.value })} /></div>
-            <div className="f-field"><label>Роль (за что отвечает)</label>
-              <input value={editor.role} onChange={(e) => setEditor({ ...editor, role: e.target.value })} /></div>
-            <div className="f-field"><label>Модель прогона (необязательно — иначе модель подключения)</label>
-              <input value={editor.model} placeholder="например glm-5.3-flash"
-                onChange={(e) => setEditor({ ...editor, model: e.target.value })} /></div>
+            <div className="f-field"><label>Модель прогона (из подключения — нередактируемо)</label>
+              <input disabled value={(conns.find((c) => c.id === editor.conn) ?? conns.find((c) => c.isActive))?.model ?? ''} placeholder="выберите подключение" /></div>
             <div className="f-field"><label>Подключение (провайдер) — чей токен и адрес использует агент; пусто — глобальное активное</label>
               <select value={editor.conn} onChange={(e) => setEditor({ ...editor, conn: e.target.value })}>
                 <option value="">Глобальное активное</option>
