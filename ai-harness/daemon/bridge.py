@@ -37,20 +37,27 @@ def render_config(rows: list[tuple[str, str, str, str]]) -> str:
 
     model_name = har-<id8> — точное имя, SDK присылает его в ANTHROPIC_MODEL;
     openai/<model> — целевая модель; drop_params не роняет запрос на
-    антропик-специфичных параметрах SDK (thinking и пр.)."""
+    антропик-специфичных параметрах SDK (thinking и пр.).
+    api_base без хвостового слэша; use_chat_completions_url_for_anthropic_
+    messages — переводчик /v1/messages этой версии LiteLLM по умолчанию уходит
+    в OpenAI Responses API (/responses), которого у Google AI Studio нет (404):
+    флаг возвращает путь на chat/completions (живой разбор 09.11.2026)."""
     doc = {
         "model_list": [
             {
                 "model_name": f"{MODEL_PREFIX}{cid[:8]}",
                 "litellm_params": {
                     "model": f"openai/{model}",
-                    "api_base": url,
+                    "api_base": (url or "").rstrip("/"),
                     "api_key": token,
                 },
             }
             for cid, url, model, token in rows
         ],
-        "litellm_settings": {"drop_params": True},
+        "litellm_settings": {
+            "drop_params": True,
+            "use_chat_completions_url_for_anthropic_messages": True,
+        },
     }
     return json.dumps(doc, ensure_ascii=False, indent=2)
 

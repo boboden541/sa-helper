@@ -14,7 +14,7 @@ from daemon.runner.agent_runner import _sdk_env
 def test_render_config_lists_openai_routes():
     rows = [
         ("11111111-1111-1111-1111-111111111111", "https://a/v1", "model-a", "tok-a"),
-        ("22222222-2222-2222-2222-222222222222", "https://b/v1", "model-b", "tok-b"),
+        ("22222222-2222-2222-2222-222222222222", "https://b/v1/", "model-b", "tok-b"),
     ]
     cfg = json.loads(render_config(rows))
     routes = {m["model_name"]: m["litellm_params"] for m in cfg["model_list"]}
@@ -22,7 +22,11 @@ def test_render_config_lists_openai_routes():
     assert routes["har-11111111"]["model"] == "openai/model-a"
     assert routes["har-11111111"]["api_base"] == "https://a/v1"
     assert routes["har-11111111"]["api_key"] == "tok-a"
-    assert cfg["litellm_settings"] == {"drop_params": True}
+    assert routes["har-22222222"]["api_base"] == "https://b/v1", "хвостовой слэш снят"
+    assert cfg["litellm_settings"] == {
+        "drop_params": True,
+        "use_chat_completions_url_for_anthropic_messages": True,
+    }
 
 
 def test_sdk_env_openai_routes_via_bridge(monkeypatch):
@@ -55,9 +59,7 @@ async def test_sync_bridge_renders_and_restarts_on_change(_test_db, tmp_path, mo
                 )
             )
             await s.commit()
-            monkeypatch.setattr(
-                "daemon.bridge.CONFIG_PATH", str(tmp_path / "config.yaml")
-            )
+            monkeypatch.setattr("daemon.bridge.CONFIG_PATH", str(tmp_path / "config.yaml"))
 
             async def fake_decrypt(session, conn):
                 return "tok-xyz"
