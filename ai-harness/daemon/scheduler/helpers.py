@@ -16,6 +16,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from daemon.config import retry_pauses_minutes
 
 
+async def acceptance_work_timeout(session: AsyncSession, task, cfg: dict[str, str]) -> int:
+    """Work-лимит прогона в секундах: общий daemon.timeout_work_seconds, а для
+    статусов с поведением acceptance_budget — жёсткий бюджет приёмки
+    (daemon.acceptance_budget_minutes, по умолчанию 60 мин). Поведение
+    потреблено демоном — раньше флаг висел в данных без единого читателя
+    (анализ 09.11.2026): сквозной прогон ПСИ длиннее обычной разработки,
+    дефолтный work-лимит (30 мин) рвал приёмку на середине."""
+    from domain.flow.behaviors import ACCEPTANCE_BUDGET, has_behavior
+
+    if await has_behavior(session, task, ACCEPTANCE_BUDGET):
+        return int(cfg.get("daemon.acceptance_budget_minutes") or 60) * 60
+    return int(cfg["daemon.timeout_work_seconds"])
+
+
 async def active_run_id(session, task_id) -> str | None:
     """Id активного прогона задачи (для лога прогона); None — активного нет."""
     return (

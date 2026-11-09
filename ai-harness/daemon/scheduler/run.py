@@ -13,6 +13,7 @@ from daemon.runner.agent_runner import is_provider_unreachable
 from daemon.runner.reservation import release_reservation
 from daemon.scheduler.helpers import (
     HANDOFF_OUTCOMES,
+    acceptance_work_timeout,
     active_run_id,
     log,
     targeted_retry_block,
@@ -229,7 +230,8 @@ class RunMixin:
                     provider=await self._provider_for(session, agent_id),
                     timeouts={
                         "start": int(cfg["daemon.timeout_start_seconds"]),
-                        "work": int(cfg["daemon.timeout_work_seconds"]),
+                        # acceptance_budget (ФНР-16) перекрывает work-лимит
+                        "work": await acceptance_work_timeout(session, task, cfg),
                     },
                     model=(profile or {}).get("model"),
                     mcp_servers=(profile or {}).get("mcp_servers"),
