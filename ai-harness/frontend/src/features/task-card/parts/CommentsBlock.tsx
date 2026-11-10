@@ -21,7 +21,7 @@ export function CommentsBlock({ code }: { code: string }) {
     void api.addComment(code, draft).then(() => { setDraft(''); reload() })
   }
   return (
-    <Collapsible id="comments" title="Комментарии"
+    <Collapsible id="comments" taskId={code} title="Комментарии"
       right={<div className="mode-tabs">
         <button className={mode === 'visual' ? 'active' : ''} onClick={() => setMode('visual')}>Визуально</button>
         <button className={mode === 'text' ? 'active' : ''} onClick={() => setMode('text')}>Текст</button>

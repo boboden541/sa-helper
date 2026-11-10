@@ -22,7 +22,7 @@ export function ChronicleBlock({ code, chronicle, liveRun, lastLog }: {
   const chronFiltered = chronicle.filter((c) => chronTab === 'all' || c.type === chronTab)
 
   return (
-    <Collapsible id="chronicle" title="Хроники">
+    <Collapsible id="chronicle" taskId={code} title="Хроники">
       <div className="chron-tabs">
         {chronTypes.map(([key, label]) => (
           <button key={key} className={chronTab === key ? 'active' : ''} onClick={() => setChronTab(key)}>{label}</button>

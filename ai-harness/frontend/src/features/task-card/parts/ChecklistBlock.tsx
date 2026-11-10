@@ -44,7 +44,7 @@ export function ChecklistBlock({ code, kind, title }: { code: string; kind: stri
   }
 
   return (
-    <Collapsible id={`cl-${kind}`} title={title}
+    <Collapsible id={`cl-${kind}`} taskId={code} title={title}
       badge={<>
         <span className="muted">владелец: {kind === 'developer' ? 'разработчик' : kind === 'reviewer' ? 'ревьюер' : 'тестировщик'}</span>
         <span className="bar"><i style={{ width: items.length ? `${(closed / items.length) * 100}%` : '0%' }} /></span>

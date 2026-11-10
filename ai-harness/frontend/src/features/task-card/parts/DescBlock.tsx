@@ -26,7 +26,7 @@ export function DescBlock({ code, card, reload }: {
   }
 
   return (
-    <Collapsible id="desc" title="Описание"
+    <Collapsible id="desc" taskId={code} title="Описание"
       right={!editingDesc ? <button className="pencil show" title="Редактировать" dangerouslySetInnerHTML={{ __html: PENCIL }} onClick={() => setEditingDesc(true)} /> : undefined}>
       {editingDesc ? (
         <div className="desc-edit">

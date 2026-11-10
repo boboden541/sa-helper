@@ -1,36 +1,38 @@
 // Сворачиваемый раздел карточки: владеет хромой .blk + .blk-h — шеврон,
-// заголовок, слот действий. Состояние секций — localStorage 'task-ui-sections'
-// (карта id→open), переживает закрытие карточки и перезагрузку (паттерн Eve).
-// Тело при свёртывании именно НЕ рендерится: блоки с useEffect (ПСИ, чеклисты)
-// не должны гонять запросы невидимо.
+// заголовок, слот действий. Состояние — ПО ЗАДАЧЕ: localStorage
+// 'task-ui:<код>' (карта id→open; решение владельца 10.11.2026 после
+// инцидента «у задач пропало описание»: глобальная карта свёртывала
+// раздел на ВСЕХ задачах сразу и выглядела как пропажа). Свёрнутое
+// тело именно НЕ рендерится: блоки с useEffect (ПСИ, чеклисты) не должны
+// гонять запросы невидимо.
 
 import { useEffect, useState, type ReactNode } from 'react'
 
-const KEY = 'task-ui-sections'
-
-function loadSections(): Record<string, boolean> {
+function loadSections(taskId: string): Record<string, boolean> {
   try {
-    const raw = localStorage.getItem(KEY)
+    const raw = localStorage.getItem(`task-ui:${taskId}`)
     return raw ? (JSON.parse(raw) as Record<string, boolean>) : {}
   } catch { return {} }
 }
 
-export function Collapsible({ id, title, right, badge, children }: {
+export function Collapsible({ id, taskId, title, right, badge, children }: {
   id: string
+  taskId: string
   title: string
   right?: ReactNode
   badge?: ReactNode
   children: ReactNode
 }) {
-  const [open, setOpen] = useState(() => loadSections()[id] !== false)
-  useEffect(() => { setOpen(loadSections()[id] !== false) }, [id])
+  const [open, setOpen] = useState(() => loadSections(taskId)[id] !== false)
+  useEffect(() => { setOpen(loadSections(taskId)[id] !== false) }, [id, taskId])
   const toggle = () => {
     setOpen((v) => {
       const next = !v
       try {
-        const map = loadSections()
+        const key = `task-ui:${taskId}`
+        const map = loadSections(taskId)
         map[id] = next
-        localStorage.setItem(KEY, JSON.stringify(map))
+        localStorage.setItem(key, JSON.stringify(map))
       } catch { /* приватный режим */ }
       return next
     })

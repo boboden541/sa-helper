@@ -23,28 +23,31 @@ beforeEach(() => {
 
 describe('Collapsible', () => {
   it('раскрыт по умолчанию, тело видно', () => {
-    render(<Collapsible id="desc" title="Описание"><p>тело описания</p></Collapsible>)
+    render(<Collapsible id="desc" taskId="AH-1" title="Описание"><p>тело описания</p></Collapsible>)
     expect(screen.getByText('тело описания')).toBeTruthy()
     expect(screen.getByText('Описание')).toBeTruthy()
   })
 
-  it('клик по шеврону сворачивает и пишет localStorage', () => {
-    render(<Collapsible id="psi" title="ПСИ"><p>тело пси</p></Collapsible>)
+  it('клик по шеврону сворачивает и пишет localStorage ПО ЗАДАЧЕ', () => {
+    render(<Collapsible id="psi" taskId="AH-2" title="ПСИ"><p>тело пси</p></Collapsible>)
     fireEvent.click(screen.getByRole('button', { name: 'Свернуть раздел' }))
     expect(screen.queryByText('тело пси')).toBeNull()
-    const map = JSON.parse(localStorage.getItem('task-ui-sections') ?? '{}') as Record<string, boolean>
+    const map = JSON.parse(localStorage.getItem('task-ui:AH-2') ?? '{}') as Record<string, boolean>
     expect(map.psi).toBe(false)
+    // другая задача не затронута
+    const other = JSON.parse(localStorage.getItem('task-ui:AH-1') ?? '{}') as Record<string, boolean>
+    expect(other.psi).toBeUndefined()
   })
 
-  it('состояние восстанавливается из localStorage', () => {
-    localStorage.setItem('task-ui-sections', JSON.stringify({ chronicle: false }))
-    render(<Collapsible id="chronicle" title="Хроники"><p>тело хроник</p></Collapsible>)
+  it('состояние восстанавливается из localStorage своей задачи', () => {
+    localStorage.setItem('task-ui:AH-3', JSON.stringify({ chronicle: false }))
+    render(<Collapsible id="chronicle" taskId="AH-3" title="Хроники"><p>тело хроник</p></Collapsible>)
     expect(screen.queryByText('тело хроник')).toBeNull()
   })
 
   it('кнопки в right-слоте не сворачивают раздел', () => {
     render(
-      <Collapsible id="relations" title="Связи" right={<button onClick={() => {}}>＋ связь</button>}>
+      <Collapsible id="relations" taskId="AH-4" title="Связи" right={<button onClick={() => {}}>＋ связь</button>}>
         <p>тело связей</p>
       </Collapsible>,
     )

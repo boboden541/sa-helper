@@ -30,7 +30,7 @@ export function PsiBlock({ code, reload, psiPath }: { code: string; reload: () =
   const versions = doc.runs.length
 
   return (
-    <Collapsible id="psi" title="ПСИ · приёмо-сдаточные испытания">
+    <Collapsible id="psi" taskId={code} title="ПСИ · приёмо-сдаточные испытания">
       <div className="psi-doc">
         <div className="psi-head"><b>ПСИ</b> · пунктов: {doc.items.filter((i) => i.kind === 'item').length} · протоколов: {versions}
           {/* ФТ-FNR14-07: версии видны всегда, а не только при дрейфе эталона */}

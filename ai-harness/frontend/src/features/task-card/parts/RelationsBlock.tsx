@@ -30,7 +30,7 @@ export function RelationsBlock({ code, relations, reload }: {
   }
   const KIND: Record<string, string> = { do_after: 'делать после этой', blocked_by: 'блокирована задачей' }
   return (
-    <Collapsible id="relations" title="Связанные задачи"
+    <Collapsible id="relations" taskId={code} title="Связанные задачи"
       right={<button className="btn small" onClick={() => setAdding(!adding)}>＋ связь</button>}>
       {(relations ?? []).map((r) => (
         <div key={r.id} className="rel" onClick={() => { window.location.hash = `#${r.code}` }}>
