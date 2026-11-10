@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../../../api/client'
 import { renderMarkdown } from '../../../shared/markdown'
 import { RichText } from '../../../shared/editor/RichText'
+import { Collapsible } from './Collapsible'
 
 export function CommentsBlock({ code }: { code: string }) {
   const [items, setItems] = useState<{ id: string; author: string; body: string; at: string }[]>([])
@@ -20,12 +21,11 @@ export function CommentsBlock({ code }: { code: string }) {
     void api.addComment(code, draft).then(() => { setDraft(''); reload() })
   }
   return (
-    <div className="blk">
-      <div className="blk-h"><h3>Комментарии</h3><span className="fill" />
-        <div className="mode-tabs">
-          <button className={mode === 'visual' ? 'active' : ''} onClick={() => setMode('visual')}>Визуально</button>
-          <button className={mode === 'text' ? 'active' : ''} onClick={() => setMode('text')}>Текст</button>
-        </div></div>
+    <Collapsible id="comments" title="Комментарии"
+      right={<div className="mode-tabs">
+        <button className={mode === 'visual' ? 'active' : ''} onClick={() => setMode('visual')}>Визуально</button>
+        <button className={mode === 'text' ? 'active' : ''} onClick={() => setMode('text')}>Текст</button>
+      </div>}>
       {items.map((c) => (
         <div key={c.id} className="cmt">
           <span className="ava">{c.author.slice(0, 1)}</span>
@@ -42,6 +42,6 @@ export function CommentsBlock({ code }: { code: string }) {
           <button className="btn primary small" onClick={send} disabled={!draft.trim()}>Отправить</button>
         </div>
       </div>
-    </div>
+    </Collapsible>
   )
 }

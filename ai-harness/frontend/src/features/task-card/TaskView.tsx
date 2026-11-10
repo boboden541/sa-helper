@@ -5,7 +5,7 @@
 // force details, хроники .chron-tabs/.chron-row/.evt/.tech.
 // Каркас (TaskView/TaskDrawer/TaskFullPage/TaskBody) здесь; подкомпоненты — в parts/*.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type PointerEvent as RPointerEvent } from 'react'
 import { api, type TaskCard } from '../../api/client'
 import { S_LABEL } from '../../shared/refs'
 import { XIcon } from '../../shared/chips'
@@ -41,11 +41,46 @@ export function TaskView() {
     : <TaskDrawer code={code} />
 }
 
+const DRAWER_W_KEY = 'task-drawer-width'
+const DRAWER_MIN = 420
+
+export function clampDrawerWidth(w: number): number {
+  return Math.min(Math.max(Math.round(w), DRAWER_MIN), window.innerWidth - 80)
+}
+
 function TaskDrawer({ code }: { code: string }) {
+  const [width, setWidth] = useState(() => {
+    try {
+      const w = Number(localStorage.getItem(DRAWER_W_KEY))
+      return w >= DRAWER_MIN ? w : 0 // 0 — дефолтная ширина из CSS
+    } catch { return 0 }
+  })
+  // растягивание side-page (запрос владельца 10.11.2026): тянуть за левый
+  // край, двойной клик — сброс; ширина переживает перезагрузку (localStorage,
+  // паттерн Eve). Handle внутри drawer — с dnd доски не пересекается
+  const onResizeDown = (e: RPointerEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = width || clampDrawerWidth(Math.min(760, window.innerWidth * 0.92))
+    const move = (ev: PointerEvent) => setWidth(clampDrawerWidth(startW + (startX - ev.clientX)))
+    const up = (ev: PointerEvent) => {
+      const w = clampDrawerWidth(startW + (startX - ev.clientX))
+      setWidth(w)
+      try { localStorage.setItem(DRAWER_W_KEY, String(w)) } catch { /* приватный режим */ }
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
   return (
     <>
       <div className="scrim show" onClick={() => { window.location.hash = '#board' }} />
-      <aside className="drawer show" aria-label="Карточка задачи">
+      <aside className="drawer show" aria-label="Карточка задачи"
+        style={width ? { ['--drawer-w' as string]: `${width}px` } : undefined}>
+        <div className="drawer-resize" onPointerDown={onResizeDown}
+          onDoubleClick={() => { setWidth(0); try { localStorage.removeItem(DRAWER_W_KEY) } catch { /* noop */ } }}
+          title="Потяните — измените ширину · двойной клик — сброс" />
         <div className="drawer-head">
           <span className="crumb">Проект · <b>{code}</b></span>
           <span className="sp" />
@@ -65,12 +100,12 @@ function TaskFullPage({ code }: { code: string }) {
         <span className="crumb"><b>{code}</b> · полная страница</span>
         <button className="btn small" onClick={() => { window.location.hash = `#${code}` }}>← К доске</button>
       </div>
-      <div className="tp-body"><div className="tp-inner"><TaskBody code={code} /></div></div>
+      <div className="tp-body"><div className="tp-inner"><TaskBody code={code} page /></div></div>
     </section>
   )
 }
 
-function TaskBody({ code }: { code: string }) {
+function TaskBody({ code, page }: { code: string; page?: boolean }) {
   const [card, setCard] = useState<TaskCard | null>(null)
   const [chronicle, setChronicle] = useState<ChronicleItem[]>([])
   const [liveRun, setLiveRun] = useState<LiveRun | null>(null)
@@ -126,6 +161,29 @@ function TaskBody({ code }: { code: string }) {
     tester: ['common_task', 'qa_task', 'bug', 'story'].includes(card.type),
   }
 
+  // Jira-раскладка полной страницы (запрос владельца 10.11.2026): основное
+  // содержимое — левой колонкой, метаданные (переходы, эталон, связи) —
+  // правым sticky-сайдбаром; drawer — одной колонкой как раньше
+  const flow = (
+    <>
+      <DescBlock code={code} card={card} reload={reload} />
+      {typeVisible.developer && <ChecklistBlock code={code} kind="developer" title="Smart чек-лист разработчика" />}
+      {typeVisible.reviewer && <ChecklistBlock code={code} kind="reviewer" title="Чек-лист ревьюера" />}
+      {typeVisible.tester && <ChecklistBlock code={code} kind="tester" title="Чек-лист тестировщика" />}
+      {card.type === 'story' && <PsiBlock code={code} reload={reload} psiPath={card.psiPath ?? null} />}
+      {typeVisible.reviewer && <ArtifactBlock code={code} kind="review_report" title="Отчёт о ревью" />}
+      {typeVisible.tester && card.type !== 'story' && <ArtifactBlock code={code} kind="qa_report" title="Отчёт о тестировании" />}
+      <CommentsBlock code={code} />
+      <ChronicleBlock code={code} chronicle={chronicle} liveRun={liveRun} lastLog={lastLog} />
+    </>
+  )
+  const refLine = (
+    /* ФТ-FNR14-07: версия и хэш эталона — всегда видно, на чём основан план */
+    <div className="muted" style={{ fontSize: 11, margin: '-4px 0 8px' }}>
+      Эталон постановки: v{card.refVersion ?? 1}
+      {card.refHash ? <> · hash <span className="mono">{card.refHash.slice(0, 12)}</span></> : null}
+    </div>
+  )
   return (
     <>
       <TaskHead code={code} card={card} liveRun={liveRun} reload={reload} />
@@ -141,30 +199,23 @@ function TaskBody({ code }: { code: string }) {
         </div>
       )}
 
-      <TransBlock code={code} card={card} L={L} reload={reload} />
-
-      <DescBlock code={code} card={card} reload={reload} />
-
-      {/* ФТ-FNR14-07: версия и хэш эталона — всегда видно, на чём основан план */}
-      <div className="muted" style={{ fontSize: 11, margin: '-4px 0 8px' }}>
-        Эталон постановки: v{card.refVersion ?? 1}
-        {card.refHash ? <> · hash <span className="mono">{card.refHash.slice(0, 12)}</span></> : null}
-      </div>
-
-      <RelationsBlock code={code} relations={card.relations ?? []} reload={reload} />
-
-      {typeVisible.developer && <ChecklistBlock code={code} kind="developer" title="Smart чек-лист разработчика" />}
-      {typeVisible.reviewer && <ChecklistBlock code={code} kind="reviewer" title="Чек-лист ревьюера" />}
-      {typeVisible.tester && <ChecklistBlock code={code} kind="tester" title="Чек-лист тестировщика" />}
-
-      {card.type === 'story' && <PsiBlock code={code} reload={reload} psiPath={card.psiPath ?? null} />}
-
-      {typeVisible.reviewer && <ArtifactBlock code={code} kind="review_report" title="Отчёт о ревью" />}
-      {typeVisible.tester && card.type !== 'story' && <ArtifactBlock code={code} kind="qa_report" title="Отчёт о тестировании" />}
-
-      <CommentsBlock code={code} />
-
-      <ChronicleBlock code={code} chronicle={chronicle} liveRun={liveRun} lastLog={lastLog} />
+      {page ? (
+        <div className="tp-grid">
+          <div className="tp-main">{flow}</div>
+          <div className="tp-side">
+            <TransBlock code={code} card={card} L={L} reload={reload} />
+            {refLine}
+            <RelationsBlock code={code} relations={card.relations ?? []} reload={reload} />
+          </div>
+        </div>
+      ) : (
+        <>
+          <TransBlock code={code} card={card} L={L} reload={reload} />
+          {refLine}
+          <RelationsBlock code={code} relations={card.relations ?? []} reload={reload} />
+          {flow}
+        </>
+      )}
     </>
   )
 }

@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../../../api/client'
 import { XIcon } from '../../../shared/chips'
 import { toast } from '../../../shared/toast'
+import { Collapsible } from './Collapsible'
 
 export function RelationsBlock({ code, relations, reload }: {
   code: string
@@ -29,9 +30,8 @@ export function RelationsBlock({ code, relations, reload }: {
   }
   const KIND: Record<string, string> = { do_after: 'делать после этой', blocked_by: 'блокирована задачей' }
   return (
-    <div className="blk">
-      <div className="blk-h"><h3>Связанные задачи</h3><span className="fill" />
-        <button className="btn small" onClick={() => setAdding(!adding)}>＋ связь</button></div>
+    <Collapsible id="relations" title="Связанные задачи"
+      right={<button className="btn small" onClick={() => setAdding(!adding)}>＋ связь</button>}>
       {(relations ?? []).map((r) => (
         <div key={r.id} className="rel" onClick={() => { window.location.hash = `#${r.code}` }}>
           <span className="code">{r.code}</span>
@@ -60,6 +60,6 @@ export function RelationsBlock({ code, relations, reload }: {
           {q && !found.length && <div className="muted" style={{ fontSize: 12 }}>Ничего не найдено</div>}
         </div>
       )}
-    </div>
+    </Collapsible>
   )
 }

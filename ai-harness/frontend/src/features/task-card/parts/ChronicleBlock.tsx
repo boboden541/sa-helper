@@ -6,6 +6,7 @@ import { useState } from 'react'
 import { fmtTokens } from '../../../shared/live'
 import { RunLogPanel } from '../RunLogPanel'
 import { type ChronicleItem, type LiveRun } from './common'
+import { Collapsible } from './Collapsible'
 
 export function ChronicleBlock({ code, chronicle, liveRun, lastLog }: {
   code: string
@@ -21,8 +22,7 @@ export function ChronicleBlock({ code, chronicle, liveRun, lastLog }: {
   const chronFiltered = chronicle.filter((c) => chronTab === 'all' || c.type === chronTab)
 
   return (
-    <div className="blk">
-      <div className="blk-h"><h3>Хроники</h3></div>
+    <Collapsible id="chronicle" title="Хроники">
       <div className="chron-tabs">
         {chronTypes.map(([key, label]) => (
           <button key={key} className={chronTab === key ? 'active' : ''} onClick={() => setChronTab(key)}>{label}</button>
@@ -45,7 +45,7 @@ export function ChronicleBlock({ code, chronicle, liveRun, lastLog }: {
           </div>
         </div>
       ))}
-    </div>
+    </Collapsible>
   )
 }
 

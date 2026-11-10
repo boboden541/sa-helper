@@ -7,6 +7,7 @@ import { parseChecklist, serializeChecklist, type ChecklistLine } from '../../..
 import { XIcon } from '../../../shared/chips'
 import { toast } from '../../../shared/toast'
 import { PENCIL } from './common'
+import { Collapsible } from './Collapsible'
 
 export function ChecklistBlock({ code, kind, title }: { code: string; kind: string; title: string }) {
   const [lines, setLines] = useState<ChecklistLine[]>([])
@@ -43,14 +44,13 @@ export function ChecklistBlock({ code, kind, title }: { code: string; kind: stri
   }
 
   return (
-    <div className="blk">
-      <div className="blk-h">
-        <h3>{title}</h3>
-        <span className="muted">владелец: {kind === "developer" ? "разработчик" : kind === "reviewer" ? "ревьюер" : "тестировщик"}</span>
+    <Collapsible id={`cl-${kind}`} title={title}
+      badge={<>
+        <span className="muted">владелец: {kind === 'developer' ? 'разработчик' : kind === 'reviewer' ? 'ревьюер' : 'тестировщик'}</span>
         <span className="bar"><i style={{ width: items.length ? `${(closed / items.length) * 100}%` : '0%' }} /></span>
         <span className="progr">{closed}/{items.length}</span>
-        <button className="pencil" title="Текстовый режим (markdown со статусами)" aria-label="Текстовый режим" dangerouslySetInnerHTML={{ __html: PENCIL }} onClick={() => { setDraft(serializeChecklist(lines)); setTextMode(!textMode) }} />
-      </div>
+      </>}
+      right={<button className="pencil" title="Текстовый режим (markdown со статусами)" aria-label="Текстовый режим" dangerouslySetInnerHTML={{ __html: PENCIL }} onClick={() => { setDraft(serializeChecklist(lines)); setTextMode(!textMode) }} />}>
       {textMode ? (
         <div className="cl-text">
           <div className="cl-gutter">{draft.split('\n').map((_, i) => <div key={i}>{i + 1}</div>)}</div>
@@ -96,6 +96,6 @@ export function ChecklistBlock({ code, kind, title }: { code: string; kind: stri
           <div className="cl-hint">Текстовый режим: <code>- ~ x + !</code> статусы пунктов, <code>#…#####</code> заголовки</div>
         </div>
       )}
-    </div>
+    </Collapsible>
   )
 }

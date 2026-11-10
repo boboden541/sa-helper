@@ -7,6 +7,7 @@ import { renderMarkdown } from '../../../shared/markdown'
 import { toast } from '../../../shared/toast'
 import { RichText } from '../../../shared/editor/RichText'
 import { PENCIL } from './common'
+import { Collapsible } from './Collapsible'
 
 export function DescBlock({ code, card, reload }: {
   code: string
@@ -25,10 +26,8 @@ export function DescBlock({ code, card, reload }: {
   }
 
   return (
-    <div className="blk">
-      <div className="blk-h"><h3>Описание</h3><span className="fill" />
-        {!editingDesc && <button className="pencil show" title="Редактировать" dangerouslySetInnerHTML={{ __html: PENCIL }} onClick={() => setEditingDesc(true)} />}
-      </div>
+    <Collapsible id="desc" title="Описание"
+      right={!editingDesc ? <button className="pencil show" title="Редактировать" dangerouslySetInnerHTML={{ __html: PENCIL }} onClick={() => setEditingDesc(true)} /> : undefined}>
       {editingDesc ? (
         <div className="desc-edit">
           <div className="editbar">
@@ -50,6 +49,6 @@ export function DescBlock({ code, card, reload }: {
           <div className="md" dangerouslySetInnerHTML={{ __html: renderMarkdown(card.descriptionMd ?? '') }} />
         </div>
       )}
-    </div>
+    </Collapsible>
   )
 }

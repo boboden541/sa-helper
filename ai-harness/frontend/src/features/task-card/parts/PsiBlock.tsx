@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../../api/client'
 import { toast } from '../../../shared/toast'
+import { Collapsible } from './Collapsible'
 
 export function PsiBlock({ code, reload, psiPath }: { code: string; reload: () => void; psiPath: string | null }) {
   const [doc, setDoc] = useState<{ stale?: boolean; refVersion?: number; planRefVersion?: number | null; items: { position: number; docNumber?: number | null; kind: string; text: string; expected?: string; actual?: string; status: string; bugTaskId?: string }[]; runs: { id: string; passed: number; failed: number }[] } | null>(null)
@@ -29,8 +30,7 @@ export function PsiBlock({ code, reload, psiPath }: { code: string; reload: () =
   const versions = doc.runs.length
 
   return (
-    <div className="blk">
-      <div className="blk-h"><h3>ПСИ · приёмо-сдаточные испытания</h3></div>
+    <Collapsible id="psi" title="ПСИ · приёмо-сдаточные испытания">
       <div className="psi-doc">
         <div className="psi-head"><b>ПСИ</b> · пунктов: {doc.items.filter((i) => i.kind === 'item').length} · протоколов: {versions}
           {/* ФТ-FNR14-07: версии видны всегда, а не только при дрейфе эталона */}
@@ -94,6 +94,6 @@ export function PsiBlock({ code, reload, psiPath }: { code: string; reload: () =
               </>}
         </div>
       </div>
-    </div>
+    </Collapsible>
   )
 }
