@@ -272,45 +272,53 @@ class RunMixin:
             infra = isinstance(
                 err, (GitError, DomainError, NameError, ImportError, FileNotFoundError)
             )
-            async with self._maker() as s2:
-                task_id = await task_id_by_code(s2, task_code)
-                if infra:
-                    try:
-                        task_row = await s2.get(Task, task_id)
-                        await apply_blocked(
-                            s2,
-                            task_row,
-                            None,
-                            str(err)[:500],
-                            subject_kind="auto",
-                            rule_code="INFRA",
-                        )
-                    except Exception:  # noqa: BLE001 — blocked любой ценой
-                        log.warning("apply_blocked failed for %s", task_code, exc_info=True)
-                        await s2.rollback()
+            try:
+                async with self._maker() as s2:
+                    task_id = await task_id_by_code(s2, task_code)
+                    if infra:
+                        try:
+                            task_row = await s2.get(Task, task_id)
+                            await apply_blocked(
+                                s2,
+                                task_row,
+                                None,
+                                str(err)[:500],
+                                subject_kind="auto",
+                                rule_code="INFRA",
+                            )
+                        except Exception:  # noqa: BLE001 — blocked любой ценой
+                            log.warning("apply_blocked failed for %s", task_code, exc_info=True)
+                            await s2.rollback()
+                            await s2.execute(
+                                sa.text(
+                                    "UPDATE task SET status_key = 'blocked', blocked_reason = :r "
+                                    "WHERE id = :i"
+                                ),
+                                {"r": str(err)[:500], "i": str(task_id)},
+                            )
+                    else:
                         await s2.execute(
                             sa.text(
-                                "UPDATE task SET status_key = 'blocked', blocked_reason = :r "
-                                "WHERE id = :i"
+                                "UPDATE task SET retry_count = retry_count + 1 WHERE code = :c"
                             ),
-                            {"r": str(err)[:500], "i": str(task_id)},
+                            {"c": task_code},
                         )
-                else:
-                    await s2.execute(
-                        sa.text("UPDATE task SET retry_count = retry_count + 1 WHERE code = :c"),
-                        {"c": task_code},
+                    await s2.commit()
+                    await release_reservation(
+                        s2,
+                        task_id,
+                        run_id,
+                        "failed",
+                        str(err)[:500],
+                        reason_code="runner_error" if not infra else "infra",
                     )
-                await s2.commit()
-                await release_reservation(
-                    s2,
-                    task_id,
-                    run_id,
-                    "failed",
-                    str(err)[:500],
-                    reason_code="runner_error" if not infra else "infra",
-                )
-            self._active.pop(run_id, None)
-            self._runs.pop(run_id, None)
+            finally:
+                # слот max_parallel и учёт прогона освобождаются ЛЮБЫМ исходом:
+                # сбой БД внутри except-пути раньше оставлял слот навсегда, а
+                # _touch_active продолжал поддерживать пульс мёртвого run —
+                # свип его никогда не забирал (анализ 11.11.2026)
+                self._active.pop(run_id, None)
+                self._runs.pop(run_id, None)
             return
 
         # Прогон агента и применение отчёта — БЕЗ открытых транзакций, пока

@@ -269,6 +269,19 @@ async def publish(
                 tech=f"removed={sorted(removed)}, migrations={migrations}",
             )
 
+        # целевой статус приёмника должен существовать в новой версии: раньше
+        # опечатка в migrations уезжала в task.status_key, и задача 500-ила
+        # на каждом переводе (KeyError в graph.statuses), невосстановимо из UI
+        # (анализ 11.11.2026)
+        bad = {k: v for k, v in migrations.items() if v not in new_keys}
+        if bad:
+            raise DomainError(
+                "Миграция указывает на несуществующий целевой статус: "
+                + ", ".join(f"{k} → {v}" for k, v in sorted(bad.items()))
+                + " — исправьте статус-приёмники",
+                tech=f"statuses={sorted(new_keys)}, migrations={migrations}",
+            )
+
     await session.execute(
         sa.update(FlowVersion)
         .where(FlowVersion.task_type_id == draft.task_type_id, FlowVersion.is_current.is_(True))

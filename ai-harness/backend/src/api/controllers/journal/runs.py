@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from usecase.task import runs as runs_uc
 from usecase.task.queue_snapshot import snapshot
 
+from api._params import uuid_or_400
 from api.controllers.journal._common import _400
 from api.deps import get_actor, get_session
 from api.middleware.errors import ApiError
@@ -93,6 +94,9 @@ async def run_log(
     """Строки лога прогона с номером больше `after` (фолбэк-поллинг для панели)."""
     import sqlalchemy as sa
     from repository.models import TaskRunLog
+
+    # мусор в run_id — asyncpg DataError (500); теперь честный 400
+    run_id = uuid_or_400(run_id, "Прогон")
 
     rows = (
         (

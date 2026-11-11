@@ -56,7 +56,10 @@ DOC_KIND = {
 }
 # документы вне трёх видов артефактов (dossier/execution_plan/pr_draft, полный СТ)
 # уходят в хронику истории целыми текстами (chronicle.message — Text без лимита)
-VITRINA_PATH = "/Users/raaliev/Desktop/mts_projects/vitrina"
+# путь к пилоту задаётся окружением (раньше был захардкожен личный путь)
+VITRINA_PATH = os.environ.get("VITRINA_PATH", "").strip()
+if not VITRINA_PATH:
+    raise SystemExit("Задайте VITRINA_PATH=/путь/к/vitrina в окружении")
 
 
 def ts(raw: str | None) -> dt.datetime | None:

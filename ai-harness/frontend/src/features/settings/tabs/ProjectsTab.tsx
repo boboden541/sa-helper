@@ -60,7 +60,9 @@ export function Projects() {
             <div className="pr-actions">
               <button className="btn small" onClick={() => setEdit({ id: p.id, name: p.name, mnemonic: p.mnemonic, path: p.path, baseBranch: p.baseBranch, description: p.description ?? '' })}>Править</button>
               <button className="btn small" onClick={async () => {
-                await fetch(`/api/v1/projects/${p.id}/archive?archived=${!p.isArchived}`, { method: 'POST' }); reload()
+                const res = await fetch(`/api/v1/projects/${p.id}/archive?archived=${!p.isArchived}`, { method: 'POST' })
+                const body = await res.json().catch(() => ({}))
+                if (!res.ok) setNote(body.message || 'Не удалось изменить архив'); else reload()
               }}>{p.isArchived ? 'Из архива' : 'В архив'}</button>
               <button className="btn danger small" onClick={async () => {
                 const res = await fetch(`/api/v1/projects/${p.id}`, { method: 'DELETE' })

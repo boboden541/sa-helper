@@ -130,25 +130,26 @@ async def build_context_md(session: AsyncSession, task: Task) -> str:
             affected = (await session.execute(ch_q.order_by(Task.code))).all()
 
             if affected:
-                linked = (
+                doc_rows = (
                     await session.execute(
-                        sa.select(ChecklistItem.linked_task_id, ChecklistItem.position)
+                        sa.select(ChecklistItem.id, ChecklistItem.linked_task_id)
                         .join(Checklist, Checklist.id == ChecklistItem.checklist_id)
                         .where(
                             Checklist.task_id == task.id,
                             Checklist.kind == "psi",
                             ChecklistItem.kind == "item",
-                            ChecklistItem.linked_task_id.isnot(None),
                         )
                         .order_by(ChecklistItem.position)
                     )
                 ).all()
-                # П.N — документная нумерация (как в psi.md и /psi/items):
-                # раньше здесь уходила чеклист-позиция — расход с файлом
-                # после первой секции (анализ 09.11.2026)
+                # П.N — документная нумерация: сквозной счёт по ВСЕМ пунктам
+                # документа (как psi.md и /psi/items); раньше счёт шёл только
+                # по пунктам со связью — агент получал «затронуты П.2» по
+                # чужому номеру при наличии несвязанных пунктов (11.11.2026)
                 cover: dict = {}
-                for n, (lid, _pos) in enumerate(linked, 1):
-                    cover.setdefault(lid, []).append(f"П.{n}")
+                for n, (_iid, lid) in enumerate(doc_rows, 1):
+                    if lid is not None:
+                        cover.setdefault(lid, []).append(f"П.{n}")
                 base_label = f"v{base_v}" if base_v else "документа нет"
                 lines = [
                     f"\n## Дельта ПСИ (база: {base_label}) — пункты на переработку:",

@@ -9,6 +9,7 @@ from repository.models import Project, User
 from sqlalchemy.ext.asyncio import AsyncSession
 from usecase.settings import projects as projects_uc
 
+from api._params import uuid_or_400
 from api.deps import get_actor, get_session
 from api.middleware.errors import ApiError
 
@@ -103,11 +104,10 @@ async def projects_update(
     session: AsyncSession = Depends(get_session),
     actor: User = Depends(get_actor),
 ):
-    import uuid as uuid_mod
 
     try:
         await projects_uc.update_project(
-            session, uuid_mod.UUID(project_id), payload.model_dump(exclude_none=True)
+            session, uuid_or_400(project_id), payload.model_dump(exclude_none=True)
         )
     except DomainError as err:
         raise ApiError(400, err.message)
@@ -121,10 +121,9 @@ async def projects_archive(
     session: AsyncSession = Depends(get_session),
     actor: User = Depends(get_actor),
 ):
-    import uuid as uuid_mod
 
     try:
-        await projects_uc.set_archived(session, uuid_mod.UUID(project_id), archived)
+        await projects_uc.set_archived(session, uuid_or_400(project_id), archived)
     except DomainError as err:
         raise ApiError(400, err.message)
     return {"ok": True}
@@ -134,10 +133,9 @@ async def projects_archive(
 async def projects_delete(
     project_id: str, session: AsyncSession = Depends(get_session), actor: User = Depends(get_actor)
 ):
-    import uuid as uuid_mod
 
     try:
-        await projects_uc.delete_project(session, uuid_mod.UUID(project_id))
+        await projects_uc.delete_project(session, uuid_or_400(project_id))
     except DomainError as err:
         raise ApiError(400, err.message)
     return {"ok": True}
@@ -150,7 +148,6 @@ async def project_repos(
     """Git-репозитории внутри папки проекта (мультирепозиторий, решение
     владельца 29.10.2026). Корень-репозиторий (если проект — одиночный репо)
     возвращается первым с repoPath=null."""
-    import uuid as uuid_mod
     from pathlib import Path
 
     import sqlalchemy as sa
@@ -162,7 +159,7 @@ async def project_repos(
         ).scalar_one_or_none()
     if proj is None:
         try:
-            proj = await session.get(Project, uuid_mod.UUID(key))
+            proj = await session.get(Project, uuid_or_400(key))
         except ValueError:
             proj = None
     if proj is None:

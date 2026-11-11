@@ -47,11 +47,13 @@ async def delete(session: AsyncSession, task: Task, relation_id: str) -> TaskRel
     """Удаляет связь задачи (только исходящую — from_task); None — связи нет."""
     import uuid as uuid_mod
 
+    try:
+        rid = uuid_mod.UUID(relation_id)
+    except (ValueError, AttributeError, TypeError):
+        raise DomainError("Связь: неверный идентификатор") from None
     rel = (
         await session.execute(
-            sa.select(TaskRelation).where(
-                TaskRelation.id == uuid_mod.UUID(relation_id), TaskRelation.from_task == task.id
-            )
+            sa.select(TaskRelation).where(TaskRelation.id == rid, TaskRelation.from_task == task.id)
         )
     ).scalar_one_or_none()
     if rel is None:

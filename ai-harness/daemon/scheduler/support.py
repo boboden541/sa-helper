@@ -276,6 +276,13 @@ class SupportMixin:
         from repository.models import TaskRunLog
 
         await session.execute(sa.delete(TaskRunLog).where(TaskRunLog.created_at < cutoff))
+        # истёкшие сессии удаляются вместе с логом: раньше таблица session росла
+        # вечно — чистка была только по logout (анализ 11.11.2026)
+        from repository.models import Session as DbSession
+
+        await session.execute(
+            sa.delete(DbSession).where(DbSession.expires_at < dt.datetime.now(dt.timezone.utc))
+        )
         row = (
             await session.execute(sa.select(AppSetting).where(AppSetting.key == key))
         ).scalar_one_or_none()

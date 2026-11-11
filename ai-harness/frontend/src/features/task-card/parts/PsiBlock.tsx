@@ -85,7 +85,8 @@ export function PsiBlock({ code, reload, psiPath }: { code: string; reload: () =
             : <>
                 <button className="btn small" onClick={() => setRunMode(true)}>▶ Начать прогон</button>
                 <button className="btn small" onClick={async () => {
-                  await fetch(`/api/v1/stories/${code}/psi/new-cycle`, { method: 'POST' })
+                  const res = await fetch(`/api/v1/stories/${code}/psi/new-cycle`, { method: 'POST' })
+                  if (!res.ok) { toast('Не удалось начать новый цикл', 'bad'); return }
                   toast('Новый цикл: пункты сброшены, протоколы целы', 'ok'); reloadPsi()
                 }}>Новый цикл</button>
                 {doc.runs.map((r) => (

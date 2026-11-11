@@ -23,11 +23,11 @@ export function ColmapPanel({ columnLabel, columns, onClose, onAssigned }: {
     const t = allStatuses.find((x) => x.type === type)
     const st = t?.statuses.find((x) => x.key === statusKey)
     const newAlias = st?.aliasColumnId === colId ? '' : colId
-    await fetch(`/api/v1/flows/${type}/status-alias`, {
+    const res = await fetch(`/api/v1/flows/${type}/status-alias`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ statusKey, aliasColumnId: newAlias }),
     })
-    onAssigned()
+    if (!res.ok) { onAssigned(); return }  // без успеха панель просто перечитает факт
     void fetch('/api/v1/all-statuses').then((r) => r.json()).then((d) => setAllStatuses(Array.isArray(d) ? d : [])).catch(() => setAllStatuses([]))
   }
 

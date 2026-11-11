@@ -19,11 +19,15 @@ class Settings(BaseSettings):
     )
 
     database_url: str = "postgresql+asyncpg://harness:harness@localhost:5433/ai_harness"
-    test_database_url: str = "postgresql+asyncpg://harness:harness@localhost:5433/ai_harness_test"
     # AES-256-GCM ключ (base64 от 32 байт); пустое значение допустимо, пока контур
     # провайдеров не используется (этап 4)
     ai_harness_token_key: str = ""
     session_ttl_hours: int = 12
+    # Cookie сессии: флаг Secure требует HTTPS; на http://localhost современные
+    # браузеры Secure-cookie ставят, но вне localhost нужен HTTPS-терминатор
+    session_cookie_secure: bool = False
+    # CORS-источники через запятую (прод-деплой: домен фронтенда)
+    backend_cors_origins: str = "http://localhost:5173"
     # интервал тика демона живёт в app_setting daemon.tick_seconds
     # (daemon/config.py), а не здесь — иначе два источника истины
 

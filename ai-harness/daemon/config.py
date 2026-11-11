@@ -46,4 +46,15 @@ async def load_daemon_settings(session: AsyncSession) -> dict[str, str]:
 
 
 def retry_pauses_minutes(cfg: dict[str, str]) -> list[int]:
-    return [int(x) for x in cfg["daemon.retry_pauses_minutes"].split(",") if x.strip()]
+    """Лестница ретраев в минутах. Пустая строка или мусор в app_setting не
+    роняют тик запусков IndexError'ом (pauses[-1]) — откат к дефолту 1,5,15
+    (анализ 11.11.2026: операторская опечатка вала весь _launch_ready)."""
+    value = cfg.get("daemon.retry_pauses_minutes") or ""
+    try:
+        pauses = [int(x) for x in value.split(",") if x.strip()]
+    except ValueError:
+        pauses = []
+    pauses = [p for p in pauses if p > 0]
+    if not pauses:
+        pauses = [int(x) for x in _DEFAULTS["daemon.retry_pauses_minutes"].split(",")]
+    return pauses

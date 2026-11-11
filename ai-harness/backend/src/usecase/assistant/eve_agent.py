@@ -232,7 +232,7 @@ def _build_tools(register_intent):
         "Пользователь подтвердит словом «да» — сообщите ему об этом. "
         "kind: transition|force|create_task|interrupt|pipeline_pause. "
         "Для create_task: type — один из story/common_task/qa_task/bug/analyse_task "
-        "(«задача» = common_task), project — мнемоника проекта (VITRINA, AH…). "
+        "(«задача» = common_task), project — мнемоника проекта из списка «Проекты». "
         "Для transition/force: to — ключ статуса из status-flow типа задачи "
         "(например new_status_9 = «Завершено», done = «Готово»).",
         {

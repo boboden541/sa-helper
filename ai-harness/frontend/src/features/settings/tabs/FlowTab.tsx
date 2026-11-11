@@ -4,6 +4,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../../../api/client'
+import { toast } from '../../../shared/toast'
 import { FLOW_TYPES } from '../shared'
 
 interface Fs { key: string; label: string; stageDesc?: string; gate?: string; entry: boolean; terminal: boolean; blocking: boolean; aliasColumnId: string; kind?: string; behaviors?: string[] }
@@ -50,11 +51,13 @@ export function FlowEditor({ reload }: { reload: () => void }) {
     void api.flowBehaviors().then(setBehaviorCatalog).catch(() => {})
     void api.flow(typeKey).then((d) => {
       setData(d)
-      const saved = JSON.parse(localStorage.getItem(`flow-pos-${typeKey}`) ?? '{}')
+      // битый localStorage не должен рушить редактор flow целиком (11.11.2026)
+      let saved: Record<string, { x: number; y: number }> = {}
+      try { saved = JSON.parse(localStorage.getItem(`flow-pos-${typeKey}`) ?? '{}') as Record<string, { x: number; y: number }> } catch { saved = {} }
       setPositions(Object.fromEntries(
         d.statuses.map((s, i) => [s.key, saved[s.key] ?? posFor(i)])))
-    })
-    void api.aliasColumns().then(setColumns)
+    }).catch(() => toast('Не удалось загрузить flow', 'bad'))
+    void api.aliasColumns().then(setColumns).catch(() => {})
   }
   useEffect(reloadFlow, [typeKey])
 

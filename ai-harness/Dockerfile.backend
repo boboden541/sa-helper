@@ -14,6 +14,7 @@ RUN ARCH=$(uname -m | sed 's/x86_64/x64/; s/aarch64/arm64/') \
 
 WORKDIR /app
 COPY pyproject.toml ./
+COPY alembic.ini ./
 COPY backend/src ./backend/src
 COPY daemon ./daemon
 COPY db ./db
@@ -26,5 +27,7 @@ RUN pip install --no-cache-dir . && pip install --no-cache-dir 'claude-agent-sdk
 # демон запускается той же библиотекой домена (python -m daemon.main)
 EXPOSE 8000
 # --workers 1 обязателен: кэш графов — в процессе backend (интенты Eve уже
-# в БД; решение владельца 03.11.2026 — масштабирование ограничено этим)
-CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--app-dir", "/app/backend/src", "--workers", "1"]
+# в БД; решение владельца 03.11.2026 — масштабирование ограничено этим).
+# Миграции при старте: раньше требовали ручного venv на хосте, пустая схема
+# выглядела как здоровый сервис (healthz не ходит в БД) — анализ 11.11.2026
+CMD ["sh", "-c", "alembic -c /app/alembic.ini upgrade head && python -m uvicorn main:app --host 0.0.0.0 --port 8000 --app-dir /app/backend/src --workers 1"]

@@ -15,17 +15,28 @@ export function ChecklistBlock({ code, kind, title }: { code: string; kind: stri
   const [draft, setDraft] = useState('')
   const [newLine, setNewLine] = useState('')
 
+  // ошибка загрузки НЕ превращается в «пустой чеклист»: сохранение в этом
+  // состоянии запрещено, иначе правка затирала реальный список (11.11.2026)
+  const [loadErr, setLoadErr] = useState(false)
   const reload = () => {
     void fetch(`/api/v1/tasks/${code}/checklists/${kind}`)
-      .then((r) => (r.ok ? r.json() : { items: [] }))
-      .then((d) => setLines((d.items ?? []).map((i: { kind: string; text: string; status: string; level?: number }) =>
-        i.kind === 'heading'
-          ? { kind: 'heading', level: i.level ?? 1, text: i.text }
-          : { kind: 'item', text: i.text, status: i.status as ChecklistLine['status'] })))
+      .then(async (r) => {
+        if (!r.ok) throw new Error(String(r.status))
+        return r.json()
+      })
+      .then((d) => {
+        setLoadErr(false)
+        setLines((d.items ?? []).map((i: { kind: string; text: string; status: string; level?: number }) =>
+          i.kind === 'heading'
+            ? { kind: 'heading', level: i.level ?? 1, text: i.text }
+            : { kind: 'item', text: i.text, status: i.status as ChecklistLine['status'] }))
+      })
+      .catch(() => { setLoadErr(true); toast('Чеклист не загружен — сохранение заблокировано', 'bad') })
   }
   useEffect(reload, [code, kind])
 
   const save = async (next: ChecklistLine[]) => {
+    if (loadErr) { toast('Чеклист не загружен — правки не сохраняются', 'bad'); return }
     setLines(next)
     const r = await fetch(`/api/v1/tasks/${code}/checklists/${kind}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },

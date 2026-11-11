@@ -24,7 +24,7 @@ from api.dto.task_dto import TaskCardOut, TaskCreateIn, TaskListOut, TaskPatchIn
 router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"])
 
 
-def _card_out(c) -> TaskCardOut:
+def _card_out(c, changed_by_other: bool | None = None) -> TaskCardOut:
     return TaskCardOut(
         code=c.code,
         title=c.title,
@@ -43,6 +43,7 @@ def _card_out(c) -> TaskCardOut:
         tokensInput=c.tokens_input,
         tokensOutput=c.tokens_output,
         tokensCache=c.tokens_cache,
+        changedByOther=changed_by_other,
     )
 
 
@@ -140,7 +141,10 @@ async def patch_task_view(
         )
     except ApiNotFound:
         raise ApiError(404, f"Задача {code} не найдена")
-    return _card_out(_to_card(result.task))
+    # changedByOther: конфликтное обновление (чужая правка между чтением и
+    # записью) — фронт показывает тост (DescBlock), раньше флаг терялся в
+    # _card_out и не сериализовался вовсе (exclude в DTO) — анализ 11.11.2026
+    return _card_out(_to_card(result.task), changed_by_other=result.changed_by_other)
 
 
 from api.middleware.errors import ApiError  # noqa: E402

@@ -79,13 +79,17 @@ async def apply_m4(session: AsyncSession, story: Task) -> None:
 
     Счётчик циклов по M4; лимит (по умолчанию 5) → blocked «цикл не сходится» (ФТ-ah-36).
     """
-    limit = int(
-        (
-            await session.execute(
-                sa.select(AppSetting.value).where(AppSetting.key == "rework.cycle_limit")
-            )
-        ).scalar_one()
-    )
+    raw = (
+        await session.execute(
+            sa.select(AppSetting.value).where(AppSetting.key == "rework.cycle_limit")
+        )
+    ).scalar_one_or_none()
+    # настройка живёт только в сиде: чистая установка без сидов → NoResultFound 500
+    # — дефолт 5 из сигнатуры правила (ФТ-ah-36) вместо падения (анализ 11.11.2026)
+    try:
+        limit = int(str(raw).strip()) if raw not in (None, "") else 5
+    except ValueError:
+        limit = 5
     story.m4_count += 1
     if story.m4_count >= limit:
         story.status_key = "blocked"

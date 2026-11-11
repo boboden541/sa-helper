@@ -11,6 +11,7 @@ import { Providers } from './tabs/ProvidersTab'
 import { AgentsAndMatrix } from './tabs/AgentsTab'
 import { Queue } from './tabs/QueueTab'
 import { Journal } from './tabs/JournalTab'
+import { Users } from './tabs/UsersTab'
 
 export function Settings({ reload }: { reload: () => void }) {
   const tab = useSettingsTab()
@@ -30,6 +31,7 @@ export function Settings({ reload }: { reload: () => void }) {
         {tab === 'tools' && <ToolsTab />}
         {tab === 'queue' && <Queue />}
         {tab === 'journal' && <Journal />}
+        {tab === 'users' && <Users />}
       </div>
     </div>
   )
