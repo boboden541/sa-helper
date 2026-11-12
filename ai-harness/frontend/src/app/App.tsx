@@ -2,7 +2,7 @@
 // side (logo/nav/proj/daemon/settings) + main (topbar/warnbar/filters/эраны)
 // + scrim/drawer + eve-btn/eve-panel + modal + undo-chip + toasts.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 declare const __APP_BUILD__: string
 import { api, type TaskCard } from '../api/client'
 import { Board } from '../features/board/Board'
@@ -74,16 +74,19 @@ export function App() {
   // включён по умолчанию, в списке — нет; в будущем фильтров будет больше
   const [hideTerminal, setHideTerminal] = useState(view === 'board')
   useEffect(() => { setHideTerminal(view === 'board') }, [view])
+  const reloadSeq = useRef(0)
   const reload = () => {
     // лимит 200: доска/список не должны терять открытые задачи из-за
-    // усечения выборки очередью (приоритет → баги → старые выше)
+    // усечения выборки очередью (приоритет → баги → старые выше).
+    // seq: устаревший ответ на быстрый ввод не перезаписывает свежий
+    const seq = ++reloadSeq.current
     void api.tasks({
       q: query || undefined,
       type: typeFilter || undefined,
       project: project ?? undefined,
       limit: '200',
       excludeTerminal: hideTerminal ? 'true' : undefined,
-    }).then((r) => setTasks(r.items)).catch(on401)
+    }).then((r) => { if (reloadSeq.current === seq) setTasks(r.items) }).catch(on401)
     void api.notifications().then((r) => setNotifications(r.items)).catch(on401)
   }
   useEffect(reload, [query, typeFilter, view, project, hideTerminal])

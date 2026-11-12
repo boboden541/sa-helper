@@ -10,6 +10,7 @@ from repository.models import User
 from sqlalchemy.ext.asyncio import AsyncSession
 from usecase.settings import flow as flow_uc
 
+from api._params import uuid_or_400
 from api.deps import get_actor, get_session
 from api.middleware.errors import ApiError
 
@@ -312,12 +313,11 @@ async def alias_columns_update(
     actor: User = Depends(get_actor),
 ):
     """Переименование/цвет/порядок колонки; изменения — в журнал настроек (ФТ-ah-66)."""
-    import uuid as uuid_mod
 
     from repository.models import AliasColumn
     from usecase.journal.settings_journal import record_and_commit
 
-    col = await session.get(AliasColumn, uuid_mod.UUID(column_id))
+    col = await session.get(AliasColumn, uuid_or_400(column_id))
     if col is None:
         raise ApiError(404, "Колонка не найдена")
     diff = []
@@ -340,13 +340,12 @@ async def alias_columns_delete(
     column_id: str, session: AsyncSession = Depends(get_session), actor: User = Depends(get_actor)
 ):
     """Удаление запрещено, пока к колонке привязан хоть один статус (ФТ-ah-66)."""
-    import uuid as uuid_mod
 
     import sqlalchemy as sa
     from repository.models import AliasColumn, FlowStatus
     from usecase.journal.settings_journal import record_and_commit
 
-    col = await session.get(AliasColumn, uuid_mod.UUID(column_id))
+    col = await session.get(AliasColumn, uuid_or_400(column_id))
     if col is None:
         raise ApiError(404, "Колонка не найдена")
     bound = (

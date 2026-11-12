@@ -171,7 +171,7 @@ function StoryPicker({ code, current, onDone }: { code: string; current: string 
   useEffect(() => {
     if (!q.trim()) { setFound([]); return }
     const t = setTimeout(() => {
-      void api.tasks({ q: q.trim(), types: 'story' }).then((d) =>
+      void api.tasks({ q: q.trim(), type: 'story' }).then((d) =>
         setFound((d.items ?? []).filter((x: { code: string }) => x.code !== code)))
     }, 250)
     return () => clearTimeout(t)

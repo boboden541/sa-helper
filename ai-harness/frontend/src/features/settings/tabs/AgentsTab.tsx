@@ -129,7 +129,7 @@ export function AgentsAndMatrix() {
             </div>
             <div className="f-field" style={{ gridColumn: '1 / -1' }}>
               <label>Папка агентов на вашем компьютере (необязательно) — подключается к работе агента без копий: скиллы, команды, субагенты. Если пусто — берётся глобальная папка инструментов</label>
-              <input className="mono" value={editor.agentDir} placeholder="/Users/raaliev/…/sa-helper/.claude"
+              <input className="mono" value={editor.agentDir} placeholder="например /Users/me/projects/sa-helper/.claude"
                 onChange={(e) => setEditor({ ...editor, agentDir: e.target.value })} /></div>
             <div className="f-field" style={{ gridColumn: '1 / -1' }}>
               <label>MCP-серверы — JSON (необязательно), например {'{"graph": {"type": "http", "url": "http://host.docker.internal:8000/mcp"}}'} (пусто — без MCP)</label>

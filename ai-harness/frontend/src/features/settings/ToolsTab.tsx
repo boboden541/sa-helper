@@ -89,7 +89,7 @@ export function ToolsTab() {
           <div className="f-field" style={{ gridColumn: '1 / -1' }}>
             <label>Папка инструментов — один путь на все проекты (папка .claude, куда SA-Helper установлен install.sh); подключается к работе агентов как есть, без копий</label>
             <div style={{ display: 'flex', gap: 8 }}>
-              <input className="mono" value={toolsDir} placeholder="/Users/raaliev/…/sa-helper/.claude"
+              <input className="mono" value={toolsDir} placeholder="например /Users/me/projects/sa-helper/.claude"
                 onChange={(e) => setToolsDir(e.target.value)} />
               <button className="btn" onClick={() => void saveToolsDir()}>Сохранить</button>
             </div>

@@ -169,6 +169,40 @@ async def delete_agent(session: AsyncSession, user_id: uuid.UUID) -> None:
         raise DomainError("Агент не найден")
     if user.is_service or user.is_chat_bot:
         raise DomainError("Служебные пользователи не удаляются")
+    # история агента не удаляется (FK без ondelete): раньше DELETE падал
+    # IntegrityError'ом → 500; теперь честный отказ со списком ссылок
+    from repository.models import Chronicle, Task, TaskComment, TaskRun
+
+    refs: list[str] = []
+    for label, stmt in (
+        (
+            "прогонов",
+            sa.select(sa.func.count()).select_from(TaskRun).where(TaskRun.agent_id == user_id),
+        ),
+        (
+            "комментариев",
+            sa.select(sa.func.count())
+            .select_from(TaskComment)
+            .where(TaskComment.author_id == user_id),
+        ),
+        (
+            "хроник",
+            sa.select(sa.func.count()).select_from(Chronicle).where(Chronicle.author_id == user_id),
+        ),
+        (
+            "задач-авторств",
+            sa.select(sa.func.count()).select_from(Task).where(Task.author_id == user_id),
+        ),
+    ):
+        n = (await session.execute(stmt)).scalar_one()
+        if n:
+            refs.append(f"{label}: {n}")
+    if refs:
+        raise DomainError(
+            "У агента есть история ("
+            + ", ".join(refs)
+            + ") — удаление запрещено: снимите назначения и переназначьте историю"
+        )
     await session.delete(user)
     await session.commit()
 

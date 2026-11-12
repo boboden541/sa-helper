@@ -71,7 +71,9 @@ class TaskCardOut(BaseModel):
     updated_at: str | None = Field(default=None, alias="updatedAt")
     blocked_reason: str | None = Field(default=None, alias="blockedReason")
     relations: list[dict] = []
-    changed_by_other: bool | None = Field(default=None, alias="changedByOther", exclude=True)
+    # конфликтное обновление (чужая правка между чтением и записью): раньше
+    # поле не сериализовалось вовсе (exclude=True) — тост фронта не работал
+    changed_by_other: bool | None = Field(default=None, alias="changedByOther")
 
 
 class TaskListOut(BaseModel):

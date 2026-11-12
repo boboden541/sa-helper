@@ -47,27 +47,6 @@ from repository.models import Task
 log = logging.getLogger("daemon")
 
 
-PRIORITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3}
-
-
-def _queue_sort(rows: list) -> list:
-    """Правила очереди: приоритет → баги выше → старые выше (ФТ-ah-4).
-    rows — кортежи (Task, type_key, user_id, mode, position).
-    Для зависимости-осознанного порядка _launch_ready сортирует сам (см. _dep_key)."""
-    rank = PRIORITY_RANK
-
-    def key(item):
-        task, type_key = item[0], item[1]
-        return (
-            rank.get(task.priority, 9),
-            0 if type_key == "bug" else 1,
-            task.created_at,
-            task.code,
-        )
-
-    return sorted(rows, key=key)
-
-
 async def _next_retry_at(
     session: AsyncSession, task_id, status_key: str, cfg: dict[str, str]
 ) -> dt.datetime | None:

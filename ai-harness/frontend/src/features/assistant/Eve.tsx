@@ -40,7 +40,7 @@ export function EveChat({ open, setOpen, navigate, onOpenCreate }: {
       if (Array.isArray(saved) && saved.length > 0) return saved
     } catch { /* битый кэш — начнём заново */ }
     return [
-      { role: 'eve', text: 'Я Eve. Спросите или дайте задание: «переведи AH-3 на ревью», «почему AH-8 встала?», «создай задачу «Название»».' },
+      { role: 'eve', text: 'Я Eve. Спросите или дайте задание: «переведи <КОД> на ревью», «почему <КОД> встала?», «создай задачу «Название»».' },
     ]
   })
   const [input, setInput] = useState('')
@@ -113,6 +113,7 @@ export function EveChat({ open, setOpen, navigate, onOpenCreate }: {
 
   const send = async (text: string) => {
     if (!text.trim()) return
+    if (stream) return  // стрим уже идёт: второй Enter перемешивал два SSE в один бабл
     setMessages((m) => [...m, { role: 'user', text }])
     setInput('')
     setStream({ status: 'формирую ответ…', text: '' })

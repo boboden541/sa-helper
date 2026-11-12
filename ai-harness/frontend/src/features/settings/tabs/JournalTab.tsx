@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 
 export function Journal() {
   const [rows, setRows] = useState<{ who: string; entity: string; summary: string; diff: { field: string; old: string; new: string }[]; at: string }[]>([])
-  useEffect(() => { void fetch('/api/v1/settings-journal').then((r) => r.json()).then(setRows) }, [])
+  useEffect(() => { void fetch('/api/v1/settings-journal').then((r) => r.json()).then(setRows).catch(() => {}) }, [])
   return (
     <div className="set-body">
       {rows.map((r, i) => (

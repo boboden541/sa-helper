@@ -568,8 +568,6 @@ async def _confirm_intent(session: AsyncSession, user: User, intent: dict) -> di
 
         from repository.models import Chronicle, TaskRun
 
-        from daemon.runner.reservation import release_reservation
-
         t = (
             await session.execute(sa.select(Task).where(Task.code == intent["task"].upper()))
         ).scalar_one_or_none()
@@ -607,7 +605,12 @@ async def _confirm_intent(session: AsyncSession, user: User, intent: dict) -> di
                     message="Прогон прерван владельцем через Eve",
                 )
             )
-            await release_reservation(session, t.id, "interrupted", "прервано через Eve")
+            # Прогон уже закрыт вручную выше (run.finished_at/outcome, резерв
+            # снят) — ровно как канонический перехват человеком (runs_uc.interrupt).
+            # Легаси-вызов release_reservation с outcome в run_id трактовался
+            # шимом как «run_id=None» и закрывал ВСЕ незавершённые прогоны
+            # задачи — в параллельной матрице гасил строку живого соседа
+            # (анализ 11.11.2026). Больше release_reservation здесь не нужен.
             reply = {"reply": f"Агент над {t.code} прерван, задача освобождена.", "task": t.code}
     elif intent["kind"] == "pipeline_pause":
         from repository.models import AppSetting

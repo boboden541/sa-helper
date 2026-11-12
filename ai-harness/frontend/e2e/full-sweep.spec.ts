@@ -136,15 +136,18 @@ test('10 Список: таблица задач, клик открывает к
 })
 
 test('11 Eve: фраза → намерение → «да» → переход применён', async ({ page }) => {
+  // мутации — только в СВОЕЙ песочнице (правило 10.11.2026): раньше тест
+  // переводил живую AH-7 в blocked на том стеке, куда указывает baseURL
+  const code = await sandboxTask()
   await page.locator('.eve-btn').click()
-  // «бэклог»→backlog: статуса backlog в каноническом пресете нет; «блок»→blocked,
-  // ребро in_progress→blocked (runner auto_or_agent) — валидная цель
-  await page.locator('.eve-input textarea').fill('переведи AH-7 в блок')
+  // «блок»→blocked: для песочницы без ребра сработает прямой перевод
+  // по подтверждению (решение владельца 28.10.2026) — UI-путь тот же
+  await page.locator('.eve-input textarea').fill(`переведи ${code} в блок`)
   await page.locator('.eve-input textarea').press('Enter')
   await expect(page.locator('.intent')).toBeVisible({ timeout: 8000 })
   await page.locator('.intent .ia button', { hasText: 'Да' }).click()
   await page.waitForTimeout(600)
-  const card = await api('/api/v1/tasks/AH-7')
+  const card = await api(`/api/v1/tasks/${code}`)
   expect(card.statusKey).toBe('blocked')
 })
 
@@ -276,6 +279,19 @@ test('21 Полный прогон без 5xx от backend', async ({ page }) =>
   }
   expectNo500s()
 })
+
+async function sandboxTask(): Promise<string> {
+  // своя песочница для мутаций — чужие карточки не трогаем (инцидент 10.11.2026)
+  const r = await api('/api/v1/tasks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      projectId: 'AH', type: 'common_task', title: 'E2E песочница full-sweep',
+      priority: 'low', authorTag: 'by_human',
+    }),
+  })
+  return String(r.code)
+}
 
 async function api(path: string, init?: RequestInit): Promise<Record<string, unknown>> {
   // init обязателен: сценарий 08 делает POST создания — раньше второй аргумент

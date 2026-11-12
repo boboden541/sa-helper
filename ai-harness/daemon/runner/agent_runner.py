@@ -552,13 +552,21 @@ class ClaudeCodeRunner:
             )
         options = opts_cls(**_options_kwargs(req, fields))
         env = _sdk_env(req.provider)
-        if env and "env" not in fields:
+        if env and "env" in fields:
+            # современный путь: окружение живёт ТОЛЬКО в опциях этого SDK-вызова,
+            # os.environ процесса не трогается — параллельные прогоны с разными
+            # подключениями не перезаписывают токены/модели друг у друга
+            # (раньше env всегда шёл в os.environ без локи: второй прогон
+            # уводил первый на чужой токен, анализ 11.11.2026)
+            options.env = env
+            return await self._run_env(req, prompt, options, None)
+        if env:
             # legacy-SDK без поля env у опций: окружение ставится в os.environ
             # всего процесса — сериализуем такие прогоны, иначе два параллельных
             # прогона с разными подключениями уйдут с чужим токеном (анализ 30.10)
             async with _ENV_LOCK:
                 return await self._run_env(req, prompt, options, env)
-        return await self._run_env(req, prompt, options, env)
+        return await self._run_env(req, prompt, options, None)
 
     async def _run_env(self, req: RunRequest, prompt: str, options, env: dict | None) -> RunReport:
         """Сам прогон: окружение провайдера в os.environ только на время
@@ -703,97 +711,4 @@ def _short_input(inp, n: int = 400) -> dict | None:
     return {"raw": _tail(str(inp), n)}
 
 
-class FakeRunner:
-    """Тестовый раннер: без вызова провайдера; сценарий задаётся функцией.
-    Если сценарий не задан — проигрывает показательную ленту событий для панели."""
-
-    def __init__(self, script=None) -> None:
-        self.script = script
-        self.requests: list[RunRequest] = []
-
-    async def run(self, req: RunRequest) -> RunReport:
-        import asyncio
-
-        self.requests.append(req)
-        if self.script is not None:
-            return self.script(req)
-
-        async def beat() -> None:
-            await asyncio.sleep(1.2)  # темп, похожий на реального агента
-
-        usage = {"input": 0, "output": 0, "cache": 0, "total": 0}
-
-        def spend(inp: int = 24000, out: int = 900, cache: int = 18000) -> None:
-            usage["input"] += inp
-            usage["output"] += out
-            usage["cache"] += cache
-            usage["total"] = usage["input"] + usage["output"] + usage["cache"]
-
-        await req.emit("prompt", text=_build_prompt(req))
-        await req.emit(
-            "system",
-            text="сессия агента запущена (демо-режим без SDK)",
-            data={"model": "fake", "cwd": str(req.worktree_path or ".")},
-        )
-        await beat()
-        spend()
-        await req.emit("usage", data=dict(usage))
-        await req.emit(
-            "thinking",
-            text="Читаю постановку задачи и чек-лист: "
-            "нужно понять, какой файл править и какие тесты затронуты.",
-        )
-        await beat()
-        await req.emit("tool", text="Read", data={"input": {"file_path": "src/board.tsx"}})
-        await beat()
-        spend()
-        await req.emit("usage", data=dict(usage))
-        await beat()
-        await req.emit("tool_result", text="export function Board() {\n  … 120 строк …}")
-        await beat()
-        await req.emit(
-            "thinking",
-            text="Вижу причину: фильтр колонок учитывает только "
-            "дефолтные статусы. Правлю маппинг и добавляю тест.",
-        )
-        await beat()
-        await req.emit(
-            "tool",
-            text="Edit",
-            data={
-                "input": {"file_path": "src/board.tsx", "new_string": "colIdOfStatus(t.type, …)"}
-            },
-        )
-        await beat()
-        spend()
-        await req.emit("usage", data=dict(usage))
-        await beat()
-        await req.emit("tool", text="Bash", data={"input": {"command": "npm test -- board"}})
-        await beat()
-        spend()
-        await req.emit("usage", data=dict(usage))
-        await beat()
-        await req.emit("tool_result", text="Tests: 8 passed")
-        await beat()
-        await req.emit(
-            "tool", text="Bash", data={"input": {"command": "git add -A && git commit -m fix"}}
-        )
-        await beat()
-        spend()
-        await req.emit("usage", data=dict(usage))
-        await beat()
-        await req.emit("tool_result", text="[task/AH-59] 1 file changed")
-        await beat()
-        await beat()
-        spend(inp=31000, out=1400, cache=22000)
-        await req.emit("usage", data=dict(usage))
-        await req.emit("report", text="Демо-прогон завершён")
-        return RunReport(
-            status="success",
-            summary_md="Демо-прогон: правка применена, тесты зелёные.",
-            comments=[
-                "Добавил тест на сохранение темы — он поймал баг, который чинил вторым коммитом."
-            ],
-            proposed_transition=None,
-            raw="demo",
-        )
+from daemon.runner.fake_runner import FakeRunner  # noqa: F401 — реэкспорт (DAEMON_DEMO и fallback демона; тесты)

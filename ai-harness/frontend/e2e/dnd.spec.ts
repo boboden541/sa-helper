@@ -1,4 +1,4 @@
-// DnD: перетаскивание карточки меняет статус (HTML5 drag, как в макете)
+// DnD: перетаскивание карточки меняет статус (dnd-kit pointer-сенсор)
 import { expect, test } from '@playwright/test'
 
 // Адрес стека — как в playwright.config.ts (baseURL): docker :8088 или preview :4173

@@ -5,6 +5,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 from api.middleware.errors import ApiError, api_error_handler, domain_error_handler
+from config import get_settings
 from database import dispose_engine
 from domain.model.validators import DomainError
 from fastapi import FastAPI
@@ -21,10 +22,22 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="AI-Harness", version="0.1.0", lifespan=lifespan)
+    # версия — из метаданных пакета (единый источник: pyproject.toml);
+    # до установки пакета (pip install -e .) — фолбэк
+    try:
+        from importlib.metadata import version as _pkg_version
+
+        app_version = _pkg_version("ai-harness")
+    except Exception:  # noqa: BLE001 — метаданных может не быть (dev-запуск)
+        app_version = "dev"
+    app = FastAPI(title="AI-Harness", version=app_version, lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:5173"],
+        # источники — из окружения (BACKEND_CORS_ORIGINS, запятая — разделитель):
+        # захардкоженный дев-origin Vite не взлетал на другом хосте деплоя
+        allow_origins=[
+            o.strip() for o in get_settings().backend_cors_origins.split(",") if o.strip()
+        ],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

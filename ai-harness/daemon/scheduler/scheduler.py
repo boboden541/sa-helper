@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import asyncio
-import datetime as dt
 import logging
 
 import sqlalchemy as sa
@@ -19,7 +18,6 @@ from daemon.config import load_daemon_settings
 from daemon.scheduler.helpers import (
     _chronicle,
     _next_retry_at,
-    _queue_sort,
     active_run_id,
     blocked_reason_from_summary,
     targeted_retry_block,
@@ -35,7 +33,6 @@ __all__ = [
     "Daemon",
     "_chronicle",
     "_next_retry_at",
-    "_queue_sort",
     "active_run_id",
     "blocked_reason_from_summary",
     "targeted_retry_block",
@@ -51,7 +48,6 @@ class Daemon(TicksMixin, LaunchMixin, RunMixin, SupportMixin, ReportMixin):
         # прогонов разных агентов; AC-4.4.3.1, анализ 03.11.2026)
         self._active: dict[str, asyncio.Task] = {}  # run_id -> asyncio.Task
         self._runs: dict[str, dict] = {}  # run_id -> {task_code, status_key, agent_id, task_id}
-        self._paused_until: dict[str, dt.datetime] = {}  # connection_id -> until
 
     async def tick(self) -> dict:
         async with self._maker() as session:

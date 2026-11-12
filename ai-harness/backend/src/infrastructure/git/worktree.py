@@ -44,7 +44,10 @@ _GIT_TIMEOUT = 300  # зависший git не держит прогон веч
 # Оба флага нужны только на Windows.
 import sys as _sys
 
-_GIT_FLAGS = (
+# quotepath=false: porcelain печатает кириллицу как \320\xxx-эскейпы, strip('"') их
+# не разворачивал — keep_paths с русскими путями (psi-документы) никогда не
+# совпадали → ложное «копия не чиста» и отказ слияния перед done (11.11.2026)
+_GIT_FLAGS = ["-c", "core.quotepath=false"] + (
     ["-c", "core.longpaths=true", "-c", "core.autocrlf=false"] if _sys.platform == "win32" else []
 )
 
@@ -112,19 +115,6 @@ def worktree_code(task_code: str) -> str:
     return task_code  # AH-12 безопасен как имя каталога на обеих ОС
 
 
-async def commit_all(worktree: Path, message: str, author: str) -> str | None:
-    """Коммитит все изменения в worktree; None — нечего коммитить."""
-    await _git(["add", "-A"], cwd=worktree)
-    status = await _git(["status", "--porcelain"], cwd=worktree)
-    if not status.strip():
-        return None
-    await _git(
-        ["-c", f"user.name={author}", "-c", "user.email=harness@local", "commit", "-m", message],
-        cwd=worktree,
-    )
-    return await _git(["rev-parse", "HEAD"], cwd=worktree)
-
-
 async def _tracked_status_clean(root, keep_paths: list[str] | None = None) -> bool:
     """Нет изменений отслеживаемых файлов. Untracked не грязь: .harness/worktrees
     живёт внутри репозитория и иначе слияние отказывало бы всегда.
@@ -143,7 +133,10 @@ async def _tracked_status_clean(root, keep_paths: list[str] | None = None) -> bo
     keep = tuple(p.rstrip("/") for p in (keep_paths or []) if p)
     for line in status.splitlines():
         path = line[3:].strip().strip('"')
-        if any(path == k or path.startswith(k + "/") for k in keep):
+        # porcelain rename: «R  old -> new» — копия чиста, только если ОБЕ
+        # стороны переименования лежат в keep_paths
+        parts = [q.strip().strip('"') for q in path.split(" -> ")] if " -> " in path else [path]
+        if all(any(q == k or q.startswith(k + "/") for k in keep) for q in parts):
             continue
         return False
     return True

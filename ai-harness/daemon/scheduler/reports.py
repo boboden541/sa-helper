@@ -165,9 +165,12 @@ class ReportMixin:
             await session.commit()
             return
         else:
-            # провайдер недоступен (битый/пустой отчёт на фоне сетевого сбоя) —
-            # вина среды: попытку не сжигаем (ФТ-ah-35), код для bypass'а запуска
             if report.outcome_code == "provider_unreachable":
+                # провайдер недоступен — вина среды, попытку не сжигаем
+                # (ФТ-ah-35). Основной путь — except-путь демона по stderr
+                # (is_provider_unreachable); ветка остаётся защитной: раннер
+                # (или тестовый скрипт) может вернуть такой отчёт напрямую
+                # (контракт закреплён test_provider_flap)
                 await release_reservation(
                     session,
                     task.id,

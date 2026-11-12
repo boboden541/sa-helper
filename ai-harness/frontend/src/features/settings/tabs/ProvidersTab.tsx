@@ -41,7 +41,9 @@ export function Providers() {
                   if (!res.ok) setMessage({ text: body.message, bad: true }); else reload()
                 }}>Удалить</button>}
                 {!c.isActive && <button className="btn small" onClick={async () => {
-                  await fetch(`/api/v1/connections/${c.id}/activate`, { method: 'POST' }); reload()
+                  const res = await fetch(`/api/v1/connections/${c.id}/activate`, { method: 'POST' })
+                  const body = await res.json().catch(() => ({}))
+                  if (!res.ok) setMessage({ text: body.message || 'Не удалось активировать', bad: true }); else reload()
                 }}>Сделать активным</button>}
               </div>
             </div>

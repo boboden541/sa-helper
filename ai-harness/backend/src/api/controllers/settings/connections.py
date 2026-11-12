@@ -9,6 +9,7 @@ from repository.models import User
 from sqlalchemy.ext.asyncio import AsyncSession
 from usecase.settings import connections as conn_uc
 
+from api._params import uuid_or_400
 from api.deps import get_actor, get_session
 from api.middleware.errors import ApiError
 
@@ -84,11 +85,10 @@ async def connections_update(
     session: AsyncSession = Depends(get_session),
     actor: User = Depends(get_actor),
 ):
-    import uuid as uuid_mod
 
     try:
         c = await conn_uc.update_connection(
-            session, uuid_mod.UUID(connection_id), payload.model_dump(exclude_none=True)
+            session, uuid_or_400(connection_id), payload.model_dump(exclude_none=True)
         )
     except DomainError as err:
         raise ApiError(400, err.message)
@@ -113,10 +113,9 @@ async def connections_activate(
     session: AsyncSession = Depends(get_session),
     actor: User = Depends(get_actor),
 ):
-    import uuid as uuid_mod
 
     try:
-        await conn_uc.activate_connection(session, uuid_mod.UUID(connection_id))
+        await conn_uc.activate_connection(session, uuid_or_400(connection_id))
     except DomainError as err:
         raise ApiError(400, err.message)
     return {"ok": True}
@@ -128,10 +127,9 @@ async def connections_delete(
     session: AsyncSession = Depends(get_session),
     actor: User = Depends(get_actor),
 ):
-    import uuid as uuid_mod
 
     try:
-        await conn_uc.delete_connection(session, uuid_mod.UUID(connection_id))
+        await conn_uc.delete_connection(session, uuid_or_400(connection_id))
     except DomainError as err:
         raise ApiError(400, err.message)
     return {"ok": True}

@@ -6,7 +6,11 @@ import { api } from '../../../api/client'
 
 export function Queue() {
   const [snap, setSnap] = useState<Awaited<ReturnType<typeof api.queue>> | null>(null)
-  useEffect(() => { void api.queue().then(setSnap) }, [])
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    void api.queue().then((d) => { setFailed(false); setSnap(d) }).catch(() => setFailed(true))
+  }, [])
+  if (failed) return <div className="empty"><b>Очередь недоступна — обновите страницу</b></div>
   if (!snap) return <div className="empty"><b>Загрузка…</b></div>
   return (
     <div className="set-body">

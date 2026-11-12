@@ -13,6 +13,7 @@ from sqlalchemy import (
     SmallInteger,
     String,
     Text,
+    UniqueConstraint,
     func,
     text,
 )
@@ -88,6 +89,8 @@ class Checklist(Base):
     manager_review_state: Mapped[str | None] = mapped_column(String(16))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
+    __table_args__ = (UniqueConstraint("task_id", "kind", name="uq_checklist_task_kind"),)
+
 
 class ChecklistItem(Base):
     __tablename__ = "checklist_item"
@@ -119,6 +122,8 @@ class TaskRelation(Base):
     to_task: Mapped[uuid.UUID] = mapped_column(ForeignKey("task.id", ondelete="CASCADE"))
     kind: Mapped[str] = mapped_column(String(12))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("from_task", "to_task", "kind", name="uq_task_relation"),)
 
 
 class Tag(Base):
@@ -171,6 +176,8 @@ class TaskArtifact(Base):
     body_md: Mapped[str] = mapped_column(Text)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("user.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("task_id", "kind", "version", name="uq_task_artifact"),)
 
 
 class TaskBranch(Base):

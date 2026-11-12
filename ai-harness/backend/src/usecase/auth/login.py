@@ -9,7 +9,7 @@ import secrets
 import sqlalchemy as sa
 from config import get_settings
 from domain.model.validators import DomainError
-from infrastructure.crypto.argon2_hash import verify_password
+from infrastructure.crypto.argon2_hash import hash_password, verify_password
 from repository.models import Session, User
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -64,3 +64,61 @@ async def auth_required(session: AsyncSession) -> bool:
         await session.execute(sa.select(AppSetting.value).where(AppSetting.key == "auth.required"))
     ).scalar_one_or_none()
     return (value or "false").lower() == "true"
+
+
+async def change_password(
+    session: AsyncSession, actor: User, old_password: str, new_password: str
+) -> None:
+    """Смена пароля текущего пользователя; старый пароль обязателен —
+    иначе сменивший сессию на чужом компьютере менял бы пароль молча."""
+    if not actor.password_hash or not verify_password(actor.password_hash, old_password):
+        raise DomainError("Текущий пароль неверен")
+    if len(new_password or "") < 6:
+        raise DomainError("Новый пароль — минимум 6 символов")
+    actor.password_hash = hash_password(new_password)
+    await session.commit()
+
+
+async def create_human(session: AsyncSession, name: str, password: str) -> User:
+    """Создание человека с паролем. Раньше людей нельзя было завести ни через
+    API, ни через UI — только сид/SQL (единственная учётка «Алексей/harness»
+    с паролем из документации) — анализ 11.11.2026."""
+    name = (name or "").strip()
+    if not name:
+        raise DomainError("Имя обязательно")
+    if len(password or "") < 6:
+        raise DomainError("Пароль — минимум 6 символов")
+    dup = (
+        await session.execute(sa.select(User).where(User.name == name, User.user_type == "human"))
+    ).scalar_one_or_none()
+    if dup is not None:
+        raise DomainError("Пользователь с таким именем уже существует")
+    user = User(name=name, user_type="human", password_hash=hash_password(password))
+    session.add(user)
+    await session.commit()
+    return user
+
+
+async def list_humans(session: AsyncSession) -> list[User]:
+    """Люди системы (вход по учётке); служебные и агенты не показываются."""
+    rows = await session.execute(
+        sa.select(User).where(User.user_type == "human").order_by(User.created_at)
+    )
+    return list(rows.scalars().all())
+
+
+async def set_auth_required(session: AsyncSession, enabled: bool) -> None:
+    """Включатель обязательного входа. Флаг auth.required раньше нельзя было
+    включить ниоткуда (ни сид, ни API, ни UI) — включатель был недостижим
+    (анализ 11.11.2026)."""
+    from repository.models import AppSetting
+
+    row = (
+        await session.execute(sa.select(AppSetting).where(AppSetting.key == "auth.required"))
+    ).scalar_one_or_none()
+    value = "true" if enabled else "false"
+    if row is None:
+        session.add(AppSetting(key="auth.required", value=value))
+    else:
+        row.value = value
+    await session.commit()

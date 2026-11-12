@@ -15,6 +15,7 @@ BRIDGE_CONTAINER (имя контейнера сайдкара для реста
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -92,7 +93,11 @@ async def sync_bridge(session: AsyncSession) -> str | None:
     os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
     with open(CONFIG_PATH, "w", encoding="utf-8") as fh:
         fh.write(rendered)
-    subprocess.run(["docker", "restart", BRIDGE_CONTAINER], check=True, timeout=120)
+    # рестарт сайдкара — вне event loop: блокирующий subprocess.run на 120 c
+    # замораживал весь тик демона (SSE, пульсы, итерации параллельных агентов)
+    await asyncio.to_thread(
+        subprocess.run, ["docker", "restart", BRIDGE_CONTAINER], check=True, timeout=120
+    )
     await session.execute(
         sa.text(
             "INSERT INTO app_setting (key, value) VALUES ('bridge:render_hash', :h) "

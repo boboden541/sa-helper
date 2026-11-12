@@ -2,6 +2,7 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: ai-harness-postgres
+    restart: unless-stopped
     ports:
       # только localhost: база не должна светиться на всех интерфейсах
       # (контейнеры ходят по сети compose, хостовые процессы — по 127.0.0.1;
@@ -28,6 +29,7 @@ services:
       context: .
       dockerfile: Dockerfile.backend
     container_name: ai-harness-backend
+    restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
@@ -54,7 +56,8 @@ services:
       # решение владельца 28.10.2026)
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
-      - "8000:8000"
+      # только localhost: API с анонимным dev-доступом не должен светиться в LAN
+      - "127.0.0.1:8000:8000"
     healthcheck:
       test: ["CMD", "python", "-c",
              "import urllib.request;urllib.request.urlopen('http://localhost:8000/api/v1/healthz', timeout=3)"]
@@ -67,10 +70,12 @@ services:
       context: .
       dockerfile: Dockerfile.frontend
     container_name: ai-harness-frontend
+    restart: unless-stopped
     depends_on:
       - backend
     ports:
-      - "8088:80"
+      # только localhost (единая политика с postgres/backend)
+      - "127.0.0.1:8088:80"
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost/"]
       interval: 15s
@@ -82,6 +87,7 @@ services:
       context: .
       dockerfile: Dockerfile.daemon
     container_name: ai-harness-daemon
+    restart: unless-stopped
     profiles: ["daemon"]
     depends_on:
       postgres:
@@ -155,7 +161,7 @@ services:
     container_name: ai-harness-adminer
     profiles: ["debug"]
     ports:
-      - "8081:8080"
+      - "127.0.0.1:8081:8080"
     environment:
       ADMINER_DEFAULT_SERVER: postgres
 

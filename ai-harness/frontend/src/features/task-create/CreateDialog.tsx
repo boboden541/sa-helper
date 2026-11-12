@@ -19,20 +19,19 @@ interface CreateState {
   repoPath: string
 }
 
-const STORE = (CreateDialog as unknown as { last?: CreateState })
+// черновик формы между открытиями диалога (переживает размонтирование)
+let lastCreateState: CreateState | null = null
 
-export function CreateDialog({ onClose, prefillTitle, prefill }: {
+export function CreateDialog({ onClose, prefill }: {
   onClose: () => void
-  prefillTitle?: string
   prefill?: { title?: string; descriptionMd?: string }
 }) {
   const [state, setState] = useState<CreateState>(() => ({
-    ...(STORE.last ?? {
+    ...(lastCreateState ?? {
       projectId: 'AH', type: 'common_task', title: '', priority: '',
       authorTag: 'by_human', tags: '', descriptionMd: '', descMode: 'visual', psiPath: '',
       repoPath: '',
     }),
-    ...(prefillTitle ? { title: prefillTitle } : {}),
     ...(prefill ? { title: prefill.title ?? '', descriptionMd: prefill.descriptionMd ?? '' } : {}),
   }))
   const [error, setError] = useState<string | null>(null)
@@ -40,12 +39,20 @@ export function CreateDialog({ onClose, prefillTitle, prefill }: {
   const [projects, setProjects] = useState<{ mnemonic: string; name: string; isArchived: boolean }[]>([])
   const [projQ, setProjQ] = useState<string | null>(null)
   useEffect(() => {
-    void api.projects().then(setProjects).catch(() => {})
-    const active = useApp.getState().project
-    if (active) setState((s) => ({ ...s, projectId: active }))
+    void api.projects().then((list) => {
+      setProjects(list)
+      // дефолт — реальный проект (активный фильтр доски, иначе первый в списке):
+      // раньше был захардкожен внутренний 'AH', которого у клиента нет
+      setState((s) => {
+        const active = useApp.getState().project
+        if (active && list.some((x) => x.mnemonic === active)) return { ...s, projectId: active }
+        if (list.some((x) => x.mnemonic === s.projectId)) return s
+        return { ...s, projectId: list[0]?.mnemonic ?? s.projectId }
+      })
+    }).catch(() => {})
   }, [])
   const set = (patch: Partial<CreateState>) => setState((s) => ({ ...s, ...patch }))
-  useEffect(() => { STORE.last = state }, [state])
+  useEffect(() => { lastCreateState = state }, [state])
   const [repos, setRepos] = useState<{ label: string; repoPath: string | null }[]>([])
   useEffect(() => {
     if (!['common_task', 'story', 'bug'].includes(state.type) || !state.projectId) return
@@ -145,7 +152,7 @@ export function CreateDialog({ onClose, prefillTitle, prefill }: {
             <div className="f-field" style={{ gridColumn: '1 / -1' }}>
               <label>Путь сохранения документа ПСИ (необязательно)</label>
               <input value={state.psiPath}
-                placeholder="ПСИ: например /Users/raaliev/Проекты/доки/psi.md — если пусто, стандартный путь"
+                placeholder="ПСИ: например /Users/me/Документы/psi.md — если пусто, стандартный путь"
                 onChange={(e) => set({ psiPath: e.target.value })} />
             </div>)}
           <div className="f-field" style={{ gridColumn: '1 / -1' }}><label>Название (1–64)</label>
@@ -157,8 +164,8 @@ export function CreateDialog({ onClose, prefillTitle, prefill }: {
             </select></div>
           <div className="f-field"><label>Автор</label>
             <select value={state.authorTag} onChange={(e) => set({ authorTag: e.target.value })}>
-              <option value="by_human">by_human</option>
-              <option value="by_ai">by_ai</option>
+              <option value="by_human">Человек</option>
+              <option value="by_ai">Агент</option>
             </select></div>
           <div className="f-field" style={{ gridColumn: '1 / -1' }}><label>Теги (до 5, через пробел; авторский добавится сам)</label>
             <input value={state.tags} onChange={(e) => set({ tags: e.target.value })} /></div>

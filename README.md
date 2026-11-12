@@ -332,20 +332,25 @@ flowchart TD
 
 ```bash
 cd ai-harness
-cp .env.example .env                     # и задайте AI_HARNESS_TOKEN_KEY (см. ниже)
+cp .env.example .env                     # задайте AI_HARNESS_TOKEN_KEY и LITELLM_MASTER_KEY (см. ниже)
 docker volume create ai_harness_pgdata   # ОБЯЗАТЕЛЬНО перед первым стартом (volume external)
 docker compose up -d                     # postgres + backend + frontend
 docker compose --profile daemon up -d    # демон-автомат (образ с Claude Agent SDK)
-python scripts/dev.py migrate            # миграции применяются вручную
 python scripts/dev.py seed               # демо-данные при первом старте (идемпотентно)
 ```
+
+> Миграции применяются автоматически при старте backend-контейнера — хостовый
+> venv для схемы базы больше не нужен (`scripts/dev.py migrate` остался для
+> ручного управления). Для воспроизводимого окружения разработки:
+> `pip install -e .[dev] -c constraints.txt`.
 
 > ⚠️ Данные Postgres живут в named volume `ai_harness_pgdata`, объявленном
 > `external: true` — compose его НЕ создаёт сам, поэтому первый шаг обязателен
 > (свежая машина без него падает на `docker compose up -d`). `docker compose
 > down -v` этот volume не сносит — данные переживают пересоздание стека.
 
-- **Интерфейс**: [http://localhost:8088](http://localhost:8088) (API — :8000, Postgres — :5433). Демо-вход из сида: `Алексей` / `harness`.
+- **Интерфейс**: [http://localhost:8088](http://localhost:8088) (API — :8000, Postgres — :5433; всё привязано к 127.0.0.1). Демо-вход из сида: `Алексей` / `harness` — **смените пароль** (Настройки → «Пользователи»: создание людей, смена пароля, включатель обязательного входа) и задайте свой `LITELLM_MASTER_KEY` в `.env`.
+- **Бэкап базы**: `scripts/backup.sh` — gzip-дамп в `ai-harness/backups/`.
 - **`AI_HARNESS_TOKEN_KEY`** — ключ шифрования токенов ИИ-провайдеров (AES-256-GCM): `python -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())"`. Без ключа стек работает, но провайдера подключить нельзя.
 - Домашняя директория монтируется в контейнеры — **пути проектов указываются как на хосте**; демон создаёт worktree'ы в папке проекта.
 - Тесты: `python scripts/dev.py test` (требуются зависимости — активируйте `ai-harness/.venv` или запускайте из него; утилита подскажет, если среда не та). Локально без Docker: `run-api` / `run-daemon` / `run-web` из той же утилиты.

@@ -10,14 +10,6 @@ export const TYPE: Record<string, { label: string; c: string }> = {
   analyse_task: { label: 'Анализ', c: '#c2601a' },
 }
 
-export const ALIAS_LB: Record<string, string> = {
-  pending: 'На рассмотрении', backlog: 'Бэклог', todo: 'К работе', progress: 'В работе',
-  review: 'На ревью', testing: 'На тестировании', done: 'Готово', blocked: 'Заблокировано', canceled: 'Отменено',
-}
-export const ALIAS_C: Record<string, string> = {
-  pending: '#c07d1e', backlog: '#8792a3', todo: '#1f8fb5', progress: '#3d63d2',
-  review: '#7d4fd1', testing: '#c2601a', done: '#25935b', blocked: '#cf4436', canceled: '#8792a3',
-}
 export const S_LABEL: Record<string, string> = {
   pending: 'На рассмотрении', backlog: 'Бэклог', todo: 'К работе',
   in_progress: 'В работе', review_ready: 'Готово к ревью', in_review: 'На ревью',
@@ -34,9 +26,9 @@ export const ALIAS_OF: Record<string, string> = {
   review_ready: 'review', in_review: 'review', qa_ready: 'testing', in_testing: 'testing',
   done: 'done', canceled: 'canceled', blocked: 'blocked',
 }
-export const PRIO: Record<string, { label: string; c: string; lvl: number }> = {
-  low: { label: 'Низкий', c: '#4f83cf', lvl: 1 },
-  medium: { label: 'Средний', c: '#8792a3', lvl: 2 },
-  high: { label: 'Высокий', c: '#cf4436', lvl: 3 },
-  critical: { label: 'Критический', c: '#cf4436', lvl: 4 },
+export const PRIO: Record<string, { label: string; c: string }> = {
+  low: { label: 'Низкий', c: '#4f83cf' },
+  medium: { label: 'Средний', c: '#8792a3' },
+  high: { label: 'Высокий', c: '#cf4436' },
+  critical: { label: 'Критический', c: '#cf4436' },
 }
