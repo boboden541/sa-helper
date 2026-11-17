@@ -1,3 +1,8 @@
+---
+name: technical-documentation
+description: "Генерация документации по коду: API, интеграции, экраны, ERD, процессы, DataTrace (для /create-doc)"
+---
+
 # Навык: Системный Аналитик (Universal System Analyst Discovery)
 
 ## Роль

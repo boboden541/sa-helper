@@ -1,3 +1,8 @@
+---
+name: discovery-analyst
+description: "Discovery-аналитик: размытая задача руководства в контекст, развилки Decision Backlog и брифинг (для /discovery, /discovery-answer, /discovery-brief)"
+---
+
 # Навык: Discovery-аналитик (Discovery Analyst)
 
 ## Роль

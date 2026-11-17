@@ -3,7 +3,10 @@
 # Если stdin — pipe (curl | bash / curl | sh), сохраняем себя во временный файл
 # и перезапускаемся с терминалом, чтобы интерактивное меню могло читать нажатия клавиш.
 if [ ! -t 0 ]; then
-    TEMP_SCRIPT="$(mktemp)"
+    # export обязателен: после exec новая оболочка видит только экспортированные
+    # переменные — без него финальная очистка TEMP_SCRIPT не срабатывает
+    # и временный файл остаётся в $TMPDIR навсегда.
+    export TEMP_SCRIPT="$(mktemp)"
     cat > "$TEMP_SCRIPT"
     exec bash "$TEMP_SCRIPT" < /dev/tty
 fi
@@ -77,12 +80,20 @@ sync_canonical_skills() {
         skill_dir="$(basename "$skill_src")"
         skill_name="$skill_dir"
         skill_dst="$dst_dir/$skill_dir"
-        skill_description="$(sed -n '1s/^# *//p;q' "$skill_src/SKILL.md")"
-        skill_description="${skill_description//\\/\\\\}"
-        skill_description="${skill_description//\"/\\\"}"
 
         mkdir -p "$skill_dst"
         cp -R "$skill_src"/. "$skill_dst"/
+
+        # SKILL.md уже с YAML-frontmatter (канон формата) — переносим как есть.
+        if head -n 1 "$skill_src/SKILL.md" | grep -q '^---[[:space:]]*$'; then
+            continue
+        fi
+
+        # Legacy-ветка (первая строка — H1-заголовок): генерируем frontmatter
+        # из заголовка и срезаем его из тела.
+        skill_description="$(sed -n '1s/^# *//p;q' "$skill_src/SKILL.md")"
+        skill_description="${skill_description//\\/\\\\}"
+        skill_description="${skill_description//\"/\\\"}"
 
         if [ -z "$skill_description" ]; then
             skill_description="$skill_name"
@@ -95,6 +106,52 @@ sync_canonical_skills() {
             printf '%s\n' '---'
             sed '1d' "$skill_src/SKILL.md"
         } > "$skill_dst/SKILL.md"
+    done
+}
+
+# Команды как скилы (режим Codex). Codex не сканирует repo-локальные промты:
+# custom prompts живут только в ~/.codex/prompts (домашняя папка) и признаны
+# OpenAI устаревшими в пользу skills. Поэтому каждая команда превращается
+# в скил <dst_dir>/<имя_команды>/SKILL.md и вызывается в Codex через $<имя>.
+sync_commands_as_skills() {
+    local src_dir="$1"
+    local dst_dir="$2"
+    local cmd_file
+    local cmd_name
+    local cmd_dst
+    local cmd_description
+    local body_start
+
+    mkdir -p "$dst_dir"
+
+    for cmd_file in "$src_dir"/*.md; do
+        [ -f "$cmd_file" ] || continue
+
+        cmd_name="$(basename "$cmd_file" .md)"
+        cmd_dst="$dst_dir/$cmd_name"
+
+        # Формат команды: строка 1 `---`, строка 2 `description: ...`, строка 3 `---`.
+        # Если frontmatter нет — телом считается весь файл, описание = имя команды.
+        if head -n 1 "$cmd_file" | grep -q '^---[[:space:]]*$'; then
+            cmd_description="$(sed -n '2,10s/^description: *//p' "$cmd_file" | head -n 1)"
+            cmd_description="${cmd_description//\\/\\\\}"
+            cmd_description="${cmd_description//\"/\\\"}"
+            body_start=4
+        else
+            cmd_description=""
+            body_start=1
+        fi
+        [ -n "$cmd_description" ] || cmd_description="$cmd_name"
+
+        mkdir -p "$cmd_dst"
+
+        {
+            printf '%s\n' '---'
+            printf 'name: %s\n' "$cmd_name"
+            printf 'description: "%s"\n' "$cmd_description"
+            printf '%s\n' '---'
+            sed -n "${body_start},\$p" "$cmd_file"
+        } > "$cmd_dst/SKILL.md"
     done
 }
 
@@ -125,8 +182,12 @@ select_option_menu() {
             fi
         done
 
-        # Считывание нажатия клавиши
-        read -rsn1 key 2>/dev/null
+        # Считывание нажатия клавиши. Потеря stdin (tty закрылся) — не выбор,
+        # а честный отказ: иначе пустой key ложно трактуется как Enter.
+        if ! read -rsn1 key 2>/dev/null; then
+            printf "\e[?25h"
+            return 255
+        fi
         if [ "$key" == $'\x1b' ]; then
             read -rsn2 key 2>/dev/null
             if [ "$key" == "[A" ]; then # Вверх
@@ -137,9 +198,18 @@ select_option_menu() {
         elif [ "$key" == "" ]; then # Enter
             break
         elif [[ "$key" =~ [0-9] ]]; then
-            # Цифровой ввод (поддержка 2-значных чисел)
-            read -t 0.5 -n 1 second_digit 2>/dev/null || second_digit=""
-            local full_num="${key}${second_digit}"
+            # Цифровой ввод. Вторую цифру ждём только для неоднозначной «1»
+            # (префикс номеров 10–13): остальные цифры выбирают сразу, без задержки.
+            # -t 1 (целое): дробные таймауты появились лишь в bash 4, а /bin/bash
+            # на macOS — 3.2, где read -t 0.5 падал и пункт выбирался неверно.
+            local full_num="$key"
+            if [ "$count" -gt 9 ] && [ "$key" = "1" ]; then
+                local second_digit=""
+                read -t 1 -n 1 second_digit 2>/dev/null || second_digit=""
+                case "$second_digit" in
+                    [0-9]) full_num="${key}${second_digit}" ;;
+                esac
+            fi
             local idx=$((full_num - 1))
             if [ "$idx" -ge 0 ] && [ "$idx" -lt "$count" ]; then
                 cur=$idx
@@ -180,6 +250,11 @@ AGENT_LIST=(
 # 2. Интерактивный выбор агента
 select_option_menu "Какой IDE-агент вы используете?" "${AGENT_LIST[@]}"
 AGENT_INDEX=$?
+if [ "$AGENT_INDEX" -eq 255 ]; then
+    echo -e "${RED}❌ Не удалось прочитать ввод: терминал недоступен.${NC}" >&2
+    exit 1
+fi
+COMMANDS_AS_SKILLS=""
 
 case "$AGENT_INDEX" in
     0)
@@ -199,9 +274,12 @@ case "$AGENT_INDEX" in
     2)
         AGENT_NAME="Codex"
         TARGET_DIR=".agents"
-        COMMAND_DIR="prompts"
+        COMMAND_DIR=""
         SKILL_DIR="skills"
         SKILL_SYNC="canonical"
+        # Команды ставятся скилами: Codex не читает repo-локальные промты
+        # (.agents/prompts/ он не сканирует вовсе).
+        COMMANDS_AS_SKILLS=1
         ;;
     3)
         AGENT_NAME="OpenCode"
@@ -324,6 +402,12 @@ elif [ "$SKILL_SYNC" = "managed" ]; then
     sync_managed_tree "$TEMP_DIR/$SOURCE_ROOT/skills" "$TARGET_DIR/$SKILL_DIR"
 fi
 
+if [ "$COMMANDS_AS_SKILLS" = "1" ]; then
+    # Рудимент прошлых установок: .agents/prompts/ Codex всё равно не читает.
+    rm -rf "$TARGET_DIR/prompts" 2>/dev/null || true
+    sync_commands_as_skills "$TEMP_DIR/$SOURCE_ROOT/commands" "$TARGET_DIR/$SKILL_DIR"
+fi
+
 # Удаление .DS_Store
 find "$TARGET_DIR" -name ".DS_Store" -delete 2>/dev/null || true
 
@@ -345,7 +429,9 @@ echo -e "  Директория:   ${YELLOW}${TARGET_DIR}/${NC}"
 if [ -n "$COMMAND_DIR" ]; then
     echo -e "                ├── ${COMMAND_DIR}/  ${DIM}(команды и правила)${NC}"
 fi
-if [ "$SKILL_SYNC" = "managed" ]; then
+if [ "$COMMANDS_AS_SKILLS" = "1" ]; then
+    echo -e "                └── ${SKILL_DIR}/     ${DIM}(навыки + команды как скилы)${NC}"
+elif [ "$SKILL_SYNC" = "managed" ]; then
     echo -e "                └── ${SKILL_DIR}/     ${DIM}(навыки)${NC}"
 else
     echo -e "                └── ${SKILL_DIR}/     ${DIM}(навыки с frontmatter)${NC}"
@@ -371,9 +457,13 @@ echo -e "    ${BRIGHT_BLUE}/fnr-concept${NC}              — Генерация
 echo -e "    ${BRIGHT_BLUE}/fnr-debate${NC}               — Дебаты: Архитектор vs Адвокат Дьявола"
 echo -e "    ${BRIGHT_BLUE}/fnr-system-requirements${NC}  — Формирование BR/FR/NFR + Jira"
 echo ""
+if [ "$COMMANDS_AS_SKILLS" = "1" ]; then
+    echo -e "  ${DIM}Codex читает из репозитория только скилы: команды вызываются как${NC}"
+    echo -e "  ${DIM}\$context-gen, \$fnr-new-task и т.д. (или через /skills). Перезапустите сессию Codex.${NC}"
+    echo ""
+fi
 echo -e "${YELLOW}⚠️  Важно: Перезагрузите окно вашей IDE (Reload Window) для активации.${NC}"
 echo -e "${BLUE}----------------------------------------------------------------------${NC}"
 
-# Очистка: временная копия самого скрипта (mktemp) и возможные stale-файлы
+# Очистка: временная копия самого скрипта из pipe-режима (curl | bash)
 [ -n "${TEMP_SCRIPT:-}" ] && [ -f "${TEMP_SCRIPT:-}" ] && rm -f "$TEMP_SCRIPT"
-rm -f /tmp/sa-helper-install.*.sh 2>/dev/null

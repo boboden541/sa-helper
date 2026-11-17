@@ -1,3 +1,8 @@
+---
+name: mindmap-cartographer
+description: "Картограф mindmap: карта погружения в сервис от общего к частному, оси группировки и трассируемые атомы (для /mindmap)"
+---
+
 # Навык: Картограф Mindmap (Service Overview Cartographer)
 
 ## Роль

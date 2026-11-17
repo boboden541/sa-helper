@@ -1,3 +1,8 @@
+---
+name: system-analyst-sysreq
+description: "Системный аналитик требований: BR, FR, NFR и Jira-декомпозиция из принятого концепта (для /fnr-system-requirements)"
+---
+
 # Навык: Системный Аналитик — Требования (System Requirements Analyst)
 
 ## Роль

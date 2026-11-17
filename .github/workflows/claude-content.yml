@@ -1,0 +1,16 @@
+name: Claude content
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+
+jobs:
+  claude-content:
+    name: Claude content — скилы и команды
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Линт .claude (frontmatter скилов, команды, дрейф доков)
+        run: bash scripts/check_claude_content.sh

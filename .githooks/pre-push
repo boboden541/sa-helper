@@ -17,6 +17,9 @@ echo "==> ruff (ai-harness)"
 "$PY" ai-harness/scripts/check_file_length.py
 "$PY" ai-harness/scripts/check_status_literals.py
 
+echo "==> claude-content (скилы/команды/доки)"
+bash "$ROOT/scripts/check_claude_content.sh"
+
 echo "==> pytest (ai-harness/tests)"
 # собственная тестовая БД хука, уникальная на пуш: параллельный прогон набора
 # (другая сессия, CI-дубль, внешний наблюдатель) не вешает пуш на блокировках

@@ -1,3 +1,8 @@
+---
+name: prd-groomer
+description: "Груминг PRD: диагностика требований на понятность, валидность, реализуемость и противоречия (для /prd-grooming)"
+---
+
 # Навык: Груминг PRD (PRD Groomer / Requirements Reviewer)
 
 ## Роль

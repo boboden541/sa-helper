@@ -59,12 +59,18 @@
 | | 1. Claude Code | 2. Antigravity | 3. Codex | 4. OpenCode | 5. Cline | 6. DevX (МТС) | 7. Universal | 8. Cursor | 9. Windsurf | 10. Roo Code | 11. Continue | 12. GitHub Copilot | 13. Aider |
 |:---|:---|:---|:---|:---|:---|:---|:---|:---|:---|:---|:---|:---|:---|
 | **Корень** | `.claude/` | `.agent/` | `.agents/` | `.opencode/` | `.cline/` | `.clinerules/` | `.agents/` | `.cursor/` | `.windsurf/` | `.roo/` | `.continue/` | `.github/` | `.aider/` |
-| **Команды** | `commands/` | `workflows/` | `prompts/` | `commands/` | `workflows/` | `workflows/` | `commands/` | `rules/` | `rules/` | `workflows/` | `prompts/` | `prompts/` | `prompts/` |
+| **Команды** | `commands/` | `workflows/` | `skills/` (как скилы) | `commands/` | `workflows/` | `workflows/` | `commands/` | `rules/` | `rules/` | `workflows/` | `prompts/` | `prompts/` | `prompts/` |
 | **Навыки** | `skills/` | `skills/` | `skills/` | `skills/` | `skills/` | `skills/` | `skills/` | `skills/` | `skills/` | `skills/` | `skills/` | `skills/` | `skills/` |
 
 
 
 > Существующие файлы не удаляются — обновляются только управляемые подпапки.
+>
+> **Codex:** команды устанавливаются как скилы — каждая получает свой `.agents/skills/<команда>/SKILL.md`
+> и вызывается через `$<имя>` (например, `$context-gen`, `$fnr-new-task`) или через панель `/skills`.
+> Причина: Codex не сканирует repo-локальные промты (custom prompts живут только в `~/.codex/prompts`
+> и признаны OpenAI устаревшими в пользу skills). Папка `.agents/prompts/` от старых установок
+> удаляется установщиком автоматически. После установки перезапустите сессию Codex.
 
 ---
 
@@ -367,8 +373,8 @@ python scripts/dev.py seed               # демо-данные при перв
 | Слой | Где работает | Что делает |
 |------|--------------|------------|
 | 1. Pre-push хук | твой компьютер | перед каждым `git push` сам гоняет линтеры и все тесты; красное — пуш **отклоняется локально** |
-| 2. GitHub Actions (CI) | сервер GitHub | на каждый пуш в любую ветку гоняет тот же набор; результат — два check'а: «Backend — ruff + pytest» и «Frontend — tsc + eslint + vitest» |
-| 3. Ruleset ветки main | GitHub | принимает пуш в main, только если оба check'а **зелёные на этом самом коммите** |
+| 2. GitHub Actions (CI) | сервер GitHub | на каждый пуш в любую ветку гоняет тот же набор; результат — три check'а: «Backend — ruff + pytest», «Frontend — tsc + eslint + vitest» и «Claude content — скилы и команды» |
+| 3. Ruleset ветки main | GitHub | принимает пуш в main, только если все check'и **зелёные на этом самом коммите** |
 
 ### Один раз на каждый новый клон
 
@@ -428,6 +434,12 @@ cd ai-harness
 .venv/Scripts/pytest tests -q        # Windows (Git Bash)
 .venv/bin/ruff check . && .venv/bin/ruff format --check .
 python scripts/check_file_length.py  # файлы ≤ 800 строк, строки ≤ 100 символов
+```
+
+Линт контента `.claude` (скилы/команды/доки) — из корня репозитория:
+
+```bash
+bash scripts/check_claude_content.sh
 ```
 
 Frontend:
@@ -538,9 +550,15 @@ npx tsc -b && npx eslint . && npx vitest run
 
 ```
 .agents/
-├── prompts/     ← команды через /prompts:...
-└── skills/      ← навыки (repo-level)
+└── skills/      ← навыки + команды как скилы ($context-gen, $fnr-new-task, …)
 ```
+
+> Codex сканирует в репозитории только `.agents/skills/`. Repo-локальные промты он
+> не читает вовсе (custom prompts — только `~/.codex/prompts` в домашней папке, и
+> OpenAI объявил их устаревшими в пользу skills). Поэтому каждая из 25 команд
+> разворачивается в отдельный скил с frontmatter и вызывается явно: `$context-gen`,
+> `$fnr-new-task` и т.д. Папку `.agents/prompts/` от прошлых установок установщик
+> удаляет сам.
 
 </details>
 
@@ -573,7 +591,7 @@ npx tsc -b && npx eslint . && npx vitest run
 | Навык | Назначение |
 |:------|:-----------|
 | `architecture/` | Реверс‑инжиниринг архитектуры |
-| `db_archeologist/` | Анализ базы данных |
+| `db-archeologist/` | Анализ базы данных |
 | `technical-documentation/` | Генерация документации |
 | `openapi-spec/` | Генерация OpenAPI 3.0 спецификаций (Swagger): стандарты и эталоны для `/open-api` |
 | `problem-analyst/` | Диагностика проблем, постановка задачи |

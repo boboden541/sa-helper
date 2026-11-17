@@ -40,7 +40,7 @@ description: Генерация технической документации 
 | **Integration** | `integrations/` | `examples/ideal_integration_document.md` | Полное описание одного интеграционного взаимодействия: партнёр, протокол, физический эндпоинт, маппинг полей «наш ↔ партнёр», обработка ошибок, Sequence. |
 | **DataTrace** | `data_trace/` | `examples/ideal_api_document.md` (адаптируется под трассировку) | Lineage полей от входа до хранилища. |
 | **Architecture** | `architecture/` | `examples/ideal_c4_l3.puml` + `resources/architecture_standards.md` | C4-описание/диаграмма компонентов. |
-| **ERD** | `erd/` | навык `db_archeologist/SKILL.md` + `db_archeologist/examples/ideal_erd_document.md` + `db_archeologist/resources/db_mapping_standarts.md` | ER-диаграмма (PlantUML entity) + каталог таблиц, связей и ограничений по DDL. |
+| **ERD** | `erd/` | навык `db-archeologist/SKILL.md` + `db-archeologist/examples/ideal_erd_document.md` + `db-archeologist/resources/db_mapping_standarts.md` | ER-диаграмма (PlantUML entity) + каталог таблиц, связей и ограничений по DDL. |
 | **Process** | `processes/` | `examples/ideal_process_document.md` | Сквозной бизнес-процесс: участники, шаги (привязка к коду), ветвления; Activity + Sequence. |
 | **Mindmap** | `mindmaps/` | навык `mindmap-cartographer/SKILL.md` + `mindmap-cartographer/examples/ideal_mindmap_ui_axis.md`, `ideal_mindmap_object_axis.md` + `mindmap-cartographer/resources/mindmap_methodology.md`, `mindmap_colors.md`, `mindmap_checklist.md` | Карта погружения (PlantUML `@startmindmap`): ось, действия Чтение/ЗАПИСЬ, каналы, трассируемые атомы; факты переиспользуются из готовых документов. |
 
@@ -105,7 +105,7 @@ description: Генерация технической документации 
    - **Integration** → `.../examples/ideal_integration_document.md`;
    - **DataTrace** → `.../examples/ideal_api_document.md` (адаптируется под трассировку);
    - **Architecture** → `.../examples/ideal_c4_l3.puml` + `.../resources/architecture_standards.md`;
-   - **ERD** → дополнительно загрузи навык `.../db_archeologist/SKILL.md`, эталон `.../db_archeologist/examples/ideal_erd_document.md` и `.../db_archeologist/resources/db_mapping_standarts.md`;
+   - **ERD** → дополнительно загрузи навык `.../db-archeologist/SKILL.md`, эталон `.../db-archeologist/examples/ideal_erd_document.md` и `.../db-archeologist/resources/db_mapping_standarts.md`;
    - **Process** → `.../examples/ideal_process_document.md`;
    - **Mindmap** → дополнительно загрузи навык `.../mindmap-cartographer/SKILL.md`, эталоны `.../mindmap-cartographer/examples/ideal_mindmap_ui_axis.md` и `ideal_mindmap_object_axis.md`, ресурсы `.../mindmap-cartographer/resources/mindmap_methodology.md`, `mindmap_colors.md`, `mindmap_checklist.md`.
 

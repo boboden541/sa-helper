@@ -60,7 +60,7 @@ description: Глубокая многоуровневая проверка до
    - **ТИП В (System Requirements):** путь `sa_documentation/FNR/FNR_<N>/system_requirements.md` → `/system-analyst-sysreq/SKILL.md`, `ideal_system_requirements.md`, `sysreq_validation_checklist.md`, `abstraction_levels.md` (контракт уровней изложения — нормативный источник состава подразделов задачи и deny-списка).
    - **ТИП Г (Screen Doc):** категория `screens/`, имя `screen_*.md`, в задаче `tasks.md` — `Тип задачи: Screen` → `.../skills/technical-documentation/SKILL.md`, `ideal_screen_document.md`. Это обзорный индекс экрана (карта методов + ссылки на API-документы), а НЕ детальное описание эндпоинта.
    - **ТИП Д (Integration Doc):** категория `integrations/`, имя `integration_*.md` → `.../skills/technical-documentation/SKILL.md`, `ideal_integration_document.md`, `validation_checklist.md`.
-   - **ТИП Е (ERD):** категория `erd/`, имя `erd_*.md` → `.../skills/db_archeologist/SKILL.md`, `.../db_archeologist/examples/ideal_erd_document.md`, `.../db_archeologist/resources/db_mapping_standarts.md`.
+   - **ТИП Е (ERD):** категория `erd/`, имя `erd_*.md` → `.../skills/db-archeologist/SKILL.md`, `.../db-archeologist/examples/ideal_erd_document.md`, `.../db-archeologist/resources/db_mapping_standarts.md`.
    - **ТИП Ж (Process Doc):** категория `processes/`, имя `process_*.md` → `.../skills/technical-documentation/SKILL.md`, `ideal_process_document.md`, `validation_checklist.md`.
    - **ТИП З (Mindmap):** категория `mindmaps/`, имя `mindmap_*.md`, в задаче `tasks.md` — `Тип задачи: Mindmap` → `.../skills/mindmap-cartographer/SKILL.md`, `examples/ideal_mindmap_ui_axis.md`, `examples/ideal_mindmap_object_axis.md`, `resources/mindmap_checklist.md` (контракт осей/уровней/цветов — `resources/mindmap_methodology.md`, `resources/mindmap_colors.md`). Это обзорная карта погружения, а НЕ детальный документ.
    - **ТИП И (Architecture):** категория `architecture/`, имя `architecture_*.{md,puml}` → `.../skills/technical-documentation/SKILL.md`, `examples/ideal_c4_l3.puml`, `resources/architecture_standards.md`.
@@ -334,7 +334,7 @@ description: Глубокая многоуровневая проверка до
   - **ТИП В (System Requirements):** `ideal_system_requirements.md` + `sysreq_validation_checklist.md` + `abstraction_levels.md`
   - **ТИП Г (Screen Doc):** `ideal_screen_document.md`
   - **ТИП Д (Integration Doc):** `ideal_integration_document.md`
-  - **ТИП Е (ERD):** `db_archeologist/examples/ideal_erd_document.md` + `db_archeologist/resources/db_mapping_standarts.md`
+  - **ТИП Е (ERD):** `db-archeologist/examples/ideal_erd_document.md` + `db-archeologist/resources/db_mapping_standarts.md`
   - **ТИП Ж (Process Doc):** `ideal_process_document.md`
   - **ТИП З (Mindmap):** `mindmap-cartographer/examples/ideal_mindmap_ui_axis.md` + `mindmap-cartographer/examples/ideal_mindmap_object_axis.md` + `mindmap-cartographer/resources/mindmap_checklist.md`
   - **ТИП И (Architecture):** `ideal_c4_l3.puml` + `resources/architecture_standards.md`

@@ -1,3 +1,8 @@
+---
+name: architectural-debate
+description: "Дебаты Архитектор против Адвоката Дьявола: 3 раунда критики концепта и вердикт (для /fnr-debate)"
+---
+
 # Навык: Архитектурные дебаты (Architectural Debate)
 
 ## Роль

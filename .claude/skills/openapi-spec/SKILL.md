@@ -1,3 +1,8 @@
+---
+name: openapi-spec
+description: "OpenAPI-инженер: спецификация OpenAPI 3.0 (Swagger) по коду — стандарты и эталоны скила (для /open-api)"
+---
+
 # Навык: OpenAPI-инженер (OpenAPI Spec Engineer)
 
 ## Роль

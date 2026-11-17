@@ -1,3 +1,8 @@
+---
+name: comment-writing
+description: "Канон журнала задачи: отчёты и комментарии агентов по делу и от первого лица (harness/comments)"
+---
+
 # Навык: Искусство написания комментариев (Task Journal Writing)
 
 > Канон ведения журнала задачи `harness/comments/T<k>.md`. Навык подключают
