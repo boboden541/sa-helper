@@ -25,24 +25,24 @@ description: Генерация технической документации 
 
 ## Важно
 
-**Приоритет:** СТРОГОЕ соблюдение структуры из шаблона, **соответствующего типу задачи** (см. «Маршрутизация по типу задачи» ниже), и нотации из `resources/standard_mapping.md`.
+**Приоритет:** СТРОГОЕ соблюдение структуры из шаблона, **соответствующего типу задачи** (см. «Маршрутизация по типу задачи» ниже), и нотации из `skills/technical-documentation/resources/standard_mapping.md`.
 
 **Ожидаемый результат**:  Все документы создаются в `sa_documentation/<сервис>-docs/<подпапка>/` с человекочитаемым именем файла. Сервис, подпапка, шаблон и имя файла определяются полями **Сервис**, **Тип задачи** и **Шаблон результата** из единого корневого `sa_documentation/tasks.md`.
 
 ### Маршрутизация по типу задачи (folder + template)
 
-Перед генерацией определи тип документа по полю **Тип задачи** в `tasks.md` и выбери подпапку и эталонный шаблон (соответствие «тип ↔ папка» сверяется с картой типов `.../skills/doc-type-router/resources/type_map.md`):
+Перед генерацией определи тип документа по полю **Тип задачи** в `tasks.md` и выбери подпапку и эталонный шаблон (соответствие «тип ↔ папка» сверяется с картой типов `skills/doc-type-router/resources/type_map.md`):
 
 | Тип задачи | Подпапка (в `sa_documentation/<сервис>-docs/`) | Эталонный шаблон | Что генерируется |
 |---|---|---|---|
-| **Screen** | `screens/` | `examples/ideal_screen_document.md` | Обзорный индекс экрана: карта методов (ссылки на API-документы), маршруты, сквозной Sequence, общие пруфы. **Детальные параметры методов НЕ дублируются.** |
-| **API** | `api/` | `examples/ideal_api_document.md` | Полное описание одного эндпоинта: вход/выход, маппинг полей, диаграммы, якоря истины. |
-| **Integration** | `integrations/` | `examples/ideal_integration_document.md` | Полное описание одного интеграционного взаимодействия: партнёр, протокол, физический эндпоинт, маппинг полей «наш ↔ партнёр», обработка ошибок, Sequence. |
-| **DataTrace** | `data_trace/` | `examples/ideal_api_document.md` (адаптируется под трассировку) | Lineage полей от входа до хранилища. |
-| **Architecture** | `architecture/` | `examples/ideal_c4_l3.puml` + `resources/architecture_standards.md` | C4-описание/диаграмма компонентов. |
-| **ERD** | `erd/` | навык `db-archeologist/SKILL.md` + `db-archeologist/examples/ideal_erd_document.md` + `db-archeologist/resources/db_mapping_standarts.md` | ER-диаграмма (PlantUML entity) + каталог таблиц, связей и ограничений по DDL. |
-| **Process** | `processes/` | `examples/ideal_process_document.md` | Сквозной бизнес-процесс: участники, шаги (привязка к коду), ветвления; Activity + Sequence. |
-| **Mindmap** | `mindmaps/` | навык `mindmap-cartographer/SKILL.md` + `mindmap-cartographer/examples/ideal_mindmap_ui_axis.md`, `ideal_mindmap_object_axis.md` + `mindmap-cartographer/resources/mindmap_methodology.md`, `mindmap_colors.md`, `mindmap_checklist.md` | Карта погружения (PlantUML `@startmindmap`): ось, действия Чтение/ЗАПИСЬ, каналы, трассируемые атомы; факты переиспользуются из готовых документов. |
+| **Screen** | `screens/` | `skills/technical-documentation/examples/ideal_screen_document.md` | Обзорный индекс экрана: карта методов (ссылки на API-документы), маршруты, сквозной Sequence, общие пруфы. **Детальные параметры методов НЕ дублируются.** |
+| **API** | `api/` | `skills/technical-documentation/examples/ideal_api_document.md` | Полное описание одного эндпоинта: вход/выход, маппинг полей, диаграммы, якоря истины. |
+| **Integration** | `integrations/` | `skills/technical-documentation/examples/ideal_integration_document.md` | Полное описание одного интеграционного взаимодействия: партнёр, протокол, физический эндпоинт, маппинг полей «наш ↔ партнёр», обработка ошибок, Sequence. |
+| **DataTrace** | `data_trace/` | `skills/technical-documentation/examples/ideal_api_document.md` (адаптируется под трассировку) | Lineage полей от входа до хранилища. |
+| **Architecture** | `architecture/` | `skills/technical-documentation/examples/ideal_c4_l3.puml` + `skills/technical-documentation/resources/architecture_standards.md` | C4-описание/диаграмма компонентов. |
+| **ERD** | `erd/` | навык `skills/db-archeologist/SKILL.md` + `skills/db-archeologist/examples/ideal_erd_document.md` + `skills/db-archeologist/resources/db_mapping_standarts.md` | ER-диаграмма (PlantUML entity) + каталог таблиц, связей и ограничений по DDL. |
+| **Process** | `processes/` | `skills/technical-documentation/examples/ideal_process_document.md` | Сквозной бизнес-процесс: участники, шаги (привязка к коду), ветвления; Activity + Sequence. |
+| **Mindmap** | `mindmaps/` | навык `skills/mindmap-cartographer/SKILL.md` + `skills/mindmap-cartographer/examples/ideal_mindmap_ui_axis.md`, `skills/mindmap-cartographer/examples/ideal_mindmap_object_axis.md` + `skills/mindmap-cartographer/resources/mindmap_methodology.md`, `skills/mindmap-cartographer/resources/mindmap_colors.md`, `skills/mindmap-cartographer/resources/mindmap_checklist.md` | Карта погружения (PlantUML `@startmindmap`): ось, действия Чтение/ЗАПИСЬ, каналы, трассируемые атомы; факты переиспользуются из готовых документов. |
 
 > **Источник истины по подпапке/имени — поле «Шаблон результата» задачи.** Если оно задано — используй путь оттуда. Таблица выше определяет, КАКОЙ шаблон открыть. При расхождении типа и пути доверяй явному пути из `tasks.md`, но шаблон бери по типу.
 
@@ -97,30 +97,30 @@ description: Генерация технической документации 
 
 ### Этап 3: Загрузка "Прошивки" (Skill & Standards) — ОБЯЗАТЕЛЬНО
 
-1. Загрузи навык `.../technical-documentation/SKILL.md`.
-2. Загрузи `.../resources/standard_mapping.md`.
+1. Загрузи навык `skills/technical-documentation/SKILL.md`.
+2. Загрузи `skills/technical-documentation/resources/standard_mapping.md`.
 3. **Загрузи и фактически ОТКРОЙ шаблон, СООТВЕТСТВУЮЩИЙ типу задачи** (см. таблицу маршрутизации в разделе «Важно»):
-   - **Screen** → `.../examples/ideal_screen_document.md`;
-   - **API** → `.../examples/ideal_api_document.md`;
-   - **Integration** → `.../examples/ideal_integration_document.md`;
-   - **DataTrace** → `.../examples/ideal_api_document.md` (адаптируется под трассировку);
-   - **Architecture** → `.../examples/ideal_c4_l3.puml` + `.../resources/architecture_standards.md`;
-   - **ERD** → дополнительно загрузи навык `.../db-archeologist/SKILL.md`, эталон `.../db-archeologist/examples/ideal_erd_document.md` и `.../db-archeologist/resources/db_mapping_standarts.md`;
-   - **Process** → `.../examples/ideal_process_document.md`;
-   - **Mindmap** → дополнительно загрузи навык `.../mindmap-cartographer/SKILL.md`, эталоны `.../mindmap-cartographer/examples/ideal_mindmap_ui_axis.md` и `ideal_mindmap_object_axis.md`, ресурсы `.../mindmap-cartographer/resources/mindmap_methodology.md`, `mindmap_colors.md`, `mindmap_checklist.md`.
+   - **Screen** → `skills/technical-documentation/examples/ideal_screen_document.md`;
+   - **API** → `skills/technical-documentation/examples/ideal_api_document.md`;
+   - **Integration** → `skills/technical-documentation/examples/ideal_integration_document.md`;
+   - **DataTrace** → `skills/technical-documentation/examples/ideal_api_document.md` (адаптируется под трассировку);
+   - **Architecture** → `skills/technical-documentation/examples/ideal_c4_l3.puml` + `skills/technical-documentation/resources/architecture_standards.md`;
+   - **ERD** → дополнительно загрузи навык `skills/db-archeologist/SKILL.md`, эталон `skills/db-archeologist/examples/ideal_erd_document.md` и `skills/db-archeologist/resources/db_mapping_standarts.md`;
+   - **Process** → `skills/technical-documentation/examples/ideal_process_document.md`;
+   - **Mindmap** → дополнительно загрузи навык `skills/mindmap-cartographer/SKILL.md`, эталоны `skills/mindmap-cartographer/examples/ideal_mindmap_ui_axis.md` и `skills/mindmap-cartographer/examples/ideal_mindmap_object_axis.md`, ресурсы `skills/mindmap-cartographer/resources/mindmap_methodology.md`, `skills/mindmap-cartographer/resources/mindmap_colors.md`, `skills/mindmap-cartographer/resources/mindmap_checklist.md`.
 
    Структура генерируемого документа берётся ИЗ ШАБЛОНА, а не из ранее
    созданных документов.
    ⛔ ЗАПРЕЩЕНО использовать другой готовый документ (`api_*.md`, `screen_*.md`, `integration_*.md`, `erd_*.md`, `process_*.md`, `mindmap_*.md`) как образец
    структуры. Соседние документы могут содержать незамеченные дефекты;
    единственный источник истины по структуре — соответствующий типу эталонный шаблон.
-4. Загрузи карту типов `.../skills/doc-type-router/resources/type_map.md` — сверь, что тип задачи соответствует подпапке из «Шаблона результата» (источник истины «тип ↔ папка»).
-5. Загрузи `.../resources/validation_checklist.md` — критерии качества
+4. Загрузи карту типов `skills/doc-type-router/resources/type_map.md` — сверь, что тип задачи соответствует подпапке из «Шаблона результата» (источник истины «тип ↔ папка»).
+5. Загрузи `skills/technical-documentation/resources/validation_checklist.md` — критерии качества
    учитываются ДО генерации, а не только при /validate-doc.
 
 ### Этап 4: Аналитическая работа (Reverse Engineering)
 
-> **Для задач типа Mindmap** аналитика = сбор фактов из СУЩЕСТВУЮЩИХ документов: `tasks.md` (статусы), готовые `screen_/api_/integration_/data_trace_/erd_/process_/architecture_`-документы (✅ — факты; 🟡 — факты с пометкой «не валидировано» в мете карты), `api_map.md`, `naming_conventions.md`. `repomix-output.xml` — только для единиц оси без документов. Определи ось карты (по цели задачи; правила — `mindmap-cartographer/resources/mindmap_methodology.md`) и составь реестр осевых единиц (эталон полноты). Шаги 1–5 ниже относятся к задачам типа API/DataTrace/Integration.
+> **Для задач типа Mindmap** аналитика = сбор фактов из СУЩЕСТВУЮЩИХ документов: `tasks.md` (статусы), готовые `screen_/api_/integration_/data_trace_/erd_/process_/architecture_`-документы (✅ — факты; 🟡 — факты с пометкой «не валидировано» в мете карты), `api_map.md`, `naming_conventions.md`. `repomix-output.xml` — только для единиц оси без документов. Определи ось карты (по цели задачи; правила — `skills/mindmap-cartographer/resources/mindmap_methodology.md`) и составь реестр осевых единиц (эталон полноты). Шаги 1–5 ниже относятся к задачам типа API/DataTrace/Integration.
 
 > **Для задач типа Screen** аналитика ведётся на уровне ЭКРАНА, а не отдельного поля:
 > 1. **Каталог методов экрана.** Найди ВСЕ API-методы, вызываемые на экране (фронтенд: router-модуль, store, `_domain/*.api.ts`, ApiService; бэкенд: контроллеры экрана). Для каждого — `METHOD URL`, контроллер/экшен и имя его API-документа в `api/`.
@@ -131,7 +131,7 @@ description: Генерация технической документации 
 
 1. **Omnichannel трассировка роутинга:** Найди в коде ВСЕ точки входа (Web, SPA/REST, Mobile, CLI). Обязательно проверь файлы роутинга (`url_routes`, `routes`), чтобы показать, как внешний URL превращается во внутренний метод контроллера.
 2. **Инспекция данных:** Для каждого поля в ответе метода найди путь до БД (`Table.Column`) или формулу вычисления.
-3. **Анализ интеграций:** Найди вызовы внешних сервисов и зафиксируй передаваемые параметры. Обязательно укажи физический протокол (REST, SOAP, gRPC, AMQP) и извлеки точный адрес эндпоинта из конфигурационных файлов. Для задач типа **Integration** это основной фокус аналитики: оформи результат по эталону `ideal_integration_document.md`; владелец документа — анализируемый сервис (инициатор/клиент).
+3. **Анализ интеграций:** Найди вызовы внешних сервисов и зафиксируй передаваемые параметры. Обязательно укажи физический протокол (REST, SOAP, gRPC, AMQP) и извлеки точный адрес эндпоинта из конфигурационных файлов. Для задач типа **Integration** это основной фокус аналитики: оформи результат по эталону `skills/technical-documentation/examples/ideal_integration_document.md`; владелец документа — анализируемый сервис (инициатор/клиент).
 4. **Анализ паттернов ветвления (Branching & Scope):** Обязательно найди Фабрики (Factory), Стратегии (Strategy) или Middleware, которые кардинально меняют выполнение алгоритма в зависимости от контекста (Tenant/Channel/Role/Scope). Зафиксируй все ветки.
 5. **Диаграммы:** Сгенерируй Sequence Diagram и Activity Diagram СТРОГО в формате **PlantUML**. Использование Mermaid запрещено для обеспечения единообразия и совместимости.
 6. **Для задач типа ERD:** собери полный список таблиц, колонок и связей из DDL/миграций и ORM-маппингов в repomix; заполни Coverage Gate из эталона (диаграмма ↔ каталог ↔ DDL).
@@ -142,28 +142,28 @@ description: Генерация технической документации 
 1. Определи путь к файлу из поля **Шаблон результата** в задаче (например: `sa_documentation/<сервис>-docs/api/api_show_listing.md` или `sa_documentation/<сервис>-docs/screens/screen_main_page.md`). Если подпапки нет — создай её.
 2. Заполни документ строго по разделам **шаблона, выбранного на Этапе 3 по типу задачи**.
 
-> **Ветка для задач типа Mindmap (эталоны `mindmap-cartographer/examples/ideal_mindmap_*.md`):**
+> **Ветка для задач типа Mindmap (эталоны `skills/mindmap-cartographer/examples/ideal_mindmap_*.md`):**
 > - Оформи документ-обёртку: заголовок с сервисом и осью, мета-строка (сервис · ось · режим · цветовое измерение), «Источники фактов» со статусами и датой repomix-снапшота, plantuml-блок `@startmindmap`, раздел «Пруфы и источники» с ОТНОСИТЕЛЬНЫМИ ссылками на использованные документы.
-> - Строй карту по контракту уровней L0–L7 и канон-форматам атомов (`mindmap_methodology.md`); цвет — одно измерение + `legend` (`mindmap_colors.md`).
+> - Строй карту по контракту уровней L0–L7 и канон-форматам атомов (`skills/mindmap-cartographer/resources/mindmap_methodology.md`); цвет — одно измерение + `legend` (`skills/mindmap-cartographer/resources/mindmap_colors.md`).
 > - Переполненные группы выноси в `mindmap_<название>_partN.md`, оставляя серые заглушки `**[#E0E0E0] … — partN` в основном файле; части пишутся вместе с основным файлом (одна задача).
 > - **Шаги 3–6 ниже НЕ применяются** (они для задач типа API/DataTrace): в обёртке карты нет таблиц эндпоинтов и Origin-маппинга, нет Sequence/Activity-диаграмм — единственная диаграмма `@startmindmap` (принцип 6 скилла); Gate вложенных объектов тем более не нужен.
-> - Перед сохранением пройди `mindmap-cartographer/resources/mindmap_checklist.md` с явными ✅/❌ (полнота оси против реестра, взаимная полнота легенды, существование атомов).
+> - Перед сохранением пройди `skills/mindmap-cartographer/resources/mindmap_checklist.md` с явными ✅/❌ (полнота оси против реестра, взаимная полнота легенды, существование атомов).
 
-> **Ветка для задач типа Process (эталон `ideal_process_document.md`):**
+> **Ветка для задач типа Process (эталон `skills/technical-documentation/examples/ideal_process_document.md`):**
 > - Раздел 8 «Пример: сквозной прогон на тестовых данных» обязателен: карта 8.0 — activity-диаграмма ОДНОГО представительного пути (типовой/худший сценарий), каждый узел — конкретный вызов (`METHOD /path`, SQL/хранимка, очередь/файл — по стеку проекта); записи в целевую систему подсвечены `#pink` (служебные — по усмотрению), `note` — формат запрос/ответ или содержательная справка.
 > - В прогоне дословные запросы с подставленными значениями — только для ключевых/нетривиальных веток; остальные шаги — одна строка. Синтетические данные сценария пометь явно; конфигурационные значения — реальные.
 > - Заверши прогон итоговым состоянием Δ таблицей и «Что показывает пример» (2–4 вывода).
 > - **Gate вложенных объектов (п. 6 ниже) НЕ применяется** — таблиц полей в process-документе нет.
 > Шаги 3–6 ниже относятся к задачам типа API/DataTrace.
 
-> **Ветка для задач типа Screen (шаблон `ideal_screen_document.md`):**
+> **Ветка для задач типа Screen (шаблон `skills/technical-documentation/examples/ideal_screen_document.md`):**
 > - Заполни: заголовок-обзор, «Карту методов экрана» (со ссылками на API-документы в `api/`), таблицу reuse-методов, опциональную доменную карту, сквозную Sequence-диаграмму экрана и «Общие технические пруфы».
 > - **Gate вложенных объектов (п. 6 ниже) НЕ применяется** — в обзорном документе экрана нет таблиц «Выходные параметры» с полями. Детальные параметры/маппинг живут в API-документах методов.
 > - Ссылки на документы методов — относительные (`[api_x.md](../api/api_x.md)`; папка `api/` соседняя с `screens/`); если соответствующий API-документ ещё не создан, ссылка всё равно ставится (это план), но методы-reuse ведут на документ владельца.
 > - Пути в «Общих технических пруфах» — строго ОТНОСИТЕЛЬНЫЕ от корня проекта.
 > Шаги 3–6 ниже относятся к задачам типа API/DataTrace.
 
-3. **Эндпоинты:** Пиши в техническом формате согласно `standard_mapping.md`.
+3. **Эндпоинты:** Пиши в техническом формате согласно `skills/technical-documentation/resources/standard_mapping.md`.
 4. **Маппинг:** Используй колонку Origin с указанием полных имен таблиц.
 5. **Диаграммы:** Сгенерируй Sequence Diagram (UML) и диаграмму алгоритма (Activity).
 6. **Gate вложенных объектов (перед сохранением раздела «Выходные параметры»):**

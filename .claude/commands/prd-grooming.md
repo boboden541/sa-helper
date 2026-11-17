@@ -29,7 +29,7 @@ description: Груминг PRD — вычитка продуктовых тре
 
 ## Важно
 
-**Приоритет:** СТРОГОЕ соблюдение роли и принципов из `SKILL.md` и структуры отчёта из `examples/ideal_grooming_report.md`.
+**Приоритет:** СТРОГОЕ соблюдение роли и принципов из `skills/prd-groomer/SKILL.md` и структуры отчёта из `skills/prd-groomer/examples/ideal_grooming_report.md`.
 
 **Ожидаемый результат:** Файл `sa_documentation/prd/{file_name}.md` с отчётом о груминге (комментарии, замечания, вопросы). `{file_name}` — kebab-case слаг из заголовка PRD с суффиксом `-grooming` (напр. `kino-integration-grooming.md`). Если заголовок не извлекается — спроси имя или используй `prd-grooming-<N>.md`.
 
@@ -51,9 +51,9 @@ description: Груминг PRD — вычитка продуктовых тре
 
 ### Этап 1: Загрузка роли
 
-1. Прочитай `/prd-groomer/SKILL.md` — твоя персона и принципы.
-2. Загрузи шаблон из `examples/ideal_grooming_report.md`.
-3. Загрузи чек-лист из `resources/grooming_checklist.md`.
+1. Прочитай `skills/prd-groomer/SKILL.md` — твоя персона и принципы.
+2. Загрузи шаблон из `skills/prd-groomer/examples/ideal_grooming_report.md`.
+3. Загрузи чек-лист из `skills/prd-groomer/resources/grooming_checklist.md`.
 
 ### Этап 2: Получение PRD
 
@@ -69,7 +69,7 @@ description: Груминг PRD — вычитка продуктовых тре
 
 ### Этап 4: Проход по осям
 
-Пройди PRD четыре раза по методологии `SKILL.md` (Шаг 2), по одной оси за проход:
+Пройди PRD четыре раза по методологии `skills/prd-groomer/SKILL.md` (Шаг 2), по одной оси за проход:
 1. Понятность — проверяемость критериев, термины, атомарность, «резиновые» формулировки.
 2. Валидность — трассировка на цели/сценарии, измеримость метрик (база/цель/срок), scope, негативные сценарии.
 3. Реализуемость — источники данных под поля/фильтры/признаки, поддержка платформой, внешние зависимости, деградация; где можешь — код-доказательства.
@@ -87,8 +87,8 @@ description: Груминг PRD — вычитка продуктовых тре
 
 1. Если `sa_documentation/prd/` не существует — создай.
 2. Определи `{file_name}` (kebab-case слаг заголовка PRD + `-grooming`). Если файл уже есть — не затирай молча: спроси или добавь суффикс версии.
-3. Создай `sa_documentation/prd/{file_name}.md` по шаблону `ideal_grooming_report.md`.
-4. Прогони отчёт по `resources/grooming_checklist.md`, закрой Hard Gates.
+3. Создай `sa_documentation/prd/{file_name}.md` по шаблону `skills/prd-groomer/examples/ideal_grooming_report.md`.
+4. Прогони отчёт по `skills/prd-groomer/resources/grooming_checklist.md`, закрой Hard Gates.
 
 ### Этап 7: Завершение
 

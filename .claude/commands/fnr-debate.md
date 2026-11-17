@@ -47,7 +47,7 @@ description: Архитектурные дебаты — Архитектор vs
 ### Этап 1: Загрузка роли
 
 1. Прочитай `/architectural-debate/SKILL.md` — правила проведения дебатов.
-2. Прочитай `resources/debate_rules.md` — формат и ограничения раундов.
+2. Прочитай `skills/architectural-debate/resources/debate_rules.md` — формат и ограничения раундов.
 
 ### Этап 2: Сбор контекста проекта
 
@@ -68,12 +68,12 @@ description: Архитектурные дебаты — Архитектор vs
 
 ### Этап 3: Проведение дебатов (3 раунда)
 
-Проводи дебаты строго по правилам из `resources/debate_rules.md`. Каждый аргумент подтверждай ссылкой на код.
+Проводи дебаты строго по правилам из `skills/architectural-debate/resources/debate_rules.md`. Каждый аргумент подтверждай ссылкой на код.
 
 **Раунд 1 — Защита:**
 
 - Архитектор выбирает лучший концепт и защищает его.
-- Адвокат Дьявола атакует: находит слабые места и ОБЯЗАТЕЛЬНО проверяет 4 краевых случая из `resources/debate_rules.md` (Data Integrity & Types, Configuration & Operability, Failure Modes & Recovery, Blast Radius & Side Effects).
+- Адвокат Дьявола атакует: находит слабые места и ОБЯЗАТЕЛЬНО проверяет 4 краевых случая из `skills/architectural-debate/resources/debate_rules.md` (Data Integrity & Types, Configuration & Operability, Failure Modes & Recovery, Blast Radius & Side Effects).
 
 **Раунд 2 — Пересмотр:**
 

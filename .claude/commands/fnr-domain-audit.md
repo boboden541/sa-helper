@@ -22,7 +22,7 @@ description: Доменный и технический аудит кодово�
 
 **Назначение:** Глубокое исследование предметной области и реализаций в кодовой базе перед генерацией концептов и требований. Исключает поверхностный анализ, выявляет реальные структуры данных, внутренние поля, механизмы персистентности, конфигурации и краевые случаи.
 
-**Приоритет:** СТРОГОЕ соблюдение структуры из `examples/ideal_domain_audit.md` и чек-листа `resources/domain_audit_checklist.md`.
+**Приоритет:** СТРОГОЕ соблюдение структуры из `skills/domain-auditor/examples/ideal_domain_audit.md` и чек-листа `skills/domain-auditor/resources/domain_audit_checklist.md`.
 
 **Ожидаемый результат:** Файл `domain_audit.md` в той же папке, что и `task.md` (например, `sa_documentation/FNR/FNR_1/domain_audit.md`).
 
@@ -48,9 +48,9 @@ description: Доменный и технический аудит кодово�
 
 ### Этап 1: Загрузка роли и шаблонов
 
-1. Прочитай `/domain-auditor/SKILL.md` — твоя персона, задачи и принципы.
-2. Загрузи шаблон из `examples/ideal_domain_audit.md`.
-3. Загрузи чек-лист из `resources/domain_audit_checklist.md`.
+1. Прочитай `skills/domain-auditor/SKILL.md` — твоя персона, задачи и принципы.
+2. Загрузи шаблон из `skills/domain-auditor/examples/ideal_domain_audit.md`.
+3. Загрузи чек-лист из `skills/domain-auditor/resources/domain_audit_checklist.md`.
 
 ### Этап 2: Сбор контекста задачи и кодовой базы
 
@@ -81,7 +81,7 @@ description: Доменный и технический аудит кодово�
 ### Этап 4: Сохранение артефакта
 
 1. Создай файл `domain_audit.md` рядом с `task.md` в папке `sa_documentation/FNR/FNR_<N>/`.
-2. Заполни документ строго по структуре `ideal_domain_audit.md`.
+2. Заполни документ строго по структуре `skills/domain-auditor/examples/ideal_domain_audit.md`.
 3. Каждое утверждение сопроводи ссылкой на код (`файл:строка` или имя конфигурационного/БД-объекта).
 
 ### Этап 5: Завершение

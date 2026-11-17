@@ -29,13 +29,13 @@ description: Генерация машиночитаемой OpenAPI (Swagger) Y
 
 ## Важно
 
-**Приоритет:** СТРОГОЕ соблюдение навыка `openapi-spec` (`.claude/skills/openapi-spec/SKILL.md`) и эталона `examples/ideal_openapi_spec.yaml`.
+**Приоритет:** СТРОГОЕ соблюдение навыка `openapi-spec` (`skills/openapi-spec/SKILL.md`) и эталона `skills/openapi-spec/examples/ideal_openapi_spec.yaml`.
 
 **Ожидаемый результат:** **доменный** файл `sa_documentation/<сервис>-docs/api/openapi/<domain>.yaml` (например `ticketland.yaml`), в который **дописывается** рассматриваемый метод (операция в `paths` + DTO в общий `components/schemas`). Файл — валидная OpenAPI 3.0.3 спецификация, проходящая внешний линтер с 0 ошибок и рендерящаяся в IDE-плагине «OpenAPI (Swagger) Editor».
 
 **Один файл на домен, не на метод.** DTO переиспользуются через общий `components/schemas` — но только если это **тот же класс в коде** (принцип идентичности 5а навыка). Разные классы с одинаковыми полями → разные схемы.
 
-**Целевая версия — OpenAPI 3.0.3.** Плагин «OpenAPI (Swagger) Editor» не поддерживает union-типы 3.1 (`type: [string, "null"]`) — обнуляемость кодируется `nullable: true`. См. `openapi-spec/SKILL.md`, принцип 3.
+**Целевая версия — OpenAPI 3.0.3.** Плагин «OpenAPI (Swagger) Editor» не поддерживает union-типы 3.1 (`type: [string, "null"]`) — обнуляемость кодируется `nullable: true`. См. `skills/openapi-spec/SKILL.md`, принцип 3.
 
 **Универсальность:** команда не привязана к конкретному стеку, БД или фреймворку.
 
@@ -66,10 +66,10 @@ description: Генерация машиночитаемой OpenAPI (Swagger) Y
    - **П2 (существующие папки):** папки `sa_documentation/*-docs/` — ровно одна: используй её молча; несколько: выбери по имени API/домену из аргумента и анализируемому репозиторию, иначе спроси пользователя.
    - **П3 (вывод):** имя папки анализируемого репозитория → kebab-case (нижний регистр, не-буквоцифры → `-`; суффиксы не отрезать) → подтверди у пользователя одной строкой → при необходимости создай `sa_documentation/<сервис>-docs/`.
 2. **Контекст сервиса:** анализируй `sa_documentation/<сервис>-docs/repomix-output.xml` этого сервиса (или живой код репозитория).
-3. Загрузи навык `.claude/skills/openapi-spec/SKILL.md` — твоя персона и методология.
-4. Открой эталон `.claude/skills/openapi-spec/examples/ideal_openapi_spec.yaml` — образец структуры (структура берётся ИЗ ЭТАЛОНА, не из соседних `.yaml`).
-5. Загрузи `.claude/skills/openapi-spec/resources/openapi_field_model.md` — таблицу «код → ключ OpenAPI».
-6. Загрузи `.claude/skills/openapi-spec/resources/openapi_validation_checklist.md` — критерии готовности.
+3. Загрузи навык `skills/openapi-spec/SKILL.md` — твоя персона и методология.
+4. Открой эталон `skills/openapi-spec/examples/ideal_openapi_spec.yaml` — образец структуры (структура берётся ИЗ ЭТАЛОНА, не из соседних `.yaml`).
+5. Загрузи `skills/openapi-spec/resources/openapi_field_model.md` — таблицу «код → ключ OpenAPI».
+6. Загрузи `skills/openapi-spec/resources/openapi_validation_checklist.md` — критерии готовности.
 
 ### Этап 1: Разбор аргумента
 
@@ -105,7 +105,7 @@ description: Генерация машиночитаемой OpenAPI (Swagger) Y
 2. Собери схемы метода:
    a. Вход: path/query/header-параметры, `requestBody` (для методов с телом).
    b. Выход: успешный ответ (`2xx`) + ошибки (`4xx`/`5xx`), явно обрабатываемые в коде.
-3. Для каждого поля примени `openapi_field_model.md`: `type`(+`format`), `required`, `nullable: true`, `pattern`, `minLength`/`maxLength`, `minimum`/`maximum`, `enum`, `example` — но ТОЛЬКО то, что подтверждено кодом (принцип 2 навыка).
+3. Для каждого поля примени `skills/openapi-spec/resources/openapi_field_model.md`: `type`(+`format`), `required`, `nullable: true`, `pattern`, `minLength`/`maxLength`, `minimum`/`maximum`, `enum`, `example` — но ТОЛЬКО то, что подтверждено кодом (принцип 2 навыка).
 4. **Добавь операцию** в `paths.<path>.<method>` (если уже есть — обнови и предупреди).
 5. **Мёрж DTO по идентичности (принцип 5а навыка):** перед добавлением каждой схемы ищи в `components/schemas` схему с тем же `x-source` (FQCN/файл класса):
    - совпало → переиспользуй (`$ref`), не дублируй;
@@ -134,7 +134,7 @@ description: Генерация машиночитаемой OpenAPI (Swagger) Y
 
 **Цикл самокоррекции:** пока валидатор возвращает ошибки — исправляй спеку и перезапускай линтер. Предел — **5 итераций**. По исчерпании файл НЕ удаляй, выдай отчёт с остаточными ошибками.
 
-Сверься с `openapi_validation_checklist.md` (все Hard Gates 🔴 должны быть закрыты), особое внимание:
+Сверься с `skills/openapi-spec/resources/openapi_validation_checklist.md` (все Hard Gates 🔴 должны быть закрыты), особое внимание:
 - каждый `type` — одиночная строка (нет union-типов 3.1);
 - нет висячих `$ref`, каждый `array` имеет `items`;
 - нет выдуманных ограничений.

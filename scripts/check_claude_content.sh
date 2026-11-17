@@ -53,21 +53,17 @@ for c in "$COMMANDS_DIR"/*.md; do
     fi
 done
 
-# --- Дрейф документации: каждая производственная команда есть в install.sh и README ---
+# --- Дрейф документации ---
+# install.sh генерирует список команд из клона (динамический листинг обязателен),
+# каждая производственная команда должна быть задокументирована в README.
+grep -qF 'commands/*.md' "$INSTALL_SH" \
+    || fail "install.sh: нет динамического листинга производственных команд"
 for c in "$COMMANDS_DIR"/*.md; do
     cname="$(basename "$c" .md)"
     case "$cname" in harness-*) continue ;; esac
-    grep -qE "/${cname}([^a-z0-9-]|\$)" "$INSTALL_SH" \
-        || fail "install.sh: команда /${cname} отсутствует в финальном списке"
     grep -qE "/${cname}([^a-z0-9-]|\$)" "$README" \
         || fail "README.md: команда /${cname} не задокументирована"
 done
-
-declared="$(grep -oE 'производственных команд \([0-9]+\)' "$INSTALL_SH" | grep -oE '[0-9]+' || true)"
-actual="$(find "$COMMANDS_DIR" -name '*.md' ! -name 'harness-*' | wc -l | tr -d ' ')"
-if [ -n "$declared" ] && [ "$declared" != "$actual" ]; then
-    fail "install.sh: заявлено ${declared} производственных команд, фактически ${actual}"
-fi
 
 if [ "$errors" -gt 0 ]; then
     echo "FAIL: check_claude_content: ${errors} ошибок"

@@ -28,7 +28,7 @@ description: Построение БФТ (бизнес-функциональн�
 
 ## Важно
 
-**Приоритет:** СТРОГОЕ соблюдение роли и принципов из `SKILL.md` и структуры эталона из `examples/ideal_bft_document.md`.
+**Приоритет:** СТРОГОЕ соблюдение роли и принципов из `skills/bft-builder/SKILL.md` и структуры эталона из `skills/bft-builder/examples/ideal_bft_document.md`.
 
 **Ожидаемый результат:** Файл `sa_documentation/bft/{bft_name}.md` с построенным БФТ. `{bft_name}` — kebab-case слаг из заголовка инициативы с суффиксом `-bft` (напр. `kino-integration-bft.md`). Если заголовок не извлекается — спроси имя или используй `bft-<N>.md`. Если файл уже есть — не затирай молча: спроси или добавь суффикс версии.
 
@@ -50,9 +50,9 @@ description: Построение БФТ (бизнес-функциональн�
 
 ### Этап 1: Загрузка роли
 
-1. Прочитай `/bft-builder/SKILL.md` — твоя персона и принципы.
-2. Загрузи эталон структуры из `examples/ideal_bft_document.md`.
-3. Загрузи чек-лист из `resources/bft_validation_checklist.md`.
+1. Прочитай `skills/bft-builder/SKILL.md` — твоя персона и принципы.
+2. Загрузи эталон структуры из `skills/bft-builder/examples/ideal_bft_document.md`.
+3. Загрузи чек-лист из `skills/bft-builder/resources/bft_validation_checklist.md`.
 
 ### Этап 2: Получение контекста
 
@@ -68,7 +68,7 @@ description: Построение БФТ (бизнес-функциональн�
 
 ### Этап 4: Построение БФТ
 
-Заполни разделы СТРОГО по эталону `examples/ideal_bft_document.md`:
+Заполни разделы СТРОГО по эталону `skills/bft-builder/examples/ideal_bft_document.md`:
 1. **Описание** и **Общая информация** (метаданные, история изменений, доп. материалы).
 2. **Бизнес-требования:** «Вводные» (перенеси открытые вопросы входа с адресатами — не теряй) и **Ценность** (3–7 пунктов БТ — корень трассировки).
 3. **Пользовательские требования** — строго User Story «Когда я … Я хочу … Чтобы …», каждое связано с БТ.
@@ -83,7 +83,7 @@ description: Построение БФТ (бизнес-функциональн�
 
 ### Этап 5: Валидация и запись
 
-1. Прогони документ по `resources/bft_validation_checklist.md`, закрой Hard Gates.
+1. Прогони документ по `skills/bft-builder/resources/bft_validation_checklist.md`, закрой Hard Gates.
 2. Если `sa_documentation/bft/` не существует — создай.
 3. Определи `{bft_name}` (kebab-case слаг заголовка + `-bft`). Если файл уже есть — не затирай молча: спроси или добавь суффикс версии.
 4. Создай `sa_documentation/bft/{bft_name}.md`.

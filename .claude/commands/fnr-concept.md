@@ -20,7 +20,7 @@ description: Генерация концептов решений на осно�
 
 ## Важно
 
-**Приоритет:** СТРОГОЕ соблюдение структуры из `examples/ideal_concept.md` и принципов из `SKILL.md`.
+**Приоритет:** СТРОГОЕ соблюдение структуры из `skills/solution-designer/examples/ideal_concept.md` и принципов из `skills/solution-designer/SKILL.md`.
 
 **Ожидаемый результат:** Файл `concept.md` в той же папке, что и `task.md` (например, `sa_documentation/FNR/FNR_1/concept.md`).
 
@@ -45,8 +45,8 @@ description: Генерация концептов решений на осно�
 
 ### Этап 1: Загрузка роли
 
-1. Прочитай `/solution-designer/SKILL.md` — твоя персона и принципы.
-2. Загрузи шаблон из `examples/ideal_concept.md`.
+1. Прочитай `skills/solution-designer/SKILL.md` — твоя персона и принципы.
+2. Загрузи шаблон из `skills/solution-designer/examples/ideal_concept.md`.
 
 ### Этап 2: Сбор контекста проекта
 
@@ -101,7 +101,7 @@ description: Генерация концептов решений на осно�
 ### Этап 5: Сохранение
 
 1. Создай файл `concept.md` рядом с `task.md` (в той же папке FNR_<N>).
-2. Заполни по шаблону `ideal_concept.md`.
+2. Заполни по шаблону `skills/solution-designer/examples/ideal_concept.md`.
 
 ### Этап 6: Завершение
 

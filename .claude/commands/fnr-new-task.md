@@ -29,7 +29,7 @@ description: Постановка задачи — структурирован�
 
 ## Важно
 
-**Приоритет:** СТРОГОЕ соблюдение структуры из `examples/ideal_task.md` и принципов из `SKILL.md`.
+**Приоритет:** СТРОГОЕ соблюдение структуры из `skills/problem-analyst/examples/ideal_task.md` и принципов из `skills/problem-analyst/SKILL.md`.
 
 **Ожидаемый результат:** Файл `sa_documentation/FNR/FNR_<N>/task.md`, где `<N>` — следующий доступный номер. Если `sa_documentation/FNR/FNR_1/` уже есть — создать `FNR_2/` и т.д.
 
@@ -55,9 +55,9 @@ description: Постановка задачи — структурирован�
 
 ### Этап 1: Загрузка роли
 
-1. Прочитай `/problem-analyst/SKILL.md` — твоя персона и принципы.
-2. Загрузи шаблон из `examples/ideal_task.md`.
-3. Загрузи чек-лист из `resources/task_validation.md`.
+1. Прочитай `skills/problem-analyst/SKILL.md` — твоя персона и принципы.
+2. Загрузи шаблон из `skills/problem-analyst/examples/ideal_task.md`.
+3. Загрузи чек-лист из `skills/problem-analyst/resources/task_validation.md`.
 
 ### Этап 2: Сбор контекста проекта
 
@@ -96,7 +96,7 @@ description: Постановка задачи — структурирован�
 2. Если `sa_documentation/FNR/` не существует — создай.
 3. Определи следующий доступный номер FNR (проверь `sa_documentation/FNR/FNR_*/`, если папок нет — начни с `FNR_1`).
 4. Создай папку `sa_documentation/FNR/FNR_<N>/`.
-5. Создай файл `task.md` по шаблону `ideal_task.md`.
+5. Создай файл `task.md` по шаблону `skills/problem-analyst/examples/ideal_task.md`.
 6. Каждое утверждение подтверди код-доказательством (файл:строка).
 7. НЕ предлагай решений — только диагноз.
 

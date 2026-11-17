@@ -38,7 +38,7 @@ description: Discovery — из размытой задачи сформиров
 
 ## Важно
 
-**Приоритет:** СТРОГОЕ соблюдение принципов из `discovery-analyst/SKILL.md`, шаблонов из `examples/` и чек-листа `resources/decision_backlog_checklist.md`.
+**Приоритет:** СТРОГОЕ соблюдение принципов из `skills/discovery-analyst/SKILL.md`, шаблонов из `examples/` и чек-листа `skills/discovery-analyst/resources/decision_backlog_checklist.md`.
 
 **Ожидаемый результат (NEW):** досье `sa_documentation/FNR/FNR_<N>/` с файлами `00_context.md`, `01_decision_backlog.md`, `03_brief.md`, `04_action_points.md`, пустой `02_answers.md` и `task.md` (постановка + раздел Requirements).
 
@@ -71,9 +71,9 @@ description: Discovery — из размытой задачи сформиров
 
 ### Этап 1: Загрузка роли и контекста проекта
 
-1. Прочитай `discovery-analyst/SKILL.md` — твоя персона, принципы (особенно **два слоя языка**), методология.
-2. Загрузи шаблоны из `discovery-analyst/examples/`: `ideal_context.md`, `ideal_decision_backlog.md`, `ideal_brief.md`, `ideal_action_points.md`, `ideal_task_handoff.md`.
-3. Прочитай `discovery-analyst/resources/two_layer_language.md`, `mapping_methodology.md` и `question_coverage.md`.
+1. Прочитай `skills/discovery-analyst/SKILL.md` — твоя персона, принципы (особенно **два слоя языка**), методология.
+2. Загрузи шаблоны из `skills/discovery-analyst/examples/`: `skills/discovery-analyst/examples/ideal_context.md`, `skills/discovery-analyst/examples/ideal_decision_backlog.md`, `skills/discovery-analyst/examples/ideal_brief.md`, `skills/discovery-analyst/examples/ideal_action_points.md`, `skills/discovery-analyst/examples/ideal_task_handoff.md`.
+3. Прочитай `skills/discovery-analyst/resources/two_layer_language.md`, `skills/discovery-analyst/resources/mapping_methodology.md` и `skills/discovery-analyst/resources/question_coverage.md`.
 4. Прочитай артефакты `sa_documentation/` (только чтение!): `naming_conventions.md` из `<сервис>-docs/`, существующие документы — не дублировать, использовать терминологию.
 5. Найди `repomix-output.xml` в `sa_documentation/*-docs/` (несколько сервисов — спроси пользователя; legacy-файл в корне `sa_documentation/` тоже принимается) — если нет, предупреди и работай по живому коду.
 
@@ -81,31 +81,31 @@ description: Discovery — из размытой задачи сформиров
 
 **CONTEXT** — собрать «что есть» (полный набор агентов, параллельно). Записать в `00_context.md` (технический слой): As-Is, зоны изменений, разрывы, белые пятна.
 
-**MAP** — по `mapping_methodology.md`: blast-radius (`graph_impact`/`graph_db_impact`) + gap-finder (`graph_call_chain`/`graph_db_lineage`/`graph_db_unresolved`/`graph_db_orphans`). Дополнить «Зоны изменений» и «Разрывы» в `00_context.md`.
+**MAP** — по `skills/discovery-analyst/resources/mapping_methodology.md`: blast-radius (`graph_impact`/`graph_db_impact`) + gap-finder (`graph_call_chain`/`graph_db_lineage`/`graph_db_unresolved`/`graph_db_orphans`). Дополнить «Зоны изменений» и «Разрывы» в `00_context.md`.
 
-**DECIDE** — превратить разрывы в карточки-развилки в `01_decision_backlog.md` по шаблону `ideal_decision_backlog.md`. Источники развилок — не только код: (1) разрывы из MAP («миграционные» вопросы); (2) обязательный свип по `resources/question_coverage.md` — 12 измерений требований (цель, пользователи, функциональный охват, стратегия, интерфейс, права, данные, интеграции, надёжность, эксплуатация, правила игры, приёмка), каждое закрыто карточкой или явным «не применимо» с причиной; (3) два взгляда — «изнутри» (как устроено, что сломается) и «снаружи» (если бы строили с нуля): для задач замены/переезда хотя бы одна карточка с вариантом «не переносить / переосмыслить». Добавь «Карту покрытия» и «Баланс адресатов» в конец бэклога (шаблон в `ideal_decision_backlog.md`). Критерий включения: развилку нельзя закрыть чтением кода — решение за человеком. Ранжировать, пометить блокеров. Проверить по `resources/decision_backlog_checklist.md` (Hard Gates).
+**DECIDE** — превратить разрывы в карточки-развилки в `01_decision_backlog.md` по шаблону `skills/discovery-analyst/examples/ideal_decision_backlog.md`. Источники развилок — не только код: (1) разрывы из MAP («миграционные» вопросы); (2) обязательный свип по `skills/discovery-analyst/resources/question_coverage.md` — 12 измерений требований (цель, пользователи, функциональный охват, стратегия, интерфейс, права, данные, интеграции, надёжность, эксплуатация, правила игры, приёмка), каждое закрыто карточкой или явным «не применимо» с причиной; (3) два взгляда — «изнутри» (как устроено, что сломается) и «снаружи» (если бы строили с нуля): для задач замены/переезда хотя бы одна карточка с вариантом «не переносить / переосмыслить». Добавь «Карту покрытия» и «Баланс адресатов» в конец бэклога (шаблон в `skills/discovery-analyst/examples/ideal_decision_backlog.md`). Критерий включения: развилку нельзя закрыть чтением кода — решение за человеком. Ранжировать, пометить блокеров. Проверить по `skills/discovery-analyst/resources/decision_backlog_checklist.md` (Hard Gates).
 
-**BRIEF** — спроецировать бэклог в `03_brief.md` по `ideal_brief.md`: только бизнес, топ-3 для руководства, рекомендации, цена ошибки. Проверить тестом «понял бы руководитель без кода?».
+**BRIEF** — спроецировать бэклог в `03_brief.md` по `skills/discovery-analyst/examples/ideal_brief.md`: только бизнес, топ-3 для руководства, рекомендации, цена ошибки. Проверить тестом «понял бы руководитель без кода?».
 
-**ACTION POINTS** — сформировать `04_action_points.md` по `ideal_action_points.md`: что аналитику делать дальше (investigate/meeting/request/measure), какие `[NEEDS_INVESTIGATION]` проверить, что кандидат на поднятие в `tasks.md`.
+**ACTION POINTS** — сформировать `04_action_points.md` по `skills/discovery-analyst/examples/ideal_action_points.md`: что аналитику делать дальше (investigate/meeting/request/measure), какие `[NEEDS_INVESTIGATION]` проверить, что кандидат на поднятие в `tasks.md`.
 
-**ЗАГЛУШКИ:** создай пустой `02_answers.md` (шаблон `ideal_answers.md`) и `task.md` (шаблон `ideal_task_handoff.md`, раздел Requirements со статусами 🔴 по открытым развилкам).
+**ЗАГЛУШКИ:** создай пустой `02_answers.md` (шаблон `skills/discovery-analyst/examples/ideal_answers.md`) и `task.md` (шаблон `skills/discovery-analyst/examples/ideal_task_handoff.md`, раздел Requirements со статусами 🔴 по открытым развилкам).
 
 ### Этап 2-CONTINUE: доформировать/финализировать (для режима CONTINUE)
 
 Работаешь **в существующем досье** (новая папка НЕ создаётся).
 
 1. Прочитай уже существующие `00_context.md`, `01_decision_backlog.md`, `02_answers.md`, `03_brief.md`/`04_action_points.md` этого досье.
-2. Прогони бэклог по карте покрытия (`resources/question_coverage.md`, 12 измерений + два взгляда). Незакрытые измерения — сформулируй новые карточки (🔴), добавь/обнови «Карту покрытия» и «Сводку бэклога». Это штатный путь дозаполнения существующего досье: существующие 🟢-ответы не трогай, новые вопросы открывай отдельными карточками.
+2. Прогони бэклог по карте покрытия (`skills/discovery-analyst/resources/question_coverage.md`, 12 измерений + два взгляда). Незакрытые измерения — сформулируй новые карточки (🔴), добавь/обнови «Карту покрытия» и «Сводку бэклога». Это штатный путь дозаполнения существующего досье: существующие 🟢-ответы не трогай, новые вопросы открывай отдельными карточками.
 3. Если на входе `03_brief.md`: (пере)сформируй `01_decision_backlog.md` и `04_action_points.md` из брифинга (например, после встречи брифинг обновлён) и финализируй `task.md`.
 4. Если на входе `04_action_points.md`: финализируй `task.md` из текущего состояния досье (action_points + answers + backlog), проверь Definition of Ready.
-5. Проверь `task.md` по Definition of Ready (SKILL.md). Дай явный ответ: готов к `/fnr-concept` или какие развилки ещё блокируют.
+5. Проверь `task.md` по Definition of Ready (skills/discovery-analyst/SKILL.md). Дай явный ответ: готов к `/fnr-concept` или какие развилки ещё блокируют.
 
 ### Этап 3: Самопроверка
 
-- Прогони `resources/decision_backlog_checklist.md` по `01_decision_backlog.md` — устранить нарушения Hard Gates.
-- Проверь «Карту покрытия» (`resources/question_coverage.md`): все 12 измерений закрыты карточкой или «не применимо» с причиной; для задач замены есть вариант «не переносить / переосмыслить»; адресаты сбалансированы.
-- Проверь два слоя языка (`resources/two_layer_language.md`): в `03_brief.md` и бизнес-полях карточек нет техники.
+- Прогони `skills/discovery-analyst/resources/decision_backlog_checklist.md` по `01_decision_backlog.md` — устранить нарушения Hard Gates.
+- Проверь «Карту покрытия» (`skills/discovery-analyst/resources/question_coverage.md`): все 12 измерений закрыты карточкой или «не применимо» с причиной; для задач замены есть вариант «не переносить / переосмыслить»; адресаты сбалансированы.
+- Проверь два слоя языка (`skills/discovery-analyst/resources/two_layer_language.md`): в `03_brief.md` и бизнес-полях карточек нет техники.
 - Убедись, что каждая `[NEEDS_INVESTIGATION]` из бэклога отражена в `04_action_points.md`.
 - Убедись, что `tasks.md` **не тронут**.
 

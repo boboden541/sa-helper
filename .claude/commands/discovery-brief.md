@@ -24,9 +24,9 @@ description: Пересобрать 1-страничный брифинг для
 
 ## Важно
 
-**Приоритет:** соблюдение `discovery-analyst/SKILL.md` и `resources/two_layer_language.md`. Брифинг — **только бизнес**, без идентификаторов/классов/флагов.
+**Приоритет:** соблюдение `skills/discovery-analyst/SKILL.md` и `skills/discovery-analyst/resources/two_layer_language.md`. Брифинг — **только бизнес**, без идентификаторов/классов/флагов.
 
-**Ожидаемый результат:** перегенерированный `03_brief.md` (шаблон `ideal_brief.md`) в досье.
+**Ожидаемый результат:** перегенерированный `03_brief.md` (шаблон `skills/discovery-analyst/examples/ideal_brief.md`) в досье.
 
 **Запрещено:** писать или править `sa_documentation/tasks.md`; менять `01_decision_backlog.md` (брифинг — проекция, не источник).
 
@@ -36,13 +36,13 @@ description: Пересобрать 1-страничный брифинг для
 
 ### Этап 1: Загрузка роли и определение досье
 
-1. Прочитай `discovery-analyst/SKILL.md` и `resources/two_layer_language.md`.
+1. Прочитай `skills/discovery-analyst/SKILL.md` и `skills/discovery-analyst/resources/two_layer_language.md`.
 2. Определи досье (указанный путь или последнее изменённое `FNR_<N>/`).
 
 ### Этап 2: Чтение состояния
 
 1. Прочитай `01_decision_backlog.md` (источник проекции) и при необходимости `02_answers.md` (чтобы отразить уже решённое).
-2. Шаблон — `ideal_brief.md`.
+2. Шаблон — `skills/discovery-analyst/examples/ideal_brief.md`.
 
 ### Этап 3: Пересборка брифинга
 

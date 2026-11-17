@@ -53,17 +53,17 @@ description: Глубокая многоуровневая проверка до
 
 1. Прочитай целевой файл по пути `<file_path>`.
 2. **Определи сервис по пути файла:** сегмент `*-docs/` в `<file_path>` (например `sa_documentation/y-docs/api/...` → сервис `y`, контекст — `sa_documentation/y-docs/repomix-output.xml` и `sa_documentation/y-docs/naming_conventions.md`). Легаси-файл без `*-docs/` — возьми `repomix-output.xml` и `naming_conventions.md` из корня `sa_documentation/`; если сервисных папок несколько, а файл вне их — спроси пользователя.
-3. **Загрузи общие инструменты:** `repomix-output.xml` и `naming_conventions.md` (по правилу п.2), `standard_mapping.md`, `/technical-documentation/resources/validation_checklist.md`
-4. **Определи ТИП по мнемонике категории в пути** (канон «тип ↔ папка ↔ признаки» — карта `.../skills/doc-type-router/resources/type_map.md`; легаси-файлы без `<сервис>-docs/` распознавай по той же категории/префиксу имени) **и догрузи специфику:**
-   - **ТИП А (API Doc):** категория `api/`, имя `api_*.md` → `.../skills/technical-documentation/SKILL.md`, `ideal_api_document.md`, `validation_checklist.md`.
-   - **ТИП Б (Data Trace):** категория `data_trace/`, имя `data_trace_*.md` → `.../skills/architecture/examples/ideal_data_trace.md`, `resources/standard_mapping.md`.
-   - **ТИП В (System Requirements):** путь `sa_documentation/FNR/FNR_<N>/system_requirements.md` → `/system-analyst-sysreq/SKILL.md`, `ideal_system_requirements.md`, `sysreq_validation_checklist.md`, `abstraction_levels.md` (контракт уровней изложения — нормативный источник состава подразделов задачи и deny-списка).
-   - **ТИП Г (Screen Doc):** категория `screens/`, имя `screen_*.md`, в задаче `tasks.md` — `Тип задачи: Screen` → `.../skills/technical-documentation/SKILL.md`, `ideal_screen_document.md`. Это обзорный индекс экрана (карта методов + ссылки на API-документы), а НЕ детальное описание эндпоинта.
-   - **ТИП Д (Integration Doc):** категория `integrations/`, имя `integration_*.md` → `.../skills/technical-documentation/SKILL.md`, `ideal_integration_document.md`, `validation_checklist.md`.
-   - **ТИП Е (ERD):** категория `erd/`, имя `erd_*.md` → `.../skills/db-archeologist/SKILL.md`, `.../db-archeologist/examples/ideal_erd_document.md`, `.../db-archeologist/resources/db_mapping_standarts.md`.
-   - **ТИП Ж (Process Doc):** категория `processes/`, имя `process_*.md` → `.../skills/technical-documentation/SKILL.md`, `ideal_process_document.md`, `validation_checklist.md`.
-   - **ТИП З (Mindmap):** категория `mindmaps/`, имя `mindmap_*.md`, в задаче `tasks.md` — `Тип задачи: Mindmap` → `.../skills/mindmap-cartographer/SKILL.md`, `examples/ideal_mindmap_ui_axis.md`, `examples/ideal_mindmap_object_axis.md`, `resources/mindmap_checklist.md` (контракт осей/уровней/цветов — `resources/mindmap_methodology.md`, `resources/mindmap_colors.md`). Это обзорная карта погружения, а НЕ детальный документ.
-   - **ТИП И (Architecture):** категория `architecture/`, имя `architecture_*.{md,puml}` → `.../skills/technical-documentation/SKILL.md`, `examples/ideal_c4_l3.puml`, `resources/architecture_standards.md`.
+3. **Загрузи общие инструменты:** `repomix-output.xml` и `naming_conventions.md` (по правилу п.2), `skills/technical-documentation/resources/standard_mapping.md`, `skills/technical-documentation/resources/validation_checklist.md`
+4. **Определи ТИП по мнемонике категории в пути** (канон «тип ↔ папка ↔ признаки» — карта `skills/doc-type-router/resources/type_map.md`; легаси-файлы без `<сервис>-docs/` распознавай по той же категории/префиксу имени) **и догрузи специфику:**
+   - **ТИП А (API Doc):** категория `api/`, имя `api_*.md` → `skills/technical-documentation/SKILL.md`, `skills/technical-documentation/examples/ideal_api_document.md`, `skills/technical-documentation/resources/validation_checklist.md`.
+   - **ТИП Б (Data Trace):** категория `data_trace/`, имя `data_trace_*.md` → `skills/architecture/examples/ideal_data_trace.md`, `skills/technical-documentation/resources/standard_mapping.md`.
+   - **ТИП В (System Requirements):** путь `sa_documentation/FNR/FNR_<N>/system_requirements.md` → `skills/system-analyst-sysreq/SKILL.md`, `skills/system-analyst-sysreq/examples/ideal_system_requirements.md`, `skills/system-analyst-sysreq/resources/sysreq_validation_checklist.md`, `skills/system-analyst-sysreq/resources/abstraction_levels.md` (контракт уровней изложения — нормативный источник состава подразделов задачи и deny-списка).
+   - **ТИП Г (Screen Doc):** категория `screens/`, имя `screen_*.md`, в задаче `tasks.md` — `Тип задачи: Screen` → `skills/technical-documentation/SKILL.md`, `skills/technical-documentation/examples/ideal_screen_document.md`. Это обзорный индекс экрана (карта методов + ссылки на API-документы), а НЕ детальное описание эндпоинта.
+   - **ТИП Д (Integration Doc):** категория `integrations/`, имя `integration_*.md` → `skills/technical-documentation/SKILL.md`, `skills/technical-documentation/examples/ideal_integration_document.md`, `skills/technical-documentation/resources/validation_checklist.md`.
+   - **ТИП Е (ERD):** категория `erd/`, имя `erd_*.md` → `skills/db-archeologist/SKILL.md`, `skills/db-archeologist/examples/ideal_erd_document.md`, `skills/db-archeologist/resources/db_mapping_standarts.md`.
+   - **ТИП Ж (Process Doc):** категория `processes/`, имя `process_*.md` → `skills/technical-documentation/SKILL.md`, `skills/technical-documentation/examples/ideal_process_document.md`, `skills/technical-documentation/resources/validation_checklist.md`.
+   - **ТИП З (Mindmap):** категория `mindmaps/`, имя `mindmap_*.md`, в задаче `tasks.md` — `Тип задачи: Mindmap` → `skills/mindmap-cartographer/SKILL.md`, `skills/mindmap-cartographer/examples/ideal_mindmap_ui_axis.md`, `skills/mindmap-cartographer/examples/ideal_mindmap_object_axis.md`, `skills/mindmap-cartographer/resources/mindmap_checklist.md` (контракт осей/уровней/цветов — `skills/mindmap-cartographer/resources/mindmap_methodology.md`, `skills/mindmap-cartographer/resources/mindmap_colors.md`). Это обзорная карта погружения, а НЕ детальный документ.
+   - **ТИП И (Architecture):** категория `architecture/`, имя `architecture_*.{md,puml}` → `skills/technical-documentation/SKILL.md`, `skills/technical-documentation/examples/ideal_c4_l3.puml`, `skills/technical-documentation/resources/architecture_standards.md`.
 
 > **Ключевое отличие ТИП Г от ТИП А:** документ-экран НЕ содержит таблиц «Входные/Выходные параметры» с полями и Origin-маппингом. Поэтому Hard Gates по покрытию полей (Full Entity Coverage, Nested Object Coverage, типизация контейнеров) к ТИПУ Г **НЕ применяются** — их отсутствие в screen-документе НЕ является ошибкой. Валидация ТИПА Г проверяет полноту карты методов, корректность ссылок, маршруты, сквозную диаграмму и общие пруфы (см. ниже).
 
@@ -122,7 +122,7 @@ description: Глубокая многоуровневая проверка до
 
 **Для ТИПА И (Architecture):**
 
-1. **Эталон структуры:** `ideal_c4_l3.puml` + `resources/architecture_standards.md` — канон диаграммы и текстового описания.
+1. **Эталон структуры:** `skills/technical-documentation/examples/ideal_c4_l3.puml` + `skills/technical-documentation/resources/architecture_standards.md` — канон диаграммы и текстового описания.
 2. **Существование компонентов:** каждый контейнер/компонент диаграммы существует в коде (точечный `graph_query` по имени, `repomix-output.xml`). Галлюцинация компонента — 🔴.
 3. **Связи:** каждая `Rel`-стрелка подтверждена фактическим вызовом/конфигом (граф с confidence-правилами, код). Связь без подтверждения — 🔴.
 
@@ -153,7 +153,7 @@ description: Глубокая многоуровневая проверка до
 
 **Для ТИПА В (System Requirements):**
 
-- Проверь структуру документа по шаблону `ideal_system_requirements.md`: наличие обязательных разделов (Введение, Общее описание с As-Is, План миграции, Функциональные блоки, Ревью, Риски и ограничения).
+- Проверь структуру документа по шаблону `skills/system-analyst-sysreq/examples/ideal_system_requirements.md`: наличие обязательных разделов (Введение, Общее описание с As-Is, План миграции, Функциональные блоки, Ревью, Риски и ограничения).
 - Проверь метаданные в разделе «Общая информация»: наименование продукта, ответственные, Epic, БФТ, статус.
 - Проверь нумерацию разделов — должна быть последовательной (1, 2, 3 / 3.1, 3.2 / 3.1.1, 3.1.2).
 - Проверь таблицу «История изменений» — наличие хотя бы одной записи.
@@ -176,7 +176,7 @@ description: Глубокая многоуровневая проверка до
 
 - `title` присутствует, формат `As-Is:`/`To-Be:`/нейтральный; To-Be — только со ссылкой на источник требований в обёртке.
 - Корень L0 один, с заливкой (`*[#LightCyan] <Сервис>`); мета-строка обёртки заполнена (сервис · ось · режим · цветовое измерение).
-- Уровень L1 кодирует ровно одну ось; элементы L2 пронумерованы; действия L3 несут префиксы `Чтение —`/`ЗАПИСЬ —` — там, где ось предполагает действия (у объектной оси L3 — сразу SQL-атомы без префиксов; см. эталон `ideal_mindmap_object_axis.md`).
+- Уровень L1 кодирует ровно одну ось; элементы L2 пронумерованы; действия L3 несут префиксы `Чтение —`/`ЗАПИСЬ —` — там, где ось предполагает действия (у объектной оси L3 — сразу SQL-атомы без префиксов; см. эталон `skills/mindmap-cartographer/examples/ideal_mindmap_object_axis.md`).
 - Контрактные проверки API (METHOD /path, Origin-маппинг) к ТИПУ З не применяются.
 
 #### Итерация 2: Техническая достоверность (The Storage Gate) 🔴
@@ -214,13 +214,13 @@ description: Глубокая многоуровневая проверка до
 - **As-Is Gate:** Каждое утверждение в разделе «Описание текущего поведения» должно иметь код-доказательство (файл:строка). Утверждения без доказательства — 🔴 или `[NEEDS_INVESTIGATION]`.
 - **Task Gate:** Каждая задача в функциональных блоках должна содержать: обоснование, таблицу затрагиваемых компонентов (с файл:строка), критерии приёмки, зависимости. Применяется ко всем формам задач, включая задачи по вёрстке в разделе 5.
 - **Improvement Description Gate:** Каждая задача должна содержать оба описательных подраздела — «Общее описание доработки» (уровень Л1) и «Описание доработок» (уровень Л2). Отсутствие второго хотя бы у одной задачи — 🔴.
-- **Altitude Gate:** В подразделах «Общее описание доработки» и «Описание доработок» не должно быть маркеров deny-списка (`abstraction_levels.md`, раздел 4): ссылок по шаблону `\S+\.\w+:\d+`, идентификаторов кода (классы, методы, переменные, сигнатуры), имён библиотек и СУБД как средств реализации, фрагментов кода и запросов. Наличие хотя бы одного — 🔴. Оценочные суждения («слишком технично») основанием для 🔴 по этому гейту не являются. Исключение — объект требования: имя API-метода, поля контракта, DDL.
+- **Altitude Gate:** В подразделах «Общее описание доработки» и «Описание доработок» не должно быть маркеров deny-списка (`skills/system-analyst-sysreq/resources/abstraction_levels.md`, раздел 4): ссылок по шаблону `\S+\.\w+:\d+`, идентификаторов кода (классы, методы, переменные, сигнатуры), имён библиотек и СУБД как средств реализации, фрагментов кода и запросов. Наличие хотя бы одного — 🔴. Оценочные суждения («слишком технично») основанием для 🔴 по этому гейту не являются. Исключение — объект требования: имя API-метода, поля контракта, DDL.
 - **Action Gate:** «Описание доработок» открывается призывом к действию («Нужно <реализовать / добавить / расширить> <объект> — <результат>»); первый пункт-таксономия без глаголов действия («Сущности:», «Потоки данных:») — 🔴. Требования и призывы внутри «Общего описания доработки» (Л1 — только контекст) — 🔴.
 - **Contract Gate:** Задача создаёт/меняет API-метод → в задаче есть блок «Контракт API» с каноническими таблицами (одинаковые колонки: Параметр | Тип | Обязательность | Описание | Пример | Комментарий | Мапинг; контейнеры `Object<X>`/`Array<X>`; подтаблицы вложенных объектов; алгоритм activity-диаграммой; таблица кодов ответов; таблица соответствия ключей). Мапинг — только метод API источника + атрибут (или `ТАБЛИЦА.ПОЛЕ` собственной БД); объект БД за API внешнего сервиса в мапинге — 🔴. Задача создаёт/меняет объекты БД → есть имя таблицы, DDL с constraints и фрагмент ERD. Нарушение любого пункта — 🔴.
-- **Scope Checklist Gate:** Каждый функциональный блок с задачами (в разделах 4 и 5; при задачах без блоков — раздел целиком) открывается чек-листом состава доработок: пункты-чекбоксы «что делаем» широкими мазками, каждый пункт завершается ссылкой на задачу `(N.M)`, глаголы от места изменения («Добавляем в <контур>…», «Расширяем…», «Меняем источник…», «Переводим…», «Убираем…»). Отсутствие чек-листа, пункт без ссылки на задачу, задача блока без пункта или жаргон («даём API», «прокидываем») — 🔴. UI-задачи раздела 5 входят чекбоксами в списки своих экранов; сквозные задачи — строкой-примечанием без чекбокса. Правила — `abstraction_levels.md`, раздел 2.
+- **Scope Checklist Gate:** Каждый функциональный блок с задачами (в разделах 4 и 5; при задачах без блоков — раздел целиком) открывается чек-листом состава доработок: пункты-чекбоксы «что делаем» широкими мазками, каждый пункт завершается ссылкой на задачу `(N.M)`, глаголы от места изменения («Добавляем в <контур>…», «Расширяем…», «Меняем источник…», «Переводим…», «Убираем…»). Отсутствие чек-листа, пункт без ссылки на задачу, задача блока без пункта или жаргон («даём API», «прокидываем») — 🔴. UI-задачи раздела 5 входят чекбоксами в списки своих экранов; сквозные задачи — строкой-примечанием без чекбокса. Правила — `skills/system-analyst-sysreq/resources/abstraction_levels.md`, раздел 2.
 - **Acceptance Gate:** Критерии приёмки должны быть конкретными и проверяемыми. «Работает корректно» без конкретики — 🔴.
-- **NFR Gate:** Каждое нефункциональное требование должно содержать триаду «числовое значение + единица измерения + условие проверки». Оценочные формулировки («быстро», «надёжно») — 🔴. Отсутствие имён классов, методов и размеров пулов основанием для 🔴 **не является** — это уровень реализации, см. `abstraction_levels.md`.
-- **Оговорки о неприменимости:** для документов, созданных до введения контракта уровней (ни одна задача не содержит подраздела «Описание доработок», первый описательный подраздел назван «Общее описание функционала», «Общее описание требований» или «Описание») — `Improvement Description Gate`, `Altitude Gate`, `Action Gate`, `Contract Gate` и `Scope Checklist Gate` **НЕ применяются**, 🔴 за них не выставляется. Полный текст оговорок — `sysreq_validation_checklist.md`, раздел «Оговорки о неприменимости».
+- **NFR Gate:** Каждое нефункциональное требование должно содержать триаду «числовое значение + единица измерения + условие проверки». Оценочные формулировки («быстро», «надёжно») — 🔴. Отсутствие имён классов, методов и размеров пулов основанием для 🔴 **не является** — это уровень реализации, см. `skills/system-analyst-sysreq/resources/abstraction_levels.md`.
+- **Оговорки о неприменимости:** для документов, созданных до введения контракта уровней (ни одна задача не содержит подраздела «Описание доработок», первый описательный подраздел назван «Общее описание функционала», «Общее описание требований» или «Описание») — `Improvement Description Gate`, `Altitude Gate`, `Action Gate`, `Contract Gate` и `Scope Checklist Gate` **НЕ применяются**, 🔴 за них не выставляется. Полный текст оговорок — `skills/system-analyst-sysreq/resources/sysreq_validation_checklist.md`, раздел «Оговорки о неприменимости».
 - **Источники данных:** Если в задачах есть таблицы источников данных (SQL-запросы), проверить корректность имён таблиц и колонок относительно кодовой базы.
 - **Маршрутизация:** Если есть таблицы маршрутизации (Сущность | Метод вызова), проверить что методы существуют в коде.
 
@@ -309,7 +309,7 @@ description: Глубокая многоуровневая проверка до
 
 - **Синтаксис mindmap:** пара `@startmindmap`/`@endmindmap`; `legend` закрыт `end legend`; корректные `*`-уровни; `[#HEX]` перед текстом узла; глубина ≤ 7 звёзд. Нарушение — 🔴.
 - **Формат:** ТОЛЬКО PlantUML mindmap; Mermaid — 🔴. Подписи на русском, технические идентификаторы — как в коде.
-- **Цвет:** одно измерение; legend взаимно полна с использованными HEX измерения (бесцветность описана; технические заливки `#LightCyan`/`#E0E0E0` не расшифровываются — см. `mindmap_colors.md`, правило 2). Нарушение — 🔴.
+- **Цвет:** одно измерение; legend взаимно полна с использованными HEX измерения (бесцветность описана; технические заливки `#LightCyan`/`#E0E0E0` не расшифровываются — см. `skills/mindmap-cartographer/resources/mindmap_colors.md`, правило 2). Нарушение — 🔴.
 - **Пруфы:** ссылки в «Пруфах и источниках» — относительные; абсолютный путь — 🔴.
 
 **Для ТИПА В (System Requirements):**
@@ -321,7 +321,7 @@ description: Глубокая многоуровневая проверка до
 
 #### Итерация 3.1: Соответствие шаблонам и практикам аналитика (System Analyst Best Practise) 🔴
 
-- **ОБЯЗАТЕЛЬНО:** пройди `resources/validation_checklist.md` по КАЖДОМУ пункту
+- **ОБЯЗАТЕЛЬНО:** пройди `skills/technical-documentation/resources/validation_checklist.md` по КАЖДОМУ пункту
   с явным выводом ✅/❌ в ответе. Запрещено ставить итоговый 🟢, если хотя бы
   один [CRITICAL]-пункт не отмечен явно. Особое внимание — раздел 3
   (Nested Object Coverage, Typed Container) и Hard Gates №5, №6:
@@ -329,29 +329,29 @@ description: Глубокая многоуровневая проверка до
 
 - **Определи ТИП документа и догрузи специфику:**
   - Для всех: `.visual_standards.md`
-  - **ТИП А (API Doc):** `ideal_api_document.md`
-  - **ТИП Б (Data Trace):** `ideal_data_trace.md`
-  - **ТИП В (System Requirements):** `ideal_system_requirements.md` + `sysreq_validation_checklist.md` + `abstraction_levels.md`
-  - **ТИП Г (Screen Doc):** `ideal_screen_document.md`
-  - **ТИП Д (Integration Doc):** `ideal_integration_document.md`
-  - **ТИП Е (ERD):** `db-archeologist/examples/ideal_erd_document.md` + `db-archeologist/resources/db_mapping_standarts.md`
-  - **ТИП Ж (Process Doc):** `ideal_process_document.md`
-  - **ТИП З (Mindmap):** `mindmap-cartographer/examples/ideal_mindmap_ui_axis.md` + `mindmap-cartographer/examples/ideal_mindmap_object_axis.md` + `mindmap-cartographer/resources/mindmap_checklist.md`
-  - **ТИП И (Architecture):** `ideal_c4_l3.puml` + `resources/architecture_standards.md`
+  - **ТИП А (API Doc):** `skills/technical-documentation/examples/ideal_api_document.md`
+  - **ТИП Б (Data Trace):** `skills/architecture/examples/ideal_data_trace.md`
+  - **ТИП В (System Requirements):** `skills/system-analyst-sysreq/examples/ideal_system_requirements.md` + `skills/system-analyst-sysreq/resources/sysreq_validation_checklist.md` + `skills/system-analyst-sysreq/resources/abstraction_levels.md`
+  - **ТИП Г (Screen Doc):** `skills/technical-documentation/examples/ideal_screen_document.md`
+  - **ТИП Д (Integration Doc):** `skills/technical-documentation/examples/ideal_integration_document.md`
+  - **ТИП Е (ERD):** `skills/db-archeologist/examples/ideal_erd_document.md` + `skills/db-archeologist/resources/db_mapping_standarts.md`
+  - **ТИП Ж (Process Doc):** `skills/technical-documentation/examples/ideal_process_document.md`
+  - **ТИП З (Mindmap):** `skills/mindmap-cartographer/examples/ideal_mindmap_ui_axis.md` + `skills/mindmap-cartographer/examples/ideal_mindmap_object_axis.md` + `skills/mindmap-cartographer/resources/mindmap_checklist.md`
+  - **ТИП И (Architecture):** `skills/technical-documentation/examples/ideal_c4_l3.puml` + `skills/technical-documentation/resources/architecture_standards.md`
 
 - **Для ТИПА Г (Screen Doc):**
-  - Сверь структуру документа с шаблоном `ideal_screen_document.md`: заголовок-обзор, «Карта методов экрана», таблицу reuse, опциональную доменную карту, сквозной Sequence экрана, «Общие технические пруфы».
-  - Применяй ТОЛЬКО релевантные [CRITICAL]-пункты `validation_checklist.md` (диаграммы, относительные пути, словарь). Пункты про покрытие полей DTO / вложенные объекты / типизацию контейнеров для ТИПА Г неприменимы — НЕ выставляй за них 🔴.
+  - Сверь структуру документа с шаблоном `skills/technical-documentation/examples/ideal_screen_document.md`: заголовок-обзор, «Карта методов экрана», таблицу reuse, опциональную доменную карту, сквозной Sequence экрана, «Общие технические пруфы».
+  - Применяй ТОЛЬКО релевантные [CRITICAL]-пункты `skills/technical-documentation/resources/validation_checklist.md` (диаграммы, относительные пути, словарь). Пункты про покрытие полей DTO / вложенные объекты / типизацию контейнеров для ТИПА Г неприменимы — НЕ выставляй за них 🔴.
 
 - **Для ТИПА З (Mindmap):**
-  - Сверь структуру с эталонами `ideal_mindmap_ui_axis.md` / `ideal_mindmap_object_axis.md`: мета-строка, «Источники фактов» (статусы, дата repomix-снапшота), plantuml-блок, «Пруфы и источники».
-  - Пройди ВСЕ разделы (А–Е) чек-листа `mindmap-cartographer/resources/mindmap_checklist.md` с явными ✅/❌ в ответе — он заменяет полевые Hard Gates для этого типа.
+  - Сверь структуру с эталонами `skills/mindmap-cartographer/examples/ideal_mindmap_ui_axis.md` / `skills/mindmap-cartographer/examples/ideal_mindmap_object_axis.md`: мета-строка, «Источники фактов» (статусы, дата repomix-снапшота), plantuml-блок, «Пруфы и источники».
+  - Пройди ВСЕ разделы (А–Е) чек-листа `skills/mindmap-cartographer/resources/mindmap_checklist.md` с явными ✅/❌ в ответе — он заменяет полевые Hard Gates для этого типа.
 
 - **Для ТИПА В (System Requirements):**
-  - Пройдись по всем пунктам чек-листа `sysreq_validation_checklist.md`.
-  - Проверь соответствие каждого раздела документа шаблону `ideal_system_requirements.md`.
-  - Сверь состав и порядок подразделов каждой задачи с контрактом `abstraction_levels.md` (раздел 2).
-  - Проверь наличие обоих описательных подразделов у каждой задачи и отсутствие в них маркеров deny-списка (`abstraction_levels.md`, раздел 4).
+  - Пройдись по всем пунктам чек-листа `skills/system-analyst-sysreq/resources/sysreq_validation_checklist.md`.
+  - Проверь соответствие каждого раздела документа шаблону `skills/system-analyst-sysreq/examples/ideal_system_requirements.md`.
+  - Сверь состав и порядок подразделов каждой задачи с контрактом `skills/system-analyst-sysreq/resources/abstraction_levels.md` (раздел 2).
+  - Проверь наличие обоих описательных подразделов у каждой задачи и отсутствие в них маркеров deny-списка (`skills/system-analyst-sysreq/resources/abstraction_levels.md`, раздел 4).
   - Проверь, что все Hard Gates из чек-листа пройдены, **с учётом раздела «Оговорки о неприменимости»**: для документов, созданных по предыдущей версии эталона, гейты уровней изложения не применяются — отметь это в отчёте вместо 🔴.
 
 ### Этап 4: Итоговый отчет "Светофор"
@@ -415,7 +415,7 @@ description: Глубокая многоуровневая проверка до
 | **Существование компонентов** | 🔴/🟡/🟢 | [graph_query / repomix по каждому контейнеру] | [Галлюцинации компонентов] |
 | **Связи (Rel ↔ код/конфиг)** | 🔴/🟡/🟢 | [Вызовы, интеграции, конфиги] | [Стрелки без подтверждения] |
 | **Синтаксис C4 (LAYOUT_WITH_LEGEND, Boundary, PlantUML)** | 🔴/🟡/🟢 | [Разбор диаграммы] | [Что исправить] |
-| **Соответствие эталону ideal_c4_l3.puml** | 🔴/🟡/🟢 | [Сравнение структуры с шаблоном] | [Отклонения от канона] |
+| **Соответствие эталону `skills/technical-documentation/examples/ideal_c4_l3.puml** | 🔴/🟡/🟢 | [Сравнение структуры с шаблоном] | [Отклонения от канона] |
 
 **Для ТИПА Г (Screen Doc):**
 
@@ -444,7 +444,7 @@ description: Глубокая многоуровневая проверка до
 | **Риски и ограничения** | 🔴/🟡/🟢 | [Проверка митигаций для каждого риска] | [Какие риски без митигации] |
 | **Визуализация (PlantUML)** | 🔴/🟡/🟢 | [Проверка синтаксиса и корректности диаграмм] | [Что исправить в диаграммах] |
 | **Форматирование и пути** | 🔴/🟡/🟢 | [Проверка нумерации, отсутствия абсолютных путей] | [Что исправить] |
-| **Соответствие шаблону ideal_system_requirements.md** | 🔴/🟡/🟢 | [Сравнение структуры с шаблоном] | [Какие отклонения от шаблона] |
+| **Соответствие шаблону skills/system-analyst-sysreq/examples/ideal_system_requirements.md** | 🔴/🟡/🟢 | [Сравнение структуры с шаблоном] | [Какие отклонения от шаблона] |
 | **Уровни изложения (Л1/Л2/Л3)** | 🔴/🟡/🟢 | [Наличие обоих описательных подразделов; отсутствие маркеров deny-списка в них] | [Где нарушен уровень или отсутствует подраздел; либо «гейты неприменимы — документ по предыдущей версии эталона»] |
 
 **Условие 🟢:** Документ идеален. Все Hard Gates пройдены. Галлюцинации отсутствуют. Документ бьется с кодовой базой.

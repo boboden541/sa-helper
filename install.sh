@@ -27,7 +27,6 @@ BRIGHT_BLUE='\033[1;34m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
 CYAN='\033[0;36m'
-MAGENTA='\033[0;35m'
 DIM='\033[2m'
 NC='\033[0m' # No Color
 
@@ -155,6 +154,56 @@ sync_commands_as_skills() {
     done
 }
 
+# --- Манифест установки: версия + список файлов, которые ставит установщик ---
+# Список строится из ИСТОЧНИКА (клона), а не с диска: при повторной установке
+# удаляется ровно то, что ставил установщик в прошлый раз и чего нет в новой
+# версии (переименования/удаления из репо доезжают до пользователя). Файлы
+# пользователя в манифест не попадают и не удаляются никогда.
+expected_list_files() {
+    if [ -n "$COMMAND_DIR" ]; then
+        (cd "$TEMP_DIR/$SOURCE_ROOT/commands" && find . -type f | sed "s|^\./|$COMMAND_DIR/|" | sort)
+    fi
+    (cd "$TEMP_DIR/$SOURCE_ROOT/skills" && find . -type f | sed "s|^\./|$SKILL_DIR/|" | sort)
+    if [ "$COMMANDS_AS_SKILLS" = "1" ]; then
+        (cd "$TEMP_DIR/$SOURCE_ROOT/commands" && find . -type f -name '*.md' \
+            | sed "s|^\./|$SKILL_DIR/|" | sed 's|\.md$|/SKILL.md|' | sort)
+    fi
+}
+
+write_manifest() {
+    {
+        echo "# sa-helper install manifest — ведётся установщиком, ручные правки затираются"
+        echo "version: $1"
+        echo "agent: $2"
+        echo "target: $3"
+        expected_list_files | sed 's/^/file: /'
+    } > "$4"
+}
+
+update_install_manifest() {
+    local manifest="$TARGET_DIR/sa-helper.manifest"
+    local new_manifest expected
+    new_manifest="$(mktemp)"
+    expected="$(mktemp)"
+    expected_list_files | sed 's/^/file: /' > "$expected"
+    write_manifest "$INSTALLED_VERSION" "$AGENT_NAME" "$TARGET_DIR" "$new_manifest"
+    if [ -f "$manifest" ]; then
+        local rel
+        while IFS= read -r rel; do
+            [ -n "$rel" ] || continue
+            case "$rel" in *..*|/*) continue ;; esac
+            grep -qFx "file: $rel" "$expected" || rm -f "$TARGET_DIR/$rel"
+        done < <(sed -n 's/^file: //p' "$manifest")
+        local base
+        for base in "$COMMAND_DIR" "$SKILL_DIR"; do
+            [ -n "$base" ] && [ -d "$TARGET_DIR/$base" ] \
+                && find "$TARGET_DIR/$base" -mindepth 1 -type d -empty -delete 2>/dev/null || true
+        done
+    fi
+    mv "$new_manifest" "$manifest"
+    rm -f "$expected"
+}
+
 # --- Функция интерактивного меню (Стрелочки / Цифры) ---
 select_option_menu() {
     local prompt="$1"
@@ -164,9 +213,9 @@ select_option_menu() {
     local count=${#options[@]}
     local key
 
-    # Показать курсор при выходе
-    trap 'printf "\e[?25h"' EXIT INT TERM
-    printf "\e[?25l" # Скрыть курсор
+    # Альтернативный экран: перерисовка меню не пачкает скроллбек и почти не мерцает
+    trap 'printf "\e[?25h\e[?1049l"' EXIT INT TERM
+    printf "\e[?1049h\e[?25l"
 
     while true; do
         print_banner
@@ -185,7 +234,7 @@ select_option_menu() {
         # Считывание нажатия клавиши. Потеря stdin (tty закрылся) — не выбор,
         # а честный отказ: иначе пустой key ложно трактуется как Enter.
         if ! read -rsn1 key 2>/dev/null; then
-            printf "\e[?25h"
+            printf "\e[?1049l\e[?25h"
             return 255
         fi
         if [ "$key" == $'\x1b' ]; then
@@ -218,7 +267,7 @@ select_option_menu() {
         fi
     done
 
-    printf "\e[?25h" # Показать курсор обратно
+    printf "\e[?1049l\e[?25h" # Вернуться на основной экран, показать курсор
     return "$cur"
 }
 
@@ -372,12 +421,14 @@ fi
 echo ""
 echo -e "${YELLOW}📡 Клонирование шаблонов из репозитория...${NC}"
 rm -rf "$TEMP_DIR" 2>/dev/null
-git clone --depth 1 "$REPO_URL" "$TEMP_DIR" &> /dev/null
-
-if [ $? -ne 0 ]; then
+CLONE_LOG="$(mktemp)"
+if ! git clone --depth 1 "$REPO_URL" "$TEMP_DIR" >"$CLONE_LOG" 2>&1; then
     echo -e "${RED}❌ Ошибка: Не удалось скачать репозиторий. Проверьте интернет или URL.${NC}"
+    echo -e "${DIM}$(tail -n 3 "$CLONE_LOG")${NC}"
+    rm -f "$CLONE_LOG"
     exit 1
 fi
+rm -f "$CLONE_LOG"
 
 # 4. Проверка исходной структуры
 if [ ! -d "$TEMP_DIR/$SOURCE_ROOT" ]; then
@@ -408,6 +459,24 @@ if [ "$COMMANDS_AS_SKILLS" = "1" ]; then
     sync_commands_as_skills "$TEMP_DIR/$SOURCE_ROOT/commands" "$TARGET_DIR/$SKILL_DIR"
 fi
 
+INSTALLED_VERSION="$(git -C "$TEMP_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+update_install_manifest
+
+# Список производственных команд генерируется из клона — одно место истины:
+# описание берётся из frontmatter description каждой команды. Harness-этапы не входят.
+PROD_COUNT=0
+PROD_BLOCK=""
+for cmd_file in "$TEMP_DIR/$SOURCE_ROOT"/commands/*.md; do
+    [ -f "$cmd_file" ] || continue
+    cmd_name="$(basename "$cmd_file" .md)"
+    case "$cmd_name" in harness-*) continue ;; esac
+    PROD_COUNT=$((PROD_COUNT + 1))
+    cmd_desc="$(sed -n '2,10s/^description: *//p' "$cmd_file" | head -n 1)"
+    [ -n "$cmd_desc" ] || cmd_desc="$cmd_name"
+    printf -v PROD_LINE '    %b/%s%s — %s\n' "$BRIGHT_BLUE" "$cmd_name" "$NC" "$cmd_desc"
+    PROD_BLOCK+="$PROD_LINE"
+done
+
 # Удаление .DS_Store
 find "$TARGET_DIR" -name ".DS_Store" -delete 2>/dev/null || true
 
@@ -425,6 +494,7 @@ echo -e " ${BRIGHT_GREEN}✨ Установка SA-Helper успешно зав�
 echo -e "${BLUE}================================--------------------------------------${NC}"
 echo ""
 echo -e "  Агент:        ${CYAN}${BOLD}${AGENT_NAME}${NC}"
+echo -e "  Версия:       ${CYAN}${INSTALLED_VERSION}${NC} ${DIM}(манифест: ${TARGET_DIR}/sa-helper.manifest)${NC}"
 echo -e "  Директория:   ${YELLOW}${TARGET_DIR}/${NC}"
 if [ -n "$COMMAND_DIR" ]; then
     echo -e "                ├── ${COMMAND_DIR}/  ${DIM}(команды и правила)${NC}"
@@ -437,25 +507,8 @@ else
     echo -e "                └── ${SKILL_DIR}/     ${DIM}(навыки с frontmatter)${NC}"
 fi
 echo ""
-echo -e "  ${BOLD}Доступные производственные команды (18):${NC}"
-echo -e "    ${BRIGHT_BLUE}/context-gen${NC}              — Подготовка контекста и репрезентации"
-echo -e "    ${BRIGHT_BLUE}/reverse-plan-tasks${NC}       — Формирование единого плана задач документирования"
-echo -e "    ${BRIGHT_BLUE}/arch-gen${NC}                 — Генерация архитектуры C4 (PlantUML)"
-echo -e "    ${BRIGHT_BLUE}/data-trace${NC}               — Генерация DataFlow диаграмм"
-echo -e "    ${BRIGHT_BLUE}/mindmap${NC}                 — Карта погружения в сервис (PlantUML mindmap)"
-echo -e "    ${BRIGHT_BLUE}/create-doc${NC}               — Спецификации и документация API"
-echo -e "    ${BRIGHT_BLUE}/open-api${NC}                 — Генерация OpenAPI 3.0 (Swagger) specs"
-echo -e "    ${BRIGHT_BLUE}/validate-doc${NC}             — Тотальный аудит соответствия коду"
-echo -e "    ${BRIGHT_BLUE}/prd-grooming${NC}             — Диагностика и груминг требований PRD"
-echo -e "    ${BRIGHT_BLUE}/bft-build${NC}                — Формирование БФТ спецификаций"
-echo -e "    ${BRIGHT_BLUE}/discovery${NC}                — Discovery: контекст, развилки, брифинг для руководства"
-echo -e "    ${BRIGHT_BLUE}/discovery-answer${NC}         — Фиксация ответа руководства по развилке"
-echo -e "    ${BRIGHT_BLUE}/discovery-brief${NC}          — Пересборка брифинга из Decision Backlog"
-echo -e "    ${BRIGHT_BLUE}/fnr-new-task${NC}             — Постановка задачи и root-cause анализ"
-echo -e "    ${BRIGHT_BLUE}/fnr-domain-audit${NC}         — Глубокий аудит кода перед проектированием"
-echo -e "    ${BRIGHT_BLUE}/fnr-concept${NC}              — Генерация спектра архитектурных решений"
-echo -e "    ${BRIGHT_BLUE}/fnr-debate${NC}               — Дебаты: Архитектор vs Адвокат Дьявола"
-echo -e "    ${BRIGHT_BLUE}/fnr-system-requirements${NC}  — Формирование BR/FR/NFR + Jira"
+echo -e "  ${BOLD}Доступные производственные команды (${PROD_COUNT}):${NC}"
+printf '%b' "$PROD_BLOCK"
 echo ""
 if [ "$COMMANDS_AS_SKILLS" = "1" ]; then
     echo -e "  ${DIM}Codex читает из репозитория только скилы: команды вызываются как${NC}"

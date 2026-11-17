@@ -30,7 +30,7 @@ description: Трассировка пути данных от входа до �
 
 ## Важно
 
-**Приоритет:** СТРОГОЕ соблюдение структуры из `.../skills/architecture/examples/ideal_data_trace.md` и нотации из `resources/standard_mapping.md`.
+**Приоритет:** СТРОГОЕ соблюдение структуры из `skills/architecture/examples/ideal_data_trace.md` и нотации из `skills/architecture/resources/standard_mapping.md`.
 **Ожидаемый результат**:  Все документы, создаваемые в рамках этой команды, должны сохраняться по следующему пути `sa_documentation/<сервис>-docs/data_trace`. Если папки `data_trace` нет – создай ее.
 
 ## Инструкция для LLM
