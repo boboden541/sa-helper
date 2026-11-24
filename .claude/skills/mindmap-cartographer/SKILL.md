@@ -18,7 +18,7 @@ description: "Картограф mindmap: карта погружения в с�
 Neo4j-граф дополняет repomix-output.xml, а не заменяет его:
 
 - **repomix-output.xml** — полный текст кода (SQL, SP-вызовы, конфиги)
-- **готовые документы сервиса** (`screen_*.md`, `api_*.md`, `integration_*.md`, `erd_*.md`, `data_trace_*.md`, `process_*.md`, `architecture_*.md`, `api_map.md`, `naming_conventions.md`) — главный источник: подтверждённые факты
+- **готовые документы сервиса** (`screen_*.md`, `api_*.md`, `integration_*.md`, `erd_*.md`, `data_trace_*.md`, `process_*.md`, `bpmn_*.md` (только раздел 9 «Техническая привязка»), `architecture_*.md`, `api_map.md`, `naming_conventions.md`) — главный источник: подтверждённые факты
 - **MCP-инструменты** (если sa-helper-graph подключён) — структура и связи
 
 **Графовые запросы для mindmap:**
