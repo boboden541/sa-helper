@@ -19,6 +19,7 @@
 | **Integration Doc** | `sequence` (+ `activity`) | Наш сервис и партнёр как участники; URL API обращения в подписи стрелки (правило 3.1), `note` с примером JSON, `alt/else` негативный сценарий. |
 | **ERD** | `entity` (ER-нотация) | `hide circle`; `entity` с PK/FK; связи с кардинальностью и бизнес-подписью. |
 | **Process Doc** | `activity` + `sequence` | `partition` по участникам; `if/else` на всех ветвлениях; `fork` для параллельных шагов; на стрелках Sequence — `METHOD /path`. |
+| **BPMN (бизнес-процесс)** | `activity` (BPMN-профиль) | Дорожки `\|<Пул> — <Роль>\|`; нумерованные задачи `:№. Кто + что;`; `if/elseif/else` — XOR, `fork` — AND; основной сценарий — единственный `stop`, альтернативные завершения — `end`; подпроцесс — второй `@startuml`-блок в том же `.puml`; цвет — только стереотипы + `skinparam activity` + легенда; бизнес-язык. Профиль: `skills/business-process-analyst/resources/bpmn_plantuml_profile.md`. |
 
 ## 3. Правила оформления (Hard Rules)
 

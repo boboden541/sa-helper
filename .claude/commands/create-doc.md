@@ -25,7 +25,7 @@ description: Генерация технической документации 
 
 ## Важно
 
-**Приоритет:** СТРОГОЕ соблюдение структуры из шаблона, **соответствующего типу задачи** (см. «Маршрутизация по типу задачи» ниже), и нотации из `skills/technical-documentation/resources/standard_mapping.md`.
+**Приоритет:** СТРОГОЕ соблюдение структуры из шаблона, **соответствующего типу задачи** (см. «Маршрутизация по типу задачи» ниже), и нотации из `skills/technical-documentation/resources/standard_mapping.md` (для типа BPMN — BPMN-профиль `skills/business-process-analyst/resources/bpmn_plantuml_profile.md`).
 
 **Ожидаемый результат**:  Все документы создаются в `sa_documentation/<сервис>-docs/<подпапка>/` с человекочитаемым именем файла. Сервис, подпапка, шаблон и имя файла определяются полями **Сервис**, **Тип задачи** и **Шаблон результата** из единого корневого `sa_documentation/tasks.md`.
 
@@ -43,6 +43,7 @@ description: Генерация технической документации 
 | **ERD** | `erd/` | навык `skills/db-archeologist/SKILL.md` + `skills/db-archeologist/examples/ideal_erd_document.md` + `skills/db-archeologist/resources/db_mapping_standarts.md` | ER-диаграмма (PlantUML entity) + каталог таблиц, связей и ограничений по DDL. |
 | **Process** | `processes/` | `skills/technical-documentation/examples/ideal_process_document.md` | Сквозной бизнес-процесс: участники, шаги (привязка к коду), ветвления; Activity + Sequence. |
 | **Mindmap** | `mindmaps/` | навык `skills/mindmap-cartographer/SKILL.md` + `skills/mindmap-cartographer/examples/ideal_mindmap_ui_axis.md`, `skills/mindmap-cartographer/examples/ideal_mindmap_object_axis.md` + `skills/mindmap-cartographer/resources/mindmap_methodology.md`, `skills/mindmap-cartographer/resources/mindmap_colors.md`, `skills/mindmap-cartographer/resources/mindmap_checklist.md` | Карта погружения (PlantUML `@startmindmap`): ось, действия Чтение/ЗАПИСЬ, каналы, трассируемые атомы; факты переиспользуются из готовых документов. |
+| **BPMN** | `bpmn/` | навык `skills/business-process-analyst/SKILL.md` + `skills/business-process-analyst/examples/ideal_bpmn_process.md` (образец языка — `skills/business-process-analyst/examples/bpmn_example_ticket_refund.md`) + `skills/business-process-analyst/resources/bpmn_methodology.md`, `skills/business-process-analyst/resources/bpmn_plantuml_profile.md`, `skills/business-process-analyst/resources/bpmn_checklist.md` | Бизнес-процесс глазами бизнес-аналитика: участники-роли и системы как чёрные ящики, бизнес-объекты, бизнес-правила, шаги, ветвления; диаграмма BPMN-профиля (PlantUML activity) + текст; техника — только в разделе «Техническая привязка». |
 
 > **Источник истины по подпапке/имени — поле «Шаблон результата» задачи.** Если оно задано — используй путь оттуда. Таблица выше определяет, КАКОЙ шаблон открыть. При расхождении типа и пути доверяй явному пути из `tasks.md`, но шаблон бери по типу.
 
@@ -94,6 +95,7 @@ description: Генерация технической документации 
     - **Определение топологии:** Прежде чем приступать к маппингу, найди в проекте документ или конфиг, являющийся SSoT (Single Source of Truth) для инфраструктуры. Установи канонические названия для каждой базы данных и внешнего сервиса, чтобы использовать их как префиксы в колонках Origin.
    - **Для задач типа Mindmap** гейт анкоров НЕ применяется: факты берутся из существующих документов (ветка Mindmap на Этапе 4); анкоры ищутся только при закрытии пробелов оси по `repomix-output.xml`.
    - **Для задач типа Process** гейт «2 из 3» ослабляется: обязательные анкоры — точка входа триггера (эндпоинт / расписание / команда очереди / действие UI) и оркестратор (сервис/фасад процесса) с привязками к хранилищам или интеграциям; Anchor 3 (DTO) нужен, только если процесс оперирует контрактами с полями.
+   - **Для задач типа BPMN** гейт анкоров НЕ применяется: факты берутся из бизнес-артефактов и существующих документов (ветка BPMN на Этапе 4); анкоры ищутся только при закрытии пробелов раздела «Техническая привязка» по `repomix-output.xml`.
 
 ### Этап 3: Загрузка "Прошивки" (Skill & Standards) — ОБЯЗАТЕЛЬНО
 
@@ -107,18 +109,21 @@ description: Генерация технической документации 
    - **Architecture** → `skills/technical-documentation/examples/ideal_c4_l3.puml` + `skills/technical-documentation/resources/architecture_standards.md`;
    - **ERD** → дополнительно загрузи навык `skills/db-archeologist/SKILL.md`, эталон `skills/db-archeologist/examples/ideal_erd_document.md` и `skills/db-archeologist/resources/db_mapping_standarts.md`;
    - **Process** → `skills/technical-documentation/examples/ideal_process_document.md`;
-   - **Mindmap** → дополнительно загрузи навык `skills/mindmap-cartographer/SKILL.md`, эталоны `skills/mindmap-cartographer/examples/ideal_mindmap_ui_axis.md` и `skills/mindmap-cartographer/examples/ideal_mindmap_object_axis.md`, ресурсы `skills/mindmap-cartographer/resources/mindmap_methodology.md`, `skills/mindmap-cartographer/resources/mindmap_colors.md`, `skills/mindmap-cartographer/resources/mindmap_checklist.md`.
+   - **Mindmap** → дополнительно загрузи навык `skills/mindmap-cartographer/SKILL.md`, эталоны `skills/mindmap-cartographer/examples/ideal_mindmap_ui_axis.md` и `skills/mindmap-cartographer/examples/ideal_mindmap_object_axis.md`, ресурсы `skills/mindmap-cartographer/resources/mindmap_methodology.md`, `skills/mindmap-cartographer/resources/mindmap_colors.md`, `skills/mindmap-cartographer/resources/mindmap_checklist.md`;
+   - **BPMN** → дополнительно загрузи навык `skills/business-process-analyst/SKILL.md`, эталон `skills/business-process-analyst/examples/ideal_bpmn_process.md`, образец языка `skills/business-process-analyst/examples/bpmn_example_ticket_refund.md` (+ `.puml`), ресурсы `skills/business-process-analyst/resources/bpmn_methodology.md`, `skills/business-process-analyst/resources/bpmn_plantuml_profile.md`, `skills/business-process-analyst/resources/bpmn_checklist.md`.
 
    Структура генерируемого документа берётся ИЗ ШАБЛОНА, а не из ранее
    созданных документов.
-   ⛔ ЗАПРЕЩЕНО использовать другой готовый документ (`api_*.md`, `screen_*.md`, `integration_*.md`, `erd_*.md`, `process_*.md`, `mindmap_*.md`) как образец
+   ⛔ ЗАПРЕЩЕНО использовать другой готовый документ (`api_*.md`, `screen_*.md`, `integration_*.md`, `erd_*.md`, `process_*.md`, `mindmap_*.md`, `bpmn_*.md`) как образец
    структуры. Соседние документы могут содержать незамеченные дефекты;
    единственный источник истины по структуре — соответствующий типу эталонный шаблон.
 4. Загрузи карту типов `skills/doc-type-router/resources/type_map.md` — сверь, что тип задачи соответствует подпапке из «Шаблона результата» (источник истины «тип ↔ папка»).
 5. Загрузи `skills/technical-documentation/resources/validation_checklist.md` — критерии качества
-   учитываются ДО генерации, а не только при /validate-doc.
+   учитываются ДО генерации, а не только при /validate-doc. Для задач типа BPMN полевые критерии не применяются — их заменяет `skills/business-process-analyst/resources/bpmn_checklist.md`.
 
 ### Этап 4: Аналитическая работа (Reverse Engineering)
+
+> **Для задач типа BPMN** аналитика = подъём на бизнес-уровень из СУЩЕСТВУЮЩИХ источников, каскадом reuse-first (правила — `skills/business-process-analyst/resources/bpmn_methodology.md`, раздел 2): (1) бизнес-артефакты — `sa_documentation/FNR/FNR_<N>/` (`task.md`, `03_brief.md`, `system_requirements.md`), `sa_documentation/prd/`, `sa_documentation/bft/`: цель процесса, правила, роли; (2) готовые документы сервиса — `processes/process_*.md` (цепочка шагов: технические шаги объединяй в бизнес-шаги), `screens/`, `api/`, `integrations/` (обмены с внешними участниками), `erd/`, `data_trace_*.md` (бизнес-объекты), `mindmaps/` (✅ — факт; 🟡 — факт с пометкой «не валидировано»); (3) `naming_conventions.md` — бизнес-имена систем и объектов; (4) `repomix-output.xml` — только пробелы (состояния объекта, расписания-таймеры, условия ветвлений); (5) живой код — последний fallback. Определи рамку (процесс, режим As-Is/To-Be, владелец процесса, границы) и составь реестр участников и реестр шагов (эталон полноты и синхронности текста с диаграммой). Шаги 1–5 ниже относятся к задачам типа API/DataTrace/Integration.
 
 > **Для задач типа Mindmap** аналитика = сбор фактов из СУЩЕСТВУЮЩИХ документов: `tasks.md` (статусы), готовые `screen_/api_/integration_/data_trace_/erd_/process_/architecture_`-документы (✅ — факты; 🟡 — факты с пометкой «не валидировано» в мете карты), `api_map.md`, `naming_conventions.md`. `repomix-output.xml` — только для единиц оси без документов. Определи ось карты (по цели задачи; правила — `skills/mindmap-cartographer/resources/mindmap_methodology.md`) и составь реестр осевых единиц (эталон полноты). Шаги 1–5 ниже относятся к задачам типа API/DataTrace/Integration.
 
@@ -136,6 +141,7 @@ description: Генерация технической документации 
 5. **Диаграммы:** Сгенерируй Sequence Diagram и Activity Diagram СТРОГО в формате **PlantUML**. Использование Mermaid запрещено для обеспечения единообразия и совместимости.
 6. **Для задач типа ERD:** собери полный список таблиц, колонок и связей из DDL/миграций и ORM-маппингов в repomix; заполни Coverage Gate из эталона (диаграмма ↔ каталог ↔ DDL).
 7. **Для задач типа Process:** восстанови последовательность шагов процесса по цепочке вызовов; зафиксируй все ветвления и альтернативные сценарии; каждый шаг привяжи к коду (или пометь `[NEEDS_INVESTIGATION]`). Для раздела «Пример: сквозной прогон на тестовых данных» (раздел 8 эталона) выбери представительный путь сценария и собери дословные запросы ключевых веток.
+8. **Для задач типа BPMN:** раздели два слоя языка: бизнес-слой (разделы 1–8 эталона) — только бизнес-лексика, системы называются бизнес-именами и ведут себя как чёрные ящики; технический слой — раздел 9 «Техническая привязка (для аналитика)»: участник → сервис, триггер → точка входа, объект → данные, шаг → документ-владелец, ссылками на готовые документы. Каждый шаг и каждую ветку сверь с реестром; неизвестное в бизнес-слое помечай `[УТОЧНИТЬ]`, в техническом — `[NEEDS_INVESTIGATION]`.
 
 ### Этап 5: Генерация документа
 
@@ -155,6 +161,13 @@ description: Генерация технической документации 
 > - Заверши прогон итоговым состоянием Δ таблицей и «Что показывает пример» (2–4 вывода).
 > - **Gate вложенных объектов (п. 6 ниже) НЕ применяется** — таблиц полей в process-документе нет.
 > Шаги 3–6 ниже относятся к задачам типа API/DataTrace.
+
+> **Ветка для задач типа BPMN (эталон `skills/business-process-analyst/examples/ideal_bpmn_process.md`):**
+> - Заполни разделы строго по эталону: шапка (процесс · владелец процесса · режим · участники · триггер · вход → выход; аудитория и два слоя языка), разделы 1–8 — бизнес-слой, раздел 9 «Техническая привязка (для аналитика)», раздел 10 «Источники». Разделы не удалять; необязательные — строкой «нет».
+> - Диаграмму строй по BPMN-профилю (`skills/business-process-analyst/resources/bpmn_plantuml_profile.md`): activity-диаграмма с дорожками-участниками (`|<Пул> — <Роль>|`), нумерованные задачи `:N. Кто + что;`, шлюзы `if/elseif/else`, параллельность `fork`, альтернативные завершения `end`; ТОЛЬКО PlantUML, Mermaid запрещён. Кроме встраиваемых блоков раздела 5 запиши одноимённый файл `bpmn_<название>.puml` рядом с `.md` — его содержимое = все plantuml-блоки раздела 5 подряд через пустую строку, побайтно.
+> - Синхронность: нумерация и число задач основной диаграммы = строкам раздела 6; каждая развилка, цикл, ожидание и параллельность описаны в разделе 7. Свёрнутый подпроцесс (`:N. ◁ Название ▷;`) раскрывай вторым блоком `@startuml…@enduml` того же `.puml` (`newpage` не поддерживается); шаги раскрытия `N.k` — в блоке «П.<Название>» раздела 7.
+> - **Шаги 3–6 ниже НЕ применяются**: в BPMN-документе нет таблиц полей и Origin-маппинга; техника живёт только в разделе 9.
+> - Перед сохранением пройди `skills/business-process-analyst/resources/bpmn_checklist.md` с явными ✅/❌ (слой языка, синхронность, профиль диаграммы, честная неполнота).
 
 > **Ветка для задач типа Screen (шаблон `skills/technical-documentation/examples/ideal_screen_document.md`):**
 > - Заполни: заголовок-обзор, «Карту методов экрана» (со ссылками на API-документы в `api/`), таблицу reuse-методов, опциональную доменную карту, сквозную Sequence-диаграмму экрана и «Общие технические пруфы».
