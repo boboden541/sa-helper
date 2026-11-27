@@ -22,6 +22,8 @@ interface RunInfo {
   output: number
   cache: number
   tokens: number
+  logPruned: boolean  // сырые строки удалены хранением (окно logRetentionDays)
+  logRetentionDays: number
 }
 
 interface LogLine { seq: number; kind: string; text: string | null; data?: { [k: string]: unknown } | null; at: string }
@@ -73,6 +75,7 @@ export function RunLogPanel({ code }: { code: string }) {
   const pinBottom = useRef(true)
 
   const active = runs.find((r) => r.running) ?? null
+  const viewed = runs.find((r) => r.id === viewRun) ?? null
 
   const reloadRuns = () => {
     void api.runs(code).then((r) => {
@@ -162,7 +165,9 @@ export function RunLogPanel({ code }: { code: string }) {
         {runs.map((r) => (
           <button key={r.id} className={`rl-run ${viewRun === r.id ? 'sel' : ''}`}
             onClick={() => { if (!r.running) openHistory(r.id); else setNudge((n) => n + 1) }}
-            title={r.running ? 'Показать живой лог этого прогона' : 'Показать лог прогона'}>
+            title={r.logPruned
+              ? `Лог удалён хранением (${r.logRetentionDays} дн.) — итог прогона в хронике задачи`
+              : r.running ? 'Показать живой лог этого прогона' : 'Показать лог прогона'}>
             <span className="num">#{r.attempt}</span>
             <span>{r.agent}</span>
             {r.running
@@ -188,7 +193,13 @@ export function RunLogPanel({ code }: { code: string }) {
           const el = e.currentTarget
           pinBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40
         }}>
-        {lines.length === 0 && viewRun && <div className="muted" style={{ fontSize: 12 }}>Лог пуст.</div>}
+        {lines.length === 0 && viewRun && (
+          <div className="muted" style={{ fontSize: 12 }}>
+            {viewed?.logPruned
+              ? `Лог удалён хранением: сырые строки хранятся ${viewed.logRetentionDays} дн. Итог прогона — в хронике задачи.`
+              : 'Лог пуст.'}
+          </div>
+        )}
         {lines.map((l) => <Line key={l.seq} l={l} />)}
       </div>
     </div>

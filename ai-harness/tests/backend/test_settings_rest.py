@@ -474,3 +474,40 @@ async def test_agent_connection_assignment(session, actor_id):
     for bad in ("garbage", str(uuid_mod.uuid4())):
         with pytest.raises(DomainError):
             await update_agent(session, user.id, {"connection_id": bad})
+
+
+# ---------- окно хранения сырых строк живого лога (26.11.2026) ----------
+
+
+async def test_runlog_retention_window(client, session):
+    """GET/POST /runlog-retention: дефолт 7, установка значения, честный
+    отказ на мусор и < 1; ключ не течёт в соседние тесты (дефолт 7)."""
+    from repository.models import AppSetting
+
+    await session.execute(sa.delete(AppSetting).where(AppSetting.key == "runlog.retention_days"))
+    await session.commit()
+
+    r = await client.get("/api/v1/runlog-retention")
+    assert r.status_code == 200, r.text
+    assert r.json() == {"days": 7}, "без ключа — дефолт"
+
+    r = await client.post("/api/v1/runlog-retention", json={"days": 30})
+    assert r.status_code == 200 and r.json()["days"] == 30, r.text
+    r = await client.get("/api/v1/runlog-retention")
+    assert r.json() == {"days": 30}
+
+    r = await client.post("/api/v1/runlog-retention", json={"days": 0})
+    assert r.status_code == 400, "ноль дней вычистил бы таблицу целиком — отказ"
+    r = await client.post("/api/v1/runlog-retention", json={"days": -3})
+    assert r.status_code == 400, "отрицательное окно — отказ"
+
+    # мусор типа отсекается pydantic'ом (422 — как во всём API), значение не меняется
+    for bad in ("abc", 1.5):
+        r = await client.post("/api/v1/runlog-retention", json={"days": bad})
+        assert r.status_code == 422, f"{bad!r}: мусор типа — 422"
+    r = await client.get("/api/v1/runlog-retention")
+    assert r.json() == {"days": 30}, "после отказов значение не изменилось"
+
+    # уборка: остальные тесты рассчитывают на дефолт 7
+    await session.execute(sa.delete(AppSetting).where(AppSetting.key == "runlog.retention_days"))
+    await session.commit()

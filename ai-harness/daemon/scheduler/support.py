@@ -262,8 +262,11 @@ class SupportMixin:
         return killed
 
     async def _retention_tick(self, session) -> None:
-        """Сырые строки живого лога старше 7 дней удаляются; раз в сутки (решение владельца)."""
+        """Сырые строки живого лога старше окна хранения удаляются; раз в сутки.
+        Окно задаётся ключом runlog.retention_days (дефолт 7 — решение
+        владельца 26.10; настраиваемым стало 26.11.2026)."""
         from repository.models import AppSetting
+        from usecase.settings.runlog import retention_days
 
         key = "runlog.retention_last"
         today = dt.datetime.now(dt.timezone.utc).date().isoformat()
@@ -272,7 +275,7 @@ class SupportMixin:
         ).scalar_one_or_none()
         if last == today:
             return
-        cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=7)
+        cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=await retention_days(session))
         from repository.models import TaskRunLog
 
         await session.execute(sa.delete(TaskRunLog).where(TaskRunLog.created_at < cutoff))

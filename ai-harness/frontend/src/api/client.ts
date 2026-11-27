@@ -92,9 +92,13 @@ export const api = {
       method: 'POST', body: JSON.stringify({ to, reason }),
     }),
   runs: (code: string) =>
-    request<{ id: string; attempt: number; running: boolean; stale: boolean; outcome: string | null; agent: string; input: number; output: number; cache: number; tokens: number; startedAt: string; heartbeatAt: string | null; finishedAt: string | null; statusKey: string }[]>(`/api/v1/tasks/${code}/runs`),
+    request<{ id: string; attempt: number; running: boolean; stale: boolean; outcome: string | null; agent: string; input: number; output: number; cache: number; tokens: number; startedAt: string; heartbeatAt: string | null; finishedAt: string | null; statusKey: string; logPruned: boolean; logRetentionDays: number }[]>(`/api/v1/tasks/${code}/runs`),
   runLog: (runId: string, after = 0) =>
     request<{ items: { seq: number; kind: string; text: string | null; data?: { [k: string]: unknown } | null; at: string }[]; last: number }>(`/api/v1/runs/${runId}/log?after=${after}`),
+  runlogRetention: () =>
+    request<{ days: number }>('/api/v1/runlog-retention'),
+  runlogRetentionSet: (days: number) =>
+    request<{ ok: boolean; days: number }>('/api/v1/runlog-retention', { method: 'POST', body: JSON.stringify({ days }) }),
   interrupt: (code: string, reason: string) =>
     request<{ ok: boolean }>(`/api/v1/tasks/${code}/interrupt`, { method: 'POST', body: JSON.stringify({ reason }) }),
   chronicle: (code: string) =>

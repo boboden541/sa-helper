@@ -121,3 +121,42 @@ async def test_tokens_used_in_task_list(client, _test_db):
     assert r.status_code == 200, r.text
     card = next(c for c in r.json()["items"] if c["code"] == code)
     assert card["tokensUsed"] == 2100, "сумма токенов всех прогонов задачи"
+
+
+async def test_runs_log_pruned_flag(client, _test_db):
+    """logPruned: прогон старше окна хранения честно помечен — чипы в «Хрониках»
+    не выглядят сломанными «Лог пуст.» (баг 26.11.2026, VITRINA-35)."""
+    from repository.models import TaskRun, User
+
+    await _clean(_test_db)
+    code = await _mk_task(client)
+    await _mk_run(_test_db, code, (10, 20, 30), finished=True)  # свежий завершённый
+    maker = async_sessionmaker(_test_db, expire_on_commit=False)
+    async with maker() as s:
+        task = (await s.execute(sa.select(Task).where(Task.code == code))).scalar_one()
+        agent = (
+            (await s.execute(sa.select(User).where(User.user_type == "agent"))).scalars().first()
+        )
+        old = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=10)
+        s.add(
+            TaskRun(
+                task_id=task.id,
+                agent_id=agent.id,
+                status_key=task.status_key,
+                input_tokens=1,
+                output_tokens=2,
+                cache_tokens=3,
+                started_at=old,
+                finished_at=old,
+            )
+        )
+        await s.commit()
+
+    r = await client.get(f"/api/v1/tasks/{code}/runs")
+    assert r.status_code == 200, r.text
+    runs = r.json()
+    assert len(runs) == 2
+    assert {x["logRetentionDays"] for x in runs} == {7}, "окно по умолчанию — дефолт"
+    stale, fresh = sorted(runs, key=lambda x: x["startedAt"])  # по возрастанию: старый первый
+    assert stale["logPruned"] is True, "прогон старше окна хранения лог не сохраняет"
+    assert fresh["logPruned"] is False, "свежий прогон мог оставить лог"

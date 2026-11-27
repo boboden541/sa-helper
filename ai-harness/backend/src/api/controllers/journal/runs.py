@@ -31,7 +31,7 @@ async def queue_view(
 # ---------- живые логи прогонов агента (решение владельца 26.10.2026) ----------
 
 
-def _run_out(r) -> dict:
+def _run_out(r, cutoff, retention_days: int) -> dict:
     import datetime as dt
 
     running = r.TaskRun.finished_at is None
@@ -40,6 +40,9 @@ def _run_out(r) -> dict:
         running and hb is not None and (dt.datetime.now(dt.timezone.utc) - hb).total_seconds() > 120
     )
     tr = r.TaskRun
+    # строки лога пишутся до завершения прогона и живут retention_days после
+    # записи — прогон, законченный раньше cutoff, строк иметь не может
+    log_pruned = (tr.finished_at or tr.started_at) < cutoff
     return {
         "id": str(tr.id),
         "attempt": tr.attempt_no,
@@ -55,6 +58,8 @@ def _run_out(r) -> dict:
         "startedAt": tr.started_at.isoformat(),
         "heartbeatAt": hb.isoformat() if hb else None,
         "finishedAt": tr.finished_at.isoformat() if tr.finished_at else None,
+        "logPruned": log_pruned,
+        "logRetentionDays": retention_days,
     }
 
 
@@ -63,14 +68,19 @@ async def task_runs(
     code: str, session: AsyncSession = Depends(get_session), actor: User = Depends(get_actor)
 ):
     """История прогонов задачи (попытки, исходы, пульс) — панель «вкладка Агент»."""
+    import datetime as dt
+
     import sqlalchemy as sa
     from repository.models import Task, TaskRun
+    from usecase.settings.runlog import retention_days
 
     task = (
         await session.execute(sa.select(Task).where(Task.code == code.upper()))
     ).scalar_one_or_none()
     if task is None:
         raise ApiError(404, f"Задача {code} не найдена")
+    days = await retention_days(session)
+    cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=days)
     rows = (
         await session.execute(
             sa.select(TaskRun, User.name.label("agent_name"))
@@ -80,7 +90,7 @@ async def task_runs(
             .limit(50)
         )
     ).all()
-    return [_run_out(r) for r in rows]
+    return [_run_out(r, cutoff, days) for r in rows]
 
 
 @router.get("/runs/{run_id}/log")
